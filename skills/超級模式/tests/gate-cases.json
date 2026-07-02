@@ -170,5 +170,40 @@
       "cwd": "C:\\proj"
     },
     "expect": "allow"
+  },
+  {
+    "name": "scoped credential allows action in same repo",
+    "flagContent": "",
+    "tokenAgeMs": 60000,
+    "tokenContent": "{\"repo\":\"C:\\\\proj\",\"ts\":\"x\"}",
+    "input": {
+      "tool_name": "Bash",
+      "tool_input": { "command": "git push" },
+      "cwd": "C:\\proj"
+    },
+    "expect": "allow"
+  },
+  {
+    "name": "scoped credential denies action in different repo",
+    "flagContent": "",
+    "tokenAgeMs": 60000,
+    "tokenContent": "{\"repo\":\"C:\\\\proj\",\"ts\":\"x\"}",
+    "input": {
+      "tool_name": "Write",
+      "tool_input": { "file_path": "C:\\other\\src\\x.js" },
+      "cwd": "C:\\other"
+    },
+    "expect": "deny"
+  },
+  {
+    "name": "legacy timestamp credential still allows (backward compat)",
+    "flagContent": "",
+    "tokenAgeMs": 60000,
+    "input": {
+      "tool_name": "Write",
+      "tool_input": { "file_path": "C:\\proj\\src\\app.js" },
+      "cwd": "C:\\proj"
+    },
+    "expect": "allow"
   }
 ]

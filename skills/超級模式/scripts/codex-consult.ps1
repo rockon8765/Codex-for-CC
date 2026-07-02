@@ -69,7 +69,9 @@ finally {
 
 if ($code -eq 0) {
   $token = Join-Path $env:USERPROFILE ".claude\.super-mode-consult-ok"
-  Set-Content -LiteralPath $token -Value (Get-Date -Format o) -Encoding utf8
+  # 憑證決策範圍：綁定本次諮詢的 repo(-Dir)。hook 會比對後續動作路徑是否在此 repo 下。
+  $cred = @{ repo = $Dir; ts = (Get-Date -Format o) } | ConvertTo-Json -Compress
+  Set-Content -LiteralPath $token -Value $cred -Encoding utf8
   Write-Output "consult OK -- credential written; transcript: $log"
 } else {
   Write-Warning "codex-consult: codex exited [$code] -- no credential written. transcript: $log"

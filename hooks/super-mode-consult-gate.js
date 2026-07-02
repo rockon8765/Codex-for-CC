@@ -141,15 +141,18 @@ function decide(input, baseDir = path.join(os.homedir(), ".claude")) {
   let gated = false;
   let consuming = false;
   let category = "";
+  let actionPath = ""; // 本動作綁定的路徑(檔案 file_path / shell cwd)，供憑證範圍比對
 
   if (MUTATING_FILE_TOOLS.includes(tool)) {
     const fp = String(ti.file_path || ti.notebook_path || "");
     if (isExemptPath(fp, claude)) return { allow: true };
     if (scope && fp && !isUnder(fp, scope)) return { allow: true }; // scope 外不管
+    actionPath = fp;
     gated = true;
     category = "檔案寫入";
   } else if (tool === "Bash" || tool === "PowerShell") {
     if (scope && !isUnder(String(input.cwd || ""), scope)) return { allow: true };
+    actionPath = String(input.cwd || "");
     const cmd = String(ti.command || "");
 
     // 唯讀諮詢/查版/開關腳本：錨定開頭 + 參數尾巴無串接/替換/破壞性字樣才放行
@@ -198,6 +201,18 @@ function decide(input, baseDir = path.join(os.homedir(), ".claude")) {
   if (!gated) return { allow: true };
 
   if (fs.existsSync(token) && Date.now() - fs.statSync(token).mtimeMs < WINDOW_MS) {
+    // 憑證決策範圍：諮詢時綁定的 repo。舊格式(純時間戳)→ credRepo 空 → 只驗時間(相容)。
+    // 拿不到動作路徑(MCP/外發工具)→ 無從綁定 → 只驗時間。
+    const credRepo = readCredRepo(token);
+    if (credRepo && actionPath && !isUnder(actionPath, credRepo)) {
+      return {
+        allow: false,
+        reason:
+          "[超級模式] 現有諮詢憑證的範圍是另一個專案(" + credRepo + ")，本動作在 " +
+          (actionPath || "(未知路徑)") + "。請針對本專案重新諮詢：" +
+          "codex-consult.ps1 -Dir <本專案根> -PromptFile <brief>。",
+      };
+    }
     if (consuming) demoteToken(token); // 收尾動作 → 憑證只剩 3 分鐘餘裕
     return { allow: true };
   }
@@ -226,6 +241,18 @@ function readScope(flag) {
     if (/^([a-z]:[\\/]|\\\\)/i.test(first)) return first;
   } catch (e) {}
   return ""; // 空 / 舊格式(時間戳) → 全域強制
+}
+
+// 讀憑證綁定的 repo。JSON {repo,ts} → 回 repo；純時間戳(舊格式)或任何錯誤 → ""(只驗時間)
+function readCredRepo(token) {
+  try {
+    const c = fs.readFileSync(token, "utf8").replace(/^﻿/, "").trim();
+    if (c[0] !== "{") return "";
+    const o = JSON.parse(c);
+    return typeof o.repo === "string" ? o.repo : "";
+  } catch (e) {
+    return "";
+  }
 }
 
 function norm(p) {

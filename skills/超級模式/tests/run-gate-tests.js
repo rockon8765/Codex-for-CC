@@ -37,7 +37,10 @@ for (const tc of cases) {
 
     if (tc.tokenAgeMs !== null && tc.tokenAgeMs !== undefined) {
       const token = path.join(fakeBaseDir, ".super-mode-consult-ok");
-      fs.writeFileSync(token, new Date().toISOString(), "utf8");
+      const content = (tc.tokenContent !== undefined && tc.tokenContent !== null)
+        ? replacePlaceholders(tc.tokenContent, replacements)
+        : new Date().toISOString();
+      fs.writeFileSync(token, content, "utf8");
       const t = new Date(Date.now() - Number(tc.tokenAgeMs));
       fs.utimesSync(token, t, t);
     }

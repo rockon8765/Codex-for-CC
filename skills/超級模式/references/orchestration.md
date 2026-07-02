@@ -74,7 +74,9 @@ SKILL.md 的 §2 / §3 / §3.5 / §5 的詳細範本與程序。用到才讀。
 |---|:--:|---|
 | Spec-first（理解現況 / 比稿設計） | ✅ | 平行 agent 讀碼 + judge panel 比設計，再合成 spec |
 | 指揮 Codex 派工 | ❌ | `codex exec` 單線結構化下令 |
-| 審查 Codex 產出 | ✅ | 多視角對抗審查：正確性 / 安全 / 符合 spec 各一 lens，有異議退回 |
+| 審查 Codex 產出 | ✅ 但**分級** | **預設單線** diff 審查（輸入限 `git diff --stat` + 針對性 hunks + 測試輸出，禁止全檔重讀）；**三鏡頭對抗審查（正確性/安全/符合 spec）只在**碰安全敏感面（auth／支付／使用者資料／檔案系統／外部 API／加密）或架構層 diff 才升級，升級條件沿用 `code-review.md` 的安全觸發清單。有異議退回。 |
 | 里程碑回寫 | ❌ | 單線做即可 |
 
 **鐵則：每步只有一個 worker pool 動手寫檔。** 預設 Codex 寫、Claude agents 只做不寫檔的工作；要平行多個 `codex exec` 須各自 `isolation: 'worktree'` 隔離，否則在同一 working tree 打架。
+**鐵則：Workflow / subagent 一律禁止呼叫 `codex-consult.ps1` / `codex-exec.ps1`。** 子代理被 consult-gate 擋下時，回報 orchestrator（主 Claude）由主線統一諮詢／派工，別讓每個子代理各自諮詢（會燒額度、mint 全機憑證、commit 降級全體）。
+**派工簡報的驗收條件內建「Codex 自審 + 跑測試 + lint 並回報自審結論」**（見 §3 範本），讓第一道審查花 Codex 額度、不花 Claude。
