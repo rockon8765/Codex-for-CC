@@ -54,7 +54,8 @@ $errFile = Join-Path $env:TEMP ("codex_err_{0}.txt" -f ([guid]::NewGuid().ToStri
 [System.IO.File]::WriteAllText($brief, $p, (New-Object System.Text.UTF8Encoding $false))
 try {
   # stderr 導到獨立檔(編號佔位符 {3})；不可用 2>&1(會回灌 stdout)。$LASTEXITCODE 仍是 codex 退出碼。
-  $inner = '"{0}" exec --sandbox read-only --skip-git-repo-check -C "{1}" < "{2}" 2> "{3}"' -f $codexCmd, $Dir, $brief, $errFile
+  # 5.2：--ephemeral 讓短命唯讀諮詢不落地 Codex session 檔(下游不 resume 此 session，留著純浪費)
+  $inner = '"{0}" exec --sandbox read-only --ephemeral --skip-git-repo-check -C "{1}" < "{2}" 2> "{3}"' -f $codexCmd, $Dir, $brief, $errFile
   & cmd.exe /d /s /c $inner | ForEach-Object { $_; Add-Content -LiteralPath $log -Value $_ -Encoding utf8 }
   $code = $LASTEXITCODE
   if (Test-Path $errFile) {

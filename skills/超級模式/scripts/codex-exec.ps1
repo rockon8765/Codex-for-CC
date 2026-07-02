@@ -25,7 +25,8 @@ param(
   [string]$Prompt,
   [string]$PromptFile,
   [string]$OutFile,
-  [switch]$Quiet   # 背景派工建議帶：stdout 只印摘要，逐字稿仍寫 log；收工後只讀 _last.txt + git diff
+  [switch]$Quiet,   # 背景派工建議帶：stdout 只印摘要，逐字稿仍寫 log；收工後只讀 _last.txt + git diff
+  [string]$SchemaFile   # 可選：JSON schema 檔路徑；給了就讓 Codex 最終回覆符合此結構(--output-schema)，好機器驗收
 )
 $codexCmd = "C:\npm\codex.cmd"
 
@@ -45,6 +46,16 @@ elseif ($Prompt) { $p = $Prompt }
 else { throw "需提供 -Prompt 或 -PromptFile" }
 if ([string]::IsNullOrWhiteSpace($p)) { throw "Prompt is empty." }
 
+# 5.1 output-schema：給了 -SchemaFile 就轉絕對路徑並在啟動 Codex 前先驗證可解析(fail-fast)
+$schemaArg = ""
+if ($SchemaFile) {
+  if (-not (Test-Path -LiteralPath $SchemaFile)) { throw "SchemaFile not found: $SchemaFile" }
+  $SchemaFile = (Resolve-Path -LiteralPath $SchemaFile).Path   # EXEC 有 -C 換工作根，必須絕對路徑
+  try { [System.IO.File]::ReadAllText($SchemaFile, (New-Object System.Text.UTF8Encoding $false)) | ConvertFrom-Json | Out-Null }
+  catch { throw "SchemaFile is not valid JSON: $SchemaFile -- $_" }
+  $schemaArg = '--output-schema "{5}" '   # 附加成最高編號 {5}，不動 stdin{3}/stderr{4}
+}
+
 $logDir = Join-Path $env:USERPROFILE ".claude\super-mode-logs"
 if (-not (Test-Path $logDir)) { New-Item -ItemType Directory -Path $logDir | Out-Null }
 $stamp = "{0}_{1}" -f (Get-Date -Format "yyyyMMdd_HHmmss"), ([guid]::NewGuid().ToString('N').Substring(0, 6))  # 加去重後綴，防同秒並行派工檔名碰撞
@@ -60,7 +71,8 @@ $errFile = Join-Path $env:TEMP ("codex_err_{0}.txt" -f ([guid]::NewGuid().ToStri
 [System.IO.File]::WriteAllText($brief, $p, (New-Object System.Text.UTF8Encoding $false))
 try {
   # stderr 導到獨立檔(編號佔位符 {4})；不可用 2>&1(會回灌 stdout)。$LASTEXITCODE 仍是 codex 退出碼。
-  $inner = '"{0}" exec --sandbox workspace-write --skip-git-repo-check -C "{1}" --output-last-message "{2}" < "{3}" 2> "{4}"' -f $codexCmd, $Dir, $OutFile, $brief, $errFile
+  # $schemaArg 為空時 {5} 不出現、多帶的 -f 參數無害；有值時併入 --output-schema "{5}"
+  $inner = ('"{0}" exec --sandbox workspace-write --skip-git-repo-check -C "{1}" ' + $schemaArg + '--output-last-message "{2}" < "{3}" 2> "{4}"') -f $codexCmd, $Dir, $OutFile, $brief, $errFile, $SchemaFile
   # -Quiet：只寫 log 不回灌 stdout(省 Claude context)；非 Quiet 維持逐行 echo
   & cmd.exe /d /s /c $inner | ForEach-Object { if (-not $Quiet) { $_ }; Add-Content -LiteralPath $log -Value $_ -Encoding utf8 }
   $code = $LASTEXITCODE
