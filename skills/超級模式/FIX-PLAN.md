@@ -318,9 +318,15 @@ if ($errs) { $errs } else { 'PARSE OK' }
 
 > **做這段前必讀**：Codex CLI 約**每週改版**，flag 名稱與行為可能變。**每一步先跑探針確認當前 flag 存在再用**，不要照抄本文件的 flag 名。探針：`& C:\npm\codex.cmd exec --help`（看有沒有該 flag）。以下依「投報比 / 風險」排序，做前面幾個即可。
 
+> **評估結論（2026-07-02，對 Codex 0.142.4 實測）**：`--ephemeral`、`--output-schema <FILE>`、`--json`、`exec resume [SESSION_ID] --last` 皆確認存在。
+> - **5.2 ephemeral → 值得做（value low / risk low / effort low）**：純衛生增益，一個 flag、零下行風險。
+> - **5.1 output-schema → 值得做（value medium / risk low，opt-in）**：實測與 EXEC pipeline 相容，讓 orchestrator 解析數個欄位就驗收里程碑，配合 Phase 3 省額度；**必用「附加成最高編號佔位符」不要重編 `{3}`/`{4}`**（見下方修正改法）。
+> - **5.3 resume → 暫緩（value medium / risk high / effort high）**：本文件原設計**行不通**（實測 `resume` 不吃 `--sandbox`/`-C`、`--json` 會污染 transcript pipe），要用需先重新設計，見下方修正。
+> - **5.4 MCP/SDK → 暫緩（維持 ps1 主線）**：研究修正兩個過時前提，見下方。
+
 ### 步驟 5.1 用 `--output-schema` 讓里程碑驗收機器化
 - **目的**：讓 Codex 的最終回覆符合固定 JSON schema（如 `{done, files_changed, tests_passed, notes}`），Claude 讀結構化結果就能判定驗收，不必讀散文。
-- **改法**：EXEC 加可選 `-SchemaFile`（**傳的是 JSON schema 的檔案路徑，不是 inline JSON 字串**）；有給就在 `$inner` 加 `--output-schema "{n}"`（把 `$SchemaFile` 加進 `-f` 參數清單、用編號佔位符，同 §1.3 的教訓）。**先用 `codex exec --help` 確認 flag 名仍是 `--output-schema` 且吃的是檔路徑**。
+- **改法（實測版）**：EXEC 加可選 `[string]$SchemaFile`（**傳 JSON schema 的檔案路徑，非 inline JSON**）。給了就：①`Test-Path` + `Resolve-Path` 轉**絕對路徑**（EXEC 有 `-C $Dir` 換工作根，相對路徑會解錯）；②先用 `ConvertFrom-Json` 驗證檔可解析、**失敗即 throw（在啟動 Codex 前 fail-fast）**；③把片段 `--output-schema "{5}" ` 併進 `$inner`、`$SchemaFile` **附加成新的最高編號 `{5}`**，**絕不重編 `{3}`(stdin)/`{4}`(stderr)**。沒給時 `$schemaArg=""`、`{5}` 不出現、多的 `-f` 參數無害。與 `--output-last-message` 正交：schema 決定「內容形狀」、`-o` 決定「落地位置」，最終 JSON 仍落 `_last.txt`。**先用 `codex exec --help` 確認 flag 仍在且吃檔路徑**。
 - **驗收**：帶 schema 派一個小任務，`_last.txt` 是符合 schema 的 JSON；Claude 能直接解析 `tests_passed` 欄位。
 - **未來變化因應**：flag 名走探針確認；schema 檔外置，內容可獨立演進。
 - **回滾**：不帶 `-SchemaFile` 即回舊行為。
@@ -332,16 +338,20 @@ if ($errs) { $errs } else { 'PARSE OK' }
 - **未來變化因應**：flag 不存在就跳過此增益（不影響主流程）。
 - **回滾**：移除 flag。
 
-### 步驟 5.3（進階）跨里程碑用 `codex exec resume <session_id>` 省雙邊 token
+### 步驟 5.3（暫緩，原設計行不通，需重新設計）跨里程碑用 `codex exec resume` 省雙邊 token
 - **目的**：多里程碑連續派工時續用同一 session，省掉每次重新灌 context 的雙邊 token。
-- **改法**：EXEC 用 `--json` 收 `thread.started`／session id 落地到一個 `.session` 檔；後續派工帶 `resume`。**此步較複雜、且高度依賴當前 Codex 介面**，務必先讀 `codex exec resume --help` 與 `--json` 事件格式確認。
-- **驗收**：第二次派工的 log 顯示接續同一 session；跨里程碑的上下文被 Codex 記得。
-- **未來變化因應**：整步用 feature flag（EXEC 加 `-Resume` 開關，預設關），介面變動時預設關＝回到現行單次派工，不破壞主流程。
-- **回滾**：關掉 `-Resume`。
+- **⛔ 2026-07-02 實測發現原設計的三個問題（照原文寫必失敗）**：
+  1. `exec resume` 子命令**不吃 `--sandbox` 也不吃 `-C`**（那是 top-level `exec` 的 flag）。`codex exec resume <id> --sandbox workspace-write -C dir` 直接 exit 2。**不能重用**現行 EXEC 那條 `$inner`——resume 要另一種指令形狀（`exec resume <id> --skip-git-repo-check -o <file> < brief`），sandbox 得靠繼承 session 或 `-c 'sandbox_mode="workspace-write"'`。
+  2. `--json` 會把 stdout 變成整串 JSONL 事件（thread.started/turn.*/item.completed…），**污染現行的 transcript pipe**，且非 `-Quiet` 時會把原始 JSON 灌回 Claude context（與 3.2 省額度目標相反）。session id 要從 JSONL 抓，得**分離**「抓 id 的 pass」與「一般 transcript」。
+- **若真要做**：加 `[switch]$Resume` + `[string]$SessionFile`；里程碑鏈第一次用一個**只為抓 id** 的 `--json` pass 落地 session id，之後才 resume。屬**高工作量、高風險、version-sensitive**，建議等有明確多里程碑省額度需求再投入。
+- **現況建議**：**暫緩**。目前每次派工獨立（無 resume）已可運作；此步收益（跨里程碑省 context）在小專案不明顯。
 
 ### 步驟 5.4（評估，非必做）評估把 Codex 接成 MCP server / SDK 取代 ps1 shell-out
 - **目的**：`codex mcp-server` / `codex app-server` / `@openai/codex-sdk` 是比 shell-out 更乾淨的 worker 介面，且與 gate hook 互動更好。
-- **現況判斷**：三者**都還是 experimental / beta**，且 Claude Code 對 MCP 工具呼叫有硬性 timeout（長派工會被切）。**結論：暫時維持 `codex exec` + ps1 為主線，MCP/SDK 只做技術評估、不上線。** 待其轉 GA 且 Claude Code 放寬 MCP timeout 再重評。
+- **現況判斷（2026-07-02 研究修正兩個過時前提）**：
+  - ~~三者都還是 experimental~~ → **修正**：`codex app-server` 核心已 **GA**（僅 WebSocket transport 標 experimental）、`codex mcp-server` 是一級子命令、跑成本地 stdio JSON-RPC server；但 `@openai/codex-sdk`(TS) **只是 shell-out 的 wrapper**（spawn CLI、走 stdin/stdout JSONL），不是更乾淨的原生 transport，Python SDK 仍 beta。
+  - ~~Claude Code 對 MCP 有硬性 timeout 會切長跑~~ → **修正（此理由已不成立）**：對**本地 stdio** 的 codex mcp-server，Claude Code 工具呼叫預設 timeout 約 28h、stdio server 不受 5 分鐘 idle abort 影響。
+- **結論：仍暫緩，維持 `codex exec` + ps1 為主線。** 理由改為「切換工作量高、現行 ps1 可運作」，而非原本（已被推翻）的 timeout 疑慮。待有明確需求（如要用 app-server 的多 agent 委派）再重評。
 - **驗收**：本步驟只產出一段評估結論寫回本文件或記憶，不改主線程式。
 - **未來變化因應**：每季重看一次 experimental 狀態與 timeout 限制。
 - **回滾**：不適用（未改主線）。
@@ -350,25 +360,28 @@ if ($errs) { $errs } else { 'PARSE OK' }
 
 ## 進度表（每完成一步就更新）
 
-| Phase | 步驟 | 狀態 | 完成日期 | 驗收證據（測試臺全綠 / 探針輸出 / Grep 命中） |
+> 狀態：✅=已做並驗證並部署 live｜🔎=已評估待決定｜⏸=評估後暫緩。Phase 1–4 於 2026-07-02 完成，commit d3f5094/111e1b4/e60d146，已 push + 部署 live。
+
+| Phase | 步驟 | 狀態 | 完成日期 | 驗收證據 |
 |---|---|---|---|---|
-| 1 | 1.1 測試臺 | ☐ | | |
-| 1 | 1.2 gate 繞過 | ☐ | | |
-| 1 | 1.3 stderr 進 log | ☐ | | |
-| 2 | 2.1 subagent 炸開 | ☐ | | |
-| 2 | 2.2 憑證範圍 | ☐ | | |
-| 3 | 3.1 諮詢節奏 | ☐ | | |
-| 3 | 3.2 exec Quiet | ☐ | | |
-| 3 | 3.3 審查分級 | ☐ | | |
-| 3 | 3.4 額度 fail-fast | ☐ | | |
-| 4 | 4.1 log 防碰撞 | ☐ | | |
-| 4 | 4.2 check 快取作廢 | ☐ | | |
-| 4 | 4.3 git 白名單收緊 | ☐ | | |
-| 4 | 4.4 日誌保留 | ☐ | | |
-| 5 | 5.1 output-schema | ☐ | | |
-| 5 | 5.2 ephemeral | ☐ | | |
-| 5 | 5.3 resume | ☐ | | |
-| 5 | 5.4 MCP/SDK 評估 | ☐ | | |
+| 1 | 1.1 測試臺 | ✅ | 2026-07-02 | 建 tests/ 回歸臺；node --check OK |
+| 1 | 1.2 gate 繞過 | ✅ | 2026-07-02 | conftest/pytest-tmp/cd-npm-test 皆 deny，正常 pytest 不誤傷；6 對抗探針過 |
+| 1 | 1.3 stderr 進 log | ✅ | 2026-07-02 | 實測強制失敗→log 含 STDERR 區塊+os error 原因 |
+| 2 | 2.1 subagent 炸開 | ✅ | 2026-07-02 | SKILL/orch §5 加禁子代理自諮詢鐵則 |
+| 2 | 2.2 憑證範圍 | ✅ | 2026-07-02 | harness 同repo allow/跨repo deny/舊格式相容；JSON 端到端對接 |
+| 3 | 3.1 諮詢節奏 | ✅ | 2026-07-02 | §3.5 改每里程碑+批次範本 |
+| 3 | 3.2 exec Quiet | ✅ | 2026-07-02 | -Quiet 開關；SKILL 改讀 _last.txt+diff |
+| 3 | 3.3 審查分級 | ✅ | 2026-07-02 | orch §5 單線預設/三鏡頭僅安全敏感 |
+| 3 | 3.4 額度 fail-fast | ✅ | 2026-07-02 | quota regex 命中 limit/429/auth，忽略 os-error |
+| 4 | 4.1 log 防碰撞 | ✅ | 2026-07-02 | 檔名加 GUID 後綴 |
+| 4 | 4.2 check 快取作廢 | ✅ | 2026-07-02 | smoke 失敗刪快取 + npm view try/catch |
+| 4 | 4.3 git 白名單收緊 | ✅ | 2026-07-02 | harness: branch-D/tag/remote-add deny，list 型 allow |
+| 4 | 4.4 日誌保留 | ✅ | 2026-07-02 | 實測 -Off 清 >14d、留近期、清旗標+憑證 |
+| 全 | live 端到端 | ✅ | 2026-07-02 | 對 live hook 跑 harness 26/26；stdin fail-open/deny 實測 |
+| 5 | 5.1 output-schema | 🔎 | | 實測相容；建議 do-behind-flag（opt-in），改法已修正為 {5} 附加 |
+| 5 | 5.2 ephemeral | 🔎 | | 實測零下行風險；建議 do-now |
+| 5 | 5.3 resume | ⏸ | | 原設計實測行不通（resume 不吃 --sandbox/-C、--json 污染 pipe）；暫緩 |
+| 5 | 5.4 MCP/SDK | ⏸ | | 研究修正過時前提；切換工作量高、ps1 可運作；暫緩 |
 
 ## 收尾檢查（全部 Phase 做完後跑一次）
 1. `node --check` HOOK 通過；`run-gate-tests.ps1` 全綠（含所有新增案例）。
