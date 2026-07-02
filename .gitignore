@@ -1,0 +1,13 @@
+# Super-mode runtime artifacts (live under ~/.claude, never committed — listed here
+# so a clone made inside ~/.claude won't accidentally pick them up).
+.super-mode-active
+.super-mode-consult-ok
+.codex-check-last
+super-mode-logs/
+*.bak
+
+# Editor / OS noise
+.vscode/
+.idea/
+Thumbs.db
+desktop.ini

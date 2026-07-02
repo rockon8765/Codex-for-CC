@@ -1,0 +1,16 @@
+{
+  "_comment": "Merge this PreToolUse entry into ~/.claude/settings.json under hooks.PreToolUse. Adjust the absolute path to the hook for your machine.",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit|NotebookEdit|Bash|PowerShell|RemoteTrigger|PushNotification|CronCreate|CronDelete|mcp__.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node C:/Users/user/.claude/hooks/super-mode-consult-gate.js"
+          }
+        ]
+      }
+    ]
+  }
+}
