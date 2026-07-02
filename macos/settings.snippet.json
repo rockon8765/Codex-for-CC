@@ -1,0 +1,16 @@
+{
+  "_comment": "Merge this PreToolUse entry into ~/.claude/settings.local.json under hooks.PreToolUse (use settings.local.json — not settings.json — so ECC re-installs won't clobber it). Adjust the absolute path to the hook to match your home directory.",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit|NotebookEdit|Bash|PowerShell|RemoteTrigger|PushNotification|CronCreate|CronDelete|mcp__.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node /Users/user/.claude/hooks/super-mode-consult-gate.js"
+          }
+        ]
+      }
+    ]
+  }
+}
