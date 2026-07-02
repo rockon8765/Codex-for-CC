@@ -1,5 +1,5 @@
 {
-  "_comment": "Merge this PreToolUse entry into ~/.claude/settings.json under hooks.PreToolUse. Adjust the absolute path to the hook for your machine.",
+  "_comment": "把這個 PreToolUse 條目合併進 ~/.claude/settings.json 的 hooks.PreToolUse。請把 hook 的絕對路徑改成你自己機器的路徑。",
   "hooks": {
     "PreToolUse": [
       {

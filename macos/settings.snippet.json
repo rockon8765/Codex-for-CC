@@ -1,5 +1,5 @@
 {
-  "_comment": "Merge this PreToolUse entry into ~/.claude/settings.local.json under hooks.PreToolUse (use settings.local.json — not settings.json — so ECC re-installs won't clobber it). Adjust the absolute path to the hook to match your home directory.",
+  "_comment": "把這個 PreToolUse 條目合併進 ~/.claude/settings.local.json 的 hooks.PreToolUse（用 settings.local.json、不要用 settings.json，這樣 ECC 重新安裝時不會蓋掉它）。請把 hook 的絕對路徑改成符合你家目錄的路徑。",
   "hooks": {
     "PreToolUse": [
       {
