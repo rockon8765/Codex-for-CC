@@ -1,0 +1,174 @@
+[
+  {
+    "name": "I1 no active flag allows mutating write",
+    "flagContent": null,
+    "tokenAgeMs": null,
+    "input": {
+      "tool_name": "Write",
+      "tool_input": { "file_path": "C:\\proj\\src\\app.js" },
+      "cwd": "C:\\proj"
+    },
+    "expect": "allow"
+  },
+  {
+    "name": "I2 malformed input fail-opens",
+    "flagContent": "",
+    "tokenAgeMs": null,
+    "input": null,
+    "expect": "allow"
+  },
+  {
+    "name": "write non-exempt project file without token denies",
+    "flagContent": "",
+    "tokenAgeMs": null,
+    "input": {
+      "tool_name": "Write",
+      "tool_input": { "file_path": "C:\\proj\\src\\app.js" },
+      "cwd": "C:\\proj"
+    },
+    "expect": "deny"
+  },
+  {
+    "name": "write scratchpad note allows",
+    "flagContent": "",
+    "tokenAgeMs": null,
+    "input": {
+      "tool_name": "Write",
+      "tool_input": { "file_path": "__TMP__\\claude\\scratchpad\\note.txt" },
+      "cwd": "C:\\proj"
+    },
+    "expect": "allow"
+  },
+  {
+    "name": "write claude settings denies",
+    "flagContent": "",
+    "tokenAgeMs": null,
+    "input": {
+      "tool_name": "Write",
+      "tool_input": { "file_path": "__BASE__\\settings.json" },
+      "cwd": "C:\\proj"
+    },
+    "expect": "deny"
+  },
+  {
+    "name": "git status allows",
+    "flagContent": "",
+    "tokenAgeMs": null,
+    "input": {
+      "tool_name": "Bash",
+      "tool_input": { "command": "git status" },
+      "cwd": "C:\\proj"
+    },
+    "expect": "allow"
+  },
+  {
+    "name": "git push with fresh token allows",
+    "flagContent": "",
+    "tokenAgeMs": 60000,
+    "input": {
+      "tool_name": "Bash",
+      "tool_input": { "command": "git push" },
+      "cwd": "C:\\proj"
+    },
+    "expect": "allow"
+  },
+  {
+    "name": "rm without token denies",
+    "flagContent": "",
+    "tokenAgeMs": null,
+    "input": {
+      "tool_name": "Bash",
+      "tool_input": { "command": "rm -rf x" },
+      "cwd": "C:\\proj"
+    },
+    "expect": "deny"
+  },
+  {
+    "name": "codex consult script allows",
+    "flagContent": "",
+    "tokenAgeMs": null,
+    "input": {
+      "tool_name": "PowerShell",
+      "tool_input": { "command": "C:\\Users\\user\\.claude\\skills\\超級模式\\scripts\\codex-consult.ps1 -Dir C:\\p -PromptFile x" },
+      "cwd": "C:\\proj"
+    },
+    "expect": "allow"
+  },
+  {
+    "name": "codex exec script denies without token",
+    "flagContent": "",
+    "tokenAgeMs": null,
+    "input": {
+      "tool_name": "PowerShell",
+      "tool_input": { "command": "C:\\Users\\user\\.claude\\skills\\超級模式\\scripts\\codex-exec.ps1 -Dir C:\\p -PromptFile x" },
+      "cwd": "C:\\proj"
+    },
+    "expect": "deny"
+  },
+  {
+    "name": "write conftest under scratchpad denies",
+    "flagContent": "",
+    "tokenAgeMs": null,
+    "input": {
+      "tool_name": "Write",
+      "tool_input": { "file_path": "__TMP__\\claude\\scratchpad\\conftest.py" },
+      "cwd": "C:\\proj"
+    },
+    "expect": "deny"
+  },
+  {
+    "name": "pytest real temp path denies",
+    "flagContent": "",
+    "tokenAgeMs": null,
+    "input": {
+      "tool_name": "Bash",
+      "tool_input": { "command": "pytest \"__TMP__\\claude\\scratchpad\"" },
+      "cwd": "C:\\proj"
+    },
+    "expect": "deny"
+  },
+  {
+    "name": "cd scratchpad then npm test denies",
+    "flagContent": "",
+    "tokenAgeMs": null,
+    "input": {
+      "tool_name": "Bash",
+      "tool_input": { "command": "cd \"__TMP__\\claude\\scratchpad\"; npm test" },
+      "cwd": "C:\\proj"
+    },
+    "expect": "deny"
+  },
+  {
+    "name": "bare pytest in project root allows",
+    "flagContent": "",
+    "tokenAgeMs": null,
+    "input": {
+      "tool_name": "Bash",
+      "tool_input": { "command": "pytest" },
+      "cwd": "C:\\proj"
+    },
+    "expect": "allow"
+  },
+  {
+    "name": "cd project then npm test allows",
+    "flagContent": "",
+    "tokenAgeMs": null,
+    "input": {
+      "tool_name": "Bash",
+      "tool_input": { "command": "cd C:\\proj; npm test" },
+      "cwd": "C:\\proj"
+    },
+    "expect": "allow"
+  },
+  {
+    "name": "write scratchpad report allows",
+    "flagContent": "",
+    "tokenAgeMs": null,
+    "input": {
+      "tool_name": "Write",
+      "tool_input": { "file_path": "__TMP__\\claude\\scratchpad\\report.txt" },
+      "cwd": "C:\\proj"
+    },
+    "expect": "allow"
+  }
+]

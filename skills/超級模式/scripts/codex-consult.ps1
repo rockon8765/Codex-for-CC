@@ -50,14 +50,21 @@ if ($Dir -match '^[A-Za-z]:$') { $Dir += '\' }
 
 # 正規化落地 UTF-8(無 BOM)暫存簡報，cmd `<` 重導向 → 位元組直達 codex
 $brief = Join-Path $env:TEMP ("codex_brief_{0}.txt" -f ([guid]::NewGuid().ToString('N')))
+$errFile = Join-Path $env:TEMP ("codex_err_{0}.txt" -f ([guid]::NewGuid().ToString('N')))
 [System.IO.File]::WriteAllText($brief, $p, (New-Object System.Text.UTF8Encoding $false))
 try {
-  $inner = '"{0}" exec --sandbox read-only --skip-git-repo-check -C "{1}" < "{2}"' -f $codexCmd, $Dir, $brief
+  # stderr 導到獨立檔(編號佔位符 {3})；不可用 2>&1(會回灌 stdout)。$LASTEXITCODE 仍是 codex 退出碼。
+  $inner = '"{0}" exec --sandbox read-only --skip-git-repo-check -C "{1}" < "{2}" 2> "{3}"' -f $codexCmd, $Dir, $brief, $errFile
   & cmd.exe /d /s /c $inner | ForEach-Object { $_; Add-Content -LiteralPath $log -Value $_ -Encoding utf8 }
   $code = $LASTEXITCODE
+  if (Test-Path $errFile) {
+    Add-Content -LiteralPath $log -Value "===== STDERR =====" -Encoding utf8
+    [System.IO.File]::ReadAllText($errFile, (New-Object System.Text.UTF8Encoding $false)) | Add-Content -LiteralPath $log -Encoding utf8
+  }
 }
 finally {
   Remove-Item -LiteralPath $brief -Force -ErrorAction SilentlyContinue
+  Remove-Item -LiteralPath $errFile -Force -ErrorAction SilentlyContinue
 }
 
 if ($code -eq 0) {

@@ -101,22 +101,26 @@ const MCP_WRITE_RE = /(create|update|delete|remove|move|write|submit|publish|sen
 // 純標註/無副作用的 MCP 工具白名單（未知 MCP 一律 default-deny，這些例外放行）
 const MCP_BENIGN_RE = /(mark_chapter|read_widget)/i;
 
-let raw = "";
-process.stdin.on("data", (c) => (raw += c));
-process.stdin.on("end", () => {
-  let verdict;
-  try {
-    verdict = decide(JSON.parse(raw.replace(/^﻿/, "") || "{}"));
-  } catch (e) {
-    verdict = { allow: true }; // FAIL-OPEN：任何錯誤都放行
-  }
-  if (verdict.allow) process.exit(0);
-  process.stderr.write(verdict.reason);
-  process.exit(2);
-});
+if (require.main === module) {
+  let raw = "";
+  process.stdin.on("data", (c) => (raw += c));
+  process.stdin.on("end", () => {
+    let verdict;
+    try {
+      verdict = decide(JSON.parse(raw.replace(/^﻿/, "") || "{}"));
+    } catch (e) {
+      verdict = { allow: true }; // FAIL-OPEN：任何錯誤都放行
+    }
+    if (verdict.allow) process.exit(0);
+    process.stderr.write(verdict.reason);
+    process.exit(2);
+  });
+}
 
-function decide(input) {
-  const claude = path.join(os.homedir(), ".claude");
+function decide(input, baseDir = path.join(os.homedir(), ".claude")) {
+  try {
+  input = input || {};
+  const claude = baseDir;
   const flag = path.join(claude, ".super-mode-active");
   const token = path.join(claude, ".super-mode-consult-ok");
 
@@ -162,7 +166,14 @@ function decide(input) {
       consuming = CONSUMING.some((re) => re.test(cmd));
       category = consuming ? "收尾動作(會消耗憑證)" : "破壞性指令";
     } else if (isReadOnlyCommand(cmd)) {
-      return { allow: true };
+      const RUNNER_RE = /(^|[;&|]\s*)\S*(pytest|npm|pnpm|yarn|cargo|go|dotnet|eslint|ruff|prettier|tsc|node|python3?)(\.exe)?\b/i;
+      const low = cmd.replace(/\//g, "\\").toLowerCase();
+      const tmpN = norm(os.tmpdir()), claudeN = norm(claude);
+      if (RUNNER_RE.test(cmd) && (low.includes(tmpN) || low.includes(claudeN))) {
+        gated = true; category = "runner 涉及暫存/設定路徑";
+      } else {
+        return { allow: true };
+      }
     } else {
       gated = true; // default-deny：不在唯讀白名單的未知指令一律要憑證
       category = "非唯讀指令";
@@ -200,6 +211,9 @@ function decide(input) {
       "~/.claude/skills/超級模式/scripts/codex-consult.ps1 -Dir <repo> -PromptFile <brief>(一律 -PromptFile) " +
       "③成功後重試此動作。若超級模式其實已結束，用 PowerShell 工具跑 scripts/super-mode.ps1 -Off 解除。",
   };
+  } catch (e) {
+    return { allow: true };
+  }
 }
 
 function readScope(flag) {
@@ -245,6 +259,13 @@ function isExemptPath(fp, claude) {
   ) {
     return false;
   }
+  const base = p.split("\\").pop();
+  if (
+    /^(conftest\.py|pytest\.ini|tox\.ini|noxfile\.py|setup\.cfg|package\.json|makefile|\.pytestrc)$/i.test(base) ||
+    /\.ps1$/i.test(base)
+  ) {
+    return false;
+  }
   return p.startsWith(c + "\\") || p.startsWith(norm(os.tmpdir()) + "\\");
 }
 
@@ -280,3 +301,5 @@ function tryUnlink(p) {
     fs.unlinkSync(p);
   } catch (e) {}
 }
+
+module.exports = { decide };
