@@ -4,7 +4,37 @@ A **Claude Code** skill that turns Claude into an **orchestrator** and the **Ope
 
 A `PreToolUse` **consult-gate** hook enforces the discipline: while super mode is armed, state-changing tool calls (file writes, shell, MCP writes, outbound builtins) are **default-denied** unless Claude has a fresh (≤20 min) "second opinion" credential minted by running a read-only Codex consult first.
 
-> ⚠️ **Work in progress.** This repo is the current snapshot. A prior audit found real issues (a gate bypass, silent Codex failures, cost anti-patterns). The full, verified, step-by-step remediation plan lives in [`skills/超級模式/FIX-PLAN.md`](skills/超級模式/FIX-PLAN.md) — read it before relying on the gate for security.
+> **Status.** An audit found real issues (a gate bypass, silent Codex failures, cost anti-patterns); FIX-PLAN Phases 1–4 have been implemented, verified, and deployed, and Phase 5 evaluated. The full step-by-step record and remaining items live in [`skills/超級模式/FIX-PLAN.md`](skills/超級模式/FIX-PLAN.md).
+
+---
+
+## Claude vs Codex — what runs where (read this first)
+
+A common misconception: *"when I use Claude Code's UltraCode mode, my subagents become Codex."* **They don't.** This project has **two independent mechanisms** that are easy to conflate:
+
+**1. Claude Code UltraCode / Workflow — Anthropic's own multi-agent**
+- The subagents it fans out are **always Claude models** — never Codex.
+- Their tokens **count fully against your Claude quota** (no discount; you can route individual agents to Haiku to cut cost, but they are still Claude).
+- So UltraCode by itself **does not save Claude usage — it spends more** (more Claude agents = more Claude tokens). Its purpose is *quality* (multiple perspectives, adversarial review), not savings.
+
+**2. This skill's Codex offload — where the Claude-usage savings actually come from**
+- Codex is **not a subagent type** — UltraCode cannot dispatch a "Codex agent".
+- Codex only does work in **one place**: the main Claude (the orchestrator) explicitly shells out to `codex-exec.ps1` (→ `codex exec`). That is a separate external CLI process, billed against your ChatGPT/Codex plan — **not** your Claude quota.
+- Handing the heavy implementation work to Codex is what saves Claude usage.
+
+Stacked together (see skill §5):
+
+```text
+Main Claude (orchestrator)
+├─ UltraCode Workflow ─────► spawns [Claude subagents]: read-only research / planning / review
+│                             (Claude — counts against your Claude quota)
+└─ Main Claude dispatches ─► shells out to `codex exec` ─► [Codex]: writes the code
+                              (Codex — counts against your ChatGPT/Codex plan)
+```
+
+**Hard rule (enforced in §5):** Workflow/subagents must **never** call Codex themselves — only the main orchestrator dispatches Codex. Otherwise N parallel Claude subagents would each shell out to Codex, burning Codex quota and fighting over the single shared consult credential.
+
+**Bottom line:** UltraCode → *more* Claude. Saving Claude usage → the Codex offload. They are **different knobs**, and they compose (Claude subagents review; Codex writes) — but opening UltraCode never turns a subagent into Codex.
 
 ---
 
