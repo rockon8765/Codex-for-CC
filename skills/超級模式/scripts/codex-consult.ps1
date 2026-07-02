@@ -43,7 +43,7 @@ if ([string]::IsNullOrWhiteSpace($p)) { throw "Prompt is empty." }
 
 $logDir = Join-Path $env:USERPROFILE ".claude\super-mode-logs"
 if (-not (Test-Path $logDir)) { New-Item -ItemType Directory -Path $logDir | Out-Null }
-$log = Join-Path $logDir ("codex_consult_{0}.txt" -f (Get-Date -Format "yyyyMMdd_HHmmss"))
+$log = Join-Path $logDir ("codex_consult_{0}_{1}.txt" -f (Get-Date -Format "yyyyMMdd_HHmmss"), ([guid]::NewGuid().ToString('N').Substring(0, 6)))  # 去重後綴防同秒碰撞
 
 $Dir = $Dir.TrimEnd('\')
 if ($Dir -match '^[A-Za-z]:$') { $Dir += '\' }
@@ -74,6 +74,13 @@ if ($code -eq 0) {
   Set-Content -LiteralPath $token -Value $cred -Encoding utf8
   Write-Output "consult OK -- credential written; transcript: $log"
 } else {
+  # 配額/認證類失敗 → 明確標記 + 專屬 exit 42，讓上層 fail-fast、別在額度最稀缺時空轉重試
+  $tail = ""
+  try { $tail = (Get-Content -LiteralPath $log -Raw -ErrorAction SilentlyContinue) } catch {}
+  if ($tail -match '(?i)usage limit|rate limit|\b429\b|quota|not logged in|unauthorized|\b401\b') {
+    Write-Warning "CONSULT_UNAVAILABLE_QUOTA: codex 配額/認證失敗 (exit $code)。停止重試諮詢，向使用者回報；經同意可跑 super-mode.ps1 -Off 降級為一般模式。transcript: $log"
+    exit 42
+  }
   Write-Warning "codex-consult: codex exited [$code] -- no credential written. transcript: $log"
 }
 exit $code

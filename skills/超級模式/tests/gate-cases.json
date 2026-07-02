@@ -205,5 +205,19 @@
       "cwd": "C:\\proj"
     },
     "expect": "allow"
-  }
+  },
+  { "name": "git branch -D denies", "flagContent": "", "tokenAgeMs": null,
+    "input": { "tool_name": "Bash", "tool_input": { "command": "git branch -D feature" }, "cwd": "C:\\proj" }, "expect": "deny" },
+  { "name": "git tag create denies", "flagContent": "", "tokenAgeMs": null,
+    "input": { "tool_name": "Bash", "tool_input": { "command": "git tag v1.0" }, "cwd": "C:\\proj" }, "expect": "deny" },
+  { "name": "git remote add denies", "flagContent": "", "tokenAgeMs": null,
+    "input": { "tool_name": "Bash", "tool_input": { "command": "git remote add origin http://x" }, "cwd": "C:\\proj" }, "expect": "deny" },
+  { "name": "git remote set-url denies", "flagContent": "", "tokenAgeMs": null,
+    "input": { "tool_name": "Bash", "tool_input": { "command": "git remote set-url origin http://y" }, "cwd": "C:\\proj" }, "expect": "deny" },
+  { "name": "git branch (list) allows", "flagContent": "", "tokenAgeMs": null,
+    "input": { "tool_name": "Bash", "tool_input": { "command": "git branch -a" }, "cwd": "C:\\proj" }, "expect": "allow" },
+  { "name": "git tag -l allows", "flagContent": "", "tokenAgeMs": null,
+    "input": { "tool_name": "Bash", "tool_input": { "command": "git tag -l" }, "cwd": "C:\\proj" }, "expect": "allow" },
+  { "name": "git remote -v allows", "flagContent": "", "tokenAgeMs": null,
+    "input": { "tool_name": "Bash", "tool_input": { "command": "git remote -v" }, "cwd": "C:\\proj" }, "expect": "allow" }
 ]

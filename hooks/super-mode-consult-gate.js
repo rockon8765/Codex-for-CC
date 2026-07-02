@@ -69,7 +69,7 @@ const CONSUMING = [
 
 // 唯讀白名單（逐管線段比對，錨定段首）
 const READONLY_SEG = [
-  /^git\s+((-C\s+\S+|--no-pager|--git-dir=\S+|-c\s+\S+)\s+)*(status|log|diff|show|branch|rev-parse|remote(\s+-v)?|blame|shortlog|describe|grep|ls-files|ls-remote|ls-tree|cat-file|config\s+(--get|--list|-l)\b|tag(\s|$)|stash\s+list|worktree\s+list|reflog)/i,
+  /^git\s+((-C\s+\S+|--no-pager|--git-dir=\S+|-c\s+\S+)\s+)*(status|log|diff|show|rev-parse|blame|shortlog|describe|grep|ls-files|ls-remote|ls-tree|cat-file|config\s+(--get|--list|-l)\b|stash\s+list|worktree\s+list|reflog|branch(\s+(-a|--all|-l|--list|-v|-vv|--show-current|-r))*\s*$|tag(\s+(-l|--list))?\s*$|remote(\s+(-v|--verbose))?\s*$)/i,
   /^(ls|ll|dir|cat|type|head|tail|wc|sort|uniq|cut|tr|nl|stat|du|df|tree|pwd|cd|pushd|popd|echo|printf|date|whoami|hostname|uname|env|printenv|which|where(\.exe)?|findstr|grep|egrep|fgrep|rg|jq|diff|comm|file|less|more|sleep|true)\b/i,
   /^find\b(?!.*(-delete|-exec|-execdir|-ok|-okdir|-fprintf?|-fls|-fprint0))/i,
   /^(node|python3?|ruby|php|perl)\s+(-v|--version)\s*$/i,
@@ -224,7 +224,8 @@ function decide(input, baseDir = path.join(os.homedir(), ".claude")) {
       "①用 Write 工具把諮詢簡報寫進 scratchpad(豁免路徑，別用 shell 寫) " +
       "②用 PowerShell 工具(非 Bash 包 powershell -Command)跑 " +
       "~/.claude/skills/超級模式/scripts/codex-consult.ps1 -Dir <repo> -PromptFile <brief>(一律 -PromptFile) " +
-      "③成功後重試此動作。若超級模式其實已結束，用 PowerShell 工具跑 scripts/super-mode.ps1 -Off 解除。",
+      "③成功後重試此動作。若超級模式其實已結束，用 PowerShell 工具跑 scripts/super-mode.ps1 -Off 解除。" +
+      "（連續諮詢失敗 ≥2 次、或看到 CONSULT_UNAVAILABLE_QUOTA，請直接向使用者回報，勿再重試。）",
   };
   } catch (e) {
     return { allow: true };

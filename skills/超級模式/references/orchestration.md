@@ -51,13 +51,17 @@ SKILL.md 的 §2 / §3 / §3.5 / §5 的詳細範本與程序。用到才讀。
 
 ## §3.5 advice-gate 諮詢簡報範本
 
+**每里程碑一份簡報，批次列出本里程碑所有待決問題**（別每個小判斷各發一次，見 SKILL §3.5 節奏）：
+
 ```
 你是對抗式第二審查者，不是執行者。請挑戰我的假設。
-- 目標：<這次要決定什麼>
+- 里程碑目標：<這個里程碑要交付什麼>
 - 現況 / 數據：<關鍵事實>
-- 候選方案：<A / B / ...>
-- 我的初判：<你傾向哪個、為什麼>
-請：指出我漏掉或高估的點、給單一排序建議、明說你和我哪裡不同。
+- 待決問題（批次）：
+  1. <問題一：候選方案 A / B、我的初判與理由>
+  2. <問題二：…>
+  3. <風險 / 審查重點：…>
+請：逐題指出我漏掉或高估的點、各給單一排序建議、明說你和我哪裡不同。
 ```
 簡報**一律用 Write 工具寫進 scratchpad**（gate 豁免路徑；inline `-Prompt` 含 `;|&` 等標點會被 gate 的指令解析誤判。**別用 shell 寫簡報、也別用 Bash 包 `powershell -Command` 呼叫腳本**——shell 寫 scratchpad 不在豁免內、Bash-wrapper 不符腳本放行的開頭錨定，兩者都會被擋成繞圈）。用 PowerShell 工具跑 `scripts/codex-consult.ps1 -Dir <repo> -PromptFile <brief.txt>`（read-only，工具 timeout 360000ms）。Claude 統合後決定；逐字稿自動存 `~/.claude/super-mode-logs/codex_consult_<ts>.txt`。
 

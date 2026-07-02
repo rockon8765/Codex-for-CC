@@ -29,6 +29,13 @@ if ($On) {
 elseif ($Off) {
   if (Test-Path $flag)  { Remove-Item -LiteralPath $flag  -Force }
   if (Test-Path $token) { Remove-Item -LiteralPath $token -Force }
+  # 順手清理超過 14 天的舊逐字稿(日誌保留政策)
+  $logDir = Join-Path $claude "super-mode-logs"
+  if (Test-Path $logDir) {
+    Get-ChildItem -LiteralPath $logDir -File -ErrorAction SilentlyContinue |
+      Where-Object { $_.LastWriteTime -lt (Get-Date).AddDays(-14) } |
+      Remove-Item -Force -ErrorAction SilentlyContinue
+  }
   Write-Output "super mode: OFF"
 }
 else {

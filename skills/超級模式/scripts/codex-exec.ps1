@@ -24,7 +24,8 @@ param(
   [Parameter(Mandatory = $true)][string]$Dir,
   [string]$Prompt,
   [string]$PromptFile,
-  [string]$OutFile
+  [string]$OutFile,
+  [switch]$Quiet   # 背景派工建議帶：stdout 只印摘要，逐字稿仍寫 log；收工後只讀 _last.txt + git diff
 )
 $codexCmd = "C:\npm\codex.cmd"
 
@@ -46,7 +47,7 @@ if ([string]::IsNullOrWhiteSpace($p)) { throw "Prompt is empty." }
 
 $logDir = Join-Path $env:USERPROFILE ".claude\super-mode-logs"
 if (-not (Test-Path $logDir)) { New-Item -ItemType Directory -Path $logDir | Out-Null }
-$stamp = Get-Date -Format "yyyyMMdd_HHmmss"
+$stamp = "{0}_{1}" -f (Get-Date -Format "yyyyMMdd_HHmmss"), ([guid]::NewGuid().ToString('N').Substring(0, 6))  # 加去重後綴，防同秒並行派工檔名碰撞
 $log = Join-Path $logDir ("codex_exec_{0}.txt" -f $stamp)
 if (-not $OutFile) { $OutFile = Join-Path $logDir ("codex_exec_{0}_last.txt" -f $stamp) }
 
@@ -60,7 +61,8 @@ $errFile = Join-Path $env:TEMP ("codex_err_{0}.txt" -f ([guid]::NewGuid().ToStri
 try {
   # stderr 導到獨立檔(編號佔位符 {4})；不可用 2>&1(會回灌 stdout)。$LASTEXITCODE 仍是 codex 退出碼。
   $inner = '"{0}" exec --sandbox workspace-write --skip-git-repo-check -C "{1}" --output-last-message "{2}" < "{3}" 2> "{4}"' -f $codexCmd, $Dir, $OutFile, $brief, $errFile
-  & cmd.exe /d /s /c $inner | ForEach-Object { $_; Add-Content -LiteralPath $log -Value $_ -Encoding utf8 }
+  # -Quiet：只寫 log 不回灌 stdout(省 Claude context)；非 Quiet 維持逐行 echo
+  & cmd.exe /d /s /c $inner | ForEach-Object { if (-not $Quiet) { $_ }; Add-Content -LiteralPath $log -Value $_ -Encoding utf8 }
   $code = $LASTEXITCODE
   if (Test-Path $errFile) {
     Add-Content -LiteralPath $log -Value "===== STDERR =====" -Encoding utf8

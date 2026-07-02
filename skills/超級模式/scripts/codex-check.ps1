@@ -22,7 +22,8 @@ if (-not $Force -and (Test-Path $cache)) {
 }
 
 $installedRaw = (& $codex --version) -join ' '
-$latest = (npm view '@openai/codex' version | Out-String).Trim()
+# npm view 離線/不存在時不要整支中止(smoke test 才是權威可用性判定)
+try { $latest = (npm view '@openai/codex' version | Out-String).Trim() } catch { $latest = "(unknown - offline)" }
 $instVer = if ($installedRaw -match '(\d+\.\d+\.\d+\S*)') { $Matches[1] } else { $installedRaw }
 
 Write-Output "installed: $instVer"
@@ -43,6 +44,8 @@ $smoke = $LASTEXITCODE
 if ($smoke -eq 0) {
   Set-Content -LiteralPath $cache -Encoding utf8 -Value ("installed={0} latest={1} verdict={2} smoke=OK at {3}" -f $instVer, $latest, $verdict, (Get-Date -Format o))
 } else {
-  Write-Warning "codex-check: smoke test failed (exit $smoke) -- 快取未更新"
+  # smoke 失敗 → 刪快取，別讓已壞的 codex 在 24h 內被舊快取報成 OK
+  Write-Warning "codex-check: smoke test failed (exit $smoke) -- 刪除快取，下次呼叫強制重查"
+  Remove-Item -LiteralPath $cache -Force -ErrorAction SilentlyContinue
 }
 exit $smoke
