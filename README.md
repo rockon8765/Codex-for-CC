@@ -88,8 +88,12 @@
 ## 這個 repo 有什麼
 
 ```
+CLAUDE.md  AGENTS.md             # AI 助手自動載入的轉接指引（安裝用，指向 docs/AI-INSTALL.md）
+docs/AI-INSTALL.md               # AI 安裝指引（安裝流程的唯一真相）
+
 windows/                         # PowerShell 版（已稽核、已部署）
   settings.snippet.json
+  CLAUDE-global-rule.md          # 「Codex 討論夥伴」全域規則 snippet（append 到 ~/.claude/CLAUDE.md）
   hooks/super-mode-consult-gate.js
   skills/超級模式/
     SKILL.md  FIX-PLAN.md  references/orchestration.md
@@ -98,6 +102,7 @@ windows/                         # PowerShell 版（已稽核、已部署）
 
 macos/                           # bash 版（已移植、已驗證）
   settings.snippet.json
+  CLAUDE-global-rule.md          # 同上，macOS 版 snippet
   hooks/super-mode-consult-gate.js
   skills/超級模式/
     SKILL.md  FIX-PLAN.md  references/orchestration.md
@@ -121,6 +126,8 @@ macos/                           # bash 版（已移植、已驗證）
 
 ## 安裝
 
+> 🤖 **用 AI 裝（推薦）**：把 repo 交給你的 AI 助手，說「照 `docs/AI-INSTALL.md` 安裝」即可。Claude Code 會自動讀根目錄 [`CLAUDE.md`](CLAUDE.md)、Codex 會自動讀 [`AGENTS.md`](AGENTS.md)，兩者都被導到同一份安裝指引——含測試驗證、Codex 可用性檢查、以及（經你同意後）安裝「Codex 討論夥伴」全域規則。
+
 **macOS**
 ```bash
 # 1. Skill → ~/.claude/skills/    2. Hook → ~/.claude/hooks/
@@ -141,6 +148,8 @@ Copy-Item ".\windows\hooks\super-mode-consult-gate.js" "$env:USERPROFILE\.claude
 ```
 
 hook **在啟用前是 fail-open 且停用的** — 安裝它不會影響一般 session；只有在 `super-mode.{sh,ps1} on` 之後才會作用。
+
+**（建議的最後一步）啟用「Codex 討論夥伴」全域規則** — 讓 Claude 在交付決策型輸出（方案選項、建議、規劃、結論）前，先向 Codex 諮詢反方意見再裁決：把對應平台的 [`macos/CLAUDE-global-rule.md`](macos/CLAUDE-global-rule.md) / [`windows/CLAUDE-global-rule.md`](windows/CLAUDE-global-rule.md) **全文** append 到你的 `~/.claude/CLAUDE.md`（已有 `CODEX-DISCUSSION-PARTNER` marker 就別重複加；完整防護與冪等細節見 [`docs/AI-INSTALL.md`](docs/AI-INSTALL.md) 步驟 5）。前提是 Codex CLI 已登入可用（步驟 4 的 `codex-check`）。
 
 ## 環境假設（請依你的機器調整）
 
