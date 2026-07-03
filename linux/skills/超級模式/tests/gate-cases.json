@@ -1,0 +1,239 @@
+[
+  {
+    "name": "I1 no active flag allows mutating write",
+    "flagContent": null,
+    "tokenAgeMs": null,
+    "input": {
+      "tool_name": "Write",
+      "tool_input": { "file_path": "/home/user/proj/src/app.js" },
+      "cwd": "/home/user/proj"
+    },
+    "expect": "allow"
+  },
+  {
+    "name": "I2 malformed input fail-opens",
+    "flagContent": "",
+    "tokenAgeMs": null,
+    "input": null,
+    "expect": "allow"
+  },
+  {
+    "name": "write non-exempt project file without token denies",
+    "flagContent": "",
+    "tokenAgeMs": null,
+    "input": {
+      "tool_name": "Write",
+      "tool_input": { "file_path": "/home/user/proj/src/app.js" },
+      "cwd": "/home/user/proj"
+    },
+    "expect": "deny"
+  },
+  {
+    "name": "write scratchpad note allows",
+    "flagContent": "",
+    "tokenAgeMs": null,
+    "input": {
+      "tool_name": "Write",
+      "tool_input": { "file_path": "__TMP__/claude/scratchpad/note.txt" },
+      "cwd": "/home/user/proj"
+    },
+    "expect": "allow"
+  },
+  {
+    "name": "write claude settings denies",
+    "flagContent": "",
+    "tokenAgeMs": null,
+    "input": {
+      "tool_name": "Write",
+      "tool_input": { "file_path": "__BASE__/settings.json" },
+      "cwd": "/home/user/proj"
+    },
+    "expect": "deny"
+  },
+  {
+    "name": "git status allows",
+    "flagContent": "",
+    "tokenAgeMs": null,
+    "input": {
+      "tool_name": "Bash",
+      "tool_input": { "command": "git status" },
+      "cwd": "/home/user/proj"
+    },
+    "expect": "allow"
+  },
+  {
+    "name": "git push with fresh token allows",
+    "flagContent": "",
+    "tokenAgeMs": 60000,
+    "input": {
+      "tool_name": "Bash",
+      "tool_input": { "command": "git push" },
+      "cwd": "/home/user/proj"
+    },
+    "expect": "allow"
+  },
+  {
+    "name": "rm without token denies",
+    "flagContent": "",
+    "tokenAgeMs": null,
+    "input": {
+      "tool_name": "Bash",
+      "tool_input": { "command": "rm -rf x" },
+      "cwd": "/home/user/proj"
+    },
+    "expect": "deny"
+  },
+  {
+    "name": "codex consult script (direct path) allows",
+    "flagContent": "",
+    "tokenAgeMs": null,
+    "input": {
+      "tool_name": "Bash",
+      "tool_input": { "command": "/home/user/.claude/skills/超級模式/scripts/codex-consult.sh -d /home/user/p -f x" },
+      "cwd": "/home/user/proj"
+    },
+    "expect": "allow"
+  },
+  {
+    "name": "codex exec script denies without token",
+    "flagContent": "",
+    "tokenAgeMs": null,
+    "input": {
+      "tool_name": "Bash",
+      "tool_input": { "command": "bash /home/user/.claude/skills/超級模式/scripts/codex-exec.sh -d /home/user/p -f x" },
+      "cwd": "/home/user/proj"
+    },
+    "expect": "deny"
+  },
+  {
+    "name": "write conftest under scratchpad denies",
+    "flagContent": "",
+    "tokenAgeMs": null,
+    "input": {
+      "tool_name": "Write",
+      "tool_input": { "file_path": "__TMP__/claude/scratchpad/conftest.py" },
+      "cwd": "/home/user/proj"
+    },
+    "expect": "deny"
+  },
+  {
+    "name": "pytest real temp path denies",
+    "flagContent": "",
+    "tokenAgeMs": null,
+    "input": {
+      "tool_name": "Bash",
+      "tool_input": { "command": "pytest \"__TMP__/claude/scratchpad\"" },
+      "cwd": "/home/user/proj"
+    },
+    "expect": "deny"
+  },
+  {
+    "name": "cd scratchpad then npm test denies",
+    "flagContent": "",
+    "tokenAgeMs": null,
+    "input": {
+      "tool_name": "Bash",
+      "tool_input": { "command": "cd \"__TMP__/claude/scratchpad\"; npm test" },
+      "cwd": "/home/user/proj"
+    },
+    "expect": "deny"
+  },
+  {
+    "name": "bare pytest in project root allows",
+    "flagContent": "",
+    "tokenAgeMs": null,
+    "input": {
+      "tool_name": "Bash",
+      "tool_input": { "command": "pytest" },
+      "cwd": "/home/user/proj"
+    },
+    "expect": "allow"
+  },
+  {
+    "name": "cd project then npm test allows",
+    "flagContent": "",
+    "tokenAgeMs": null,
+    "input": {
+      "tool_name": "Bash",
+      "tool_input": { "command": "cd /home/user/proj; npm test" },
+      "cwd": "/home/user/proj"
+    },
+    "expect": "allow"
+  },
+  {
+    "name": "write scratchpad report allows",
+    "flagContent": "",
+    "tokenAgeMs": null,
+    "input": {
+      "tool_name": "Write",
+      "tool_input": { "file_path": "__TMP__/claude/scratchpad/report.txt" },
+      "cwd": "/home/user/proj"
+    },
+    "expect": "allow"
+  },
+  {
+    "name": "scoped credential allows action in same repo",
+    "flagContent": "",
+    "tokenAgeMs": 60000,
+    "tokenContent": "{\"repo\":\"/home/user/proj\",\"ts\":\"x\"}",
+    "input": {
+      "tool_name": "Bash",
+      "tool_input": { "command": "git push" },
+      "cwd": "/home/user/proj"
+    },
+    "expect": "allow"
+  },
+  {
+    "name": "scoped credential denies action in different repo",
+    "flagContent": "",
+    "tokenAgeMs": 60000,
+    "tokenContent": "{\"repo\":\"/home/user/proj\",\"ts\":\"x\"}",
+    "input": {
+      "tool_name": "Write",
+      "tool_input": { "file_path": "/home/user/other/src/x.js" },
+      "cwd": "/home/user/other"
+    },
+    "expect": "deny"
+  },
+  {
+    "name": "legacy timestamp credential still allows (backward compat)",
+    "flagContent": "",
+    "tokenAgeMs": 60000,
+    "input": {
+      "tool_name": "Write",
+      "tool_input": { "file_path": "/home/user/proj/src/app.js" },
+      "cwd": "/home/user/proj"
+    },
+    "expect": "allow"
+  },
+  { "name": "git branch -D denies", "flagContent": "", "tokenAgeMs": null,
+    "input": { "tool_name": "Bash", "tool_input": { "command": "git branch -D feature" }, "cwd": "/home/user/proj" }, "expect": "deny" },
+  { "name": "git tag create denies", "flagContent": "", "tokenAgeMs": null,
+    "input": { "tool_name": "Bash", "tool_input": { "command": "git tag v1.0" }, "cwd": "/home/user/proj" }, "expect": "deny" },
+  { "name": "git remote add denies", "flagContent": "", "tokenAgeMs": null,
+    "input": { "tool_name": "Bash", "tool_input": { "command": "git remote add origin http://x" }, "cwd": "/home/user/proj" }, "expect": "deny" },
+  { "name": "git remote set-url denies", "flagContent": "", "tokenAgeMs": null,
+    "input": { "tool_name": "Bash", "tool_input": { "command": "git remote set-url origin http://y" }, "cwd": "/home/user/proj" }, "expect": "deny" },
+  { "name": "git branch (list) allows", "flagContent": "", "tokenAgeMs": null,
+    "input": { "tool_name": "Bash", "tool_input": { "command": "git branch -a" }, "cwd": "/home/user/proj" }, "expect": "allow" },
+  { "name": "git tag -l allows", "flagContent": "", "tokenAgeMs": null,
+    "input": { "tool_name": "Bash", "tool_input": { "command": "git tag -l" }, "cwd": "/home/user/proj" }, "expect": "allow" },
+  { "name": "git remote -v allows", "flagContent": "", "tokenAgeMs": null,
+    "input": { "tool_name": "Bash", "tool_input": { "command": "git remote -v" }, "cwd": "/home/user/proj" }, "expect": "allow" },
+  { "name": "mac: private-tmp scratchpad note allows", "flagContent": "", "tokenAgeMs": null,
+    "input": { "tool_name": "Write", "tool_input": { "file_path": "/private/tmp/claude-501/s1/scratchpad/note.txt" }, "cwd": "/home/user/proj" }, "expect": "allow" },
+  { "name": "mac: private-tmp conftest denies", "flagContent": "", "tokenAgeMs": null,
+    "input": { "tool_name": "Write", "tool_input": { "file_path": "/private/tmp/claude-501/s1/scratchpad/conftest.py" }, "cwd": "/home/user/proj" }, "expect": "deny" },
+  { "name": "mac: write sh to scratchpad denies (I9)", "flagContent": "", "tokenAgeMs": null,
+    "input": { "tool_name": "Write", "tool_input": { "file_path": "__TMP__/claude/scratchpad/run.sh" }, "cwd": "/home/user/proj" }, "expect": "deny" },
+  { "name": "mac: pytest against /tmp denies", "flagContent": "", "tokenAgeMs": null,
+    "input": { "tool_name": "Bash", "tool_input": { "command": "pytest /tmp/claude-501/s1/scratchpad" }, "cwd": "/home/user/proj" }, "expect": "deny" },
+  { "name": "mac: bash-prefixed consult allows (I5)", "flagContent": "", "tokenAgeMs": null,
+    "input": { "tool_name": "Bash", "tool_input": { "command": "bash /home/user/.claude/skills/超級模式/scripts/codex-consult.sh -d /home/user/p -f b.txt" }, "cwd": "/home/user/proj" }, "expect": "allow" },
+  { "name": "mac: super-mode off allows (I5)", "flagContent": "", "tokenAgeMs": null,
+    "input": { "tool_name": "Bash", "tool_input": { "command": "bash /home/user/.claude/skills/超級模式/scripts/super-mode.sh off" }, "cwd": "/home/user/proj" }, "expect": "allow" },
+  { "name": "scope: write outside scope allows", "flagContent": "/home/user/proj", "tokenAgeMs": null,
+    "input": { "tool_name": "Write", "tool_input": { "file_path": "/home/user/other/x.js" }, "cwd": "/home/user/other" }, "expect": "allow" },
+  { "name": "scope: write inside scope denies without token", "flagContent": "/home/user/proj", "tokenAgeMs": null,
+    "input": { "tool_name": "Write", "tool_input": { "file_path": "/home/user/proj/x.js" }, "cwd": "/home/user/proj" }, "expect": "deny" }
+]

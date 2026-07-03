@@ -1,0 +1,16 @@
+{
+  "_comment": "把這個 PreToolUse 條目合併進 ~/.claude/settings.local.json 的 hooks.PreToolUse（用 settings.local.json、不要用 settings.json，這樣 ECC 重新安裝時不會蓋掉它）。請把 hook 的絕對路徑改成符合你家目錄的路徑；若 node 不在系統 PATH（如可攜式安裝在 ~/.local/node/bin），command 開頭的 node 也要換成絕對路徑，否則 hook 會靜默不跑。",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit|NotebookEdit|Bash|PowerShell|RemoteTrigger|PushNotification|CronCreate|CronDelete|mcp__.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node /home/user/.claude/hooks/super-mode-consult-gate.js"
+          }
+        ]
+      }
+    ]
+  }
+}

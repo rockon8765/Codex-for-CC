@@ -1,0 +1,59 @@
+---
+name: 超級模式
+description: 重型工程協作工作流的「明確開關」——spec-first 規劃、Claude 當指揮(orchestrator)、Codex CLI 當執行(worker)、里程碑回寫 md 當合約。只在使用者明確說「超級模式 / super mode / 雙 harness」，或明確要對大型 / 跨 session / 多檔案 / 需回測或交付的專案、大規模重構啟用時才用。不要用於單檔修改、快速問答、一次性腳本、純探索——這是開關不是預設。啟用後第一步先做 30 秒「值不值得」閘門，不值得就退出。
+---
+
+# 超級模式 (Super Mode) · Linux
+
+重型工程協作：Claude 規劃指揮 (orchestrator)、Codex CLI 執行 (worker)，全程以 md 規格當合約。
+
+**啟用時先宣告一句：**
+> 「已進入超級模式 — 本次採 spec-first → 指揮 Codex → 里程碑回寫 md。」
+
+## 0. 啟用閘門（先做 30 秒自評，不值得就退出）
+超級模式很燒 token，**只給大型工作用**。**啟動後第一件事先做這個 gate**：
+- ✅ 跨多 session、多檔案、要回測 / 交付、規格會反覆改、大規模重構 → 繼續：宣告進入，並跑 `scripts/super-mode.sh on --scope <專案根>`（開啟 consult-gate 強制；`--scope` 讓 gate 只管這個專案、不擋同機其他 session，**建議都帶**）。
+- ❌ 單檔改動、一次性腳本、3 步內完成、純探索 / 問答 → 直接說「這個任務不需要超級模式，建議直接做」並退出，用一般模式。
+
+## 1. Spec-first — 沒有 spec 不准寫實作
+1. 先找現有 spec：`docs/**/specs/*.md`、`*-design.md`、`*-plan.md`，找到就當真相來源。
+2. 沒有就用 `planner` / brainstorm 產一份：目標與非目標、任務拆解（可獨立交付步驟 + 依賴 DAG）、每步驗收條件、風險與未決。
+3. **取得使用者確認後**才進入執行。遵守專案 CLAUDE.md 既有慣例（版本標頭、commit 格式）。
+
+## 2. 兩層分離 — 哪些給 Codex
+| 層 | 內容 | 給 Codex? |
+|---|---|:--:|
+| 指揮層（只 Claude） | 本流程、如何規劃、如何命令 Codex、如何審查 | ❌ |
+| 共用規範層（雙方） | coding style、commit 格式、測試要求、領域知識、驗收標準 | ✅ |
+- **永遠別**把指揮層或整包 skill 倒給 Codex（它會以為自己要去指揮另一個 Codex）。
+- 同步 = 單向生成 repo 根目錄的 `AGENTS.md`（只放精選共用規範，不是整包 skill）；第一次派工時才生成。範本見 `references/orchestration.md`。
+
+## 3. 指揮 Codex CLI（執行層）
+- **逾時與長跑（重要）**：`codex-consult.sh` / `codex-check.sh` 前景跑，Bash 工具 `timeout` 設 **360000ms（6 分鐘）**——Codex 是推理模型，常超過工具預設的 2 分鐘。`codex-exec.sh` 派工一律 **`run_in_background: true` + `-q`**（重任務常超過前景時限；`-q` 讓 stdout 只回一行摘要、不回灌逐字稿）。逐字稿與最終回覆自動落地 `~/.claude/super-mode-logs/`。
+- **派工前先確認 Codex 最新版**：跑 `scripts/codex-check.sh`（查版本 + smoke test；**24 小時內查過會直接回快取**，`-f` 強制重查）。落後要更新 global 屬系統變更 → **先問使用者**。
+- **派工也要先諮詢**：`codex-exec.sh` 是 workspace-write 執行者，會實際改檔 → gate **不無條件放行**，派工前必須有 20 分鐘內憑證（先做 §3.5 諮詢）。每步產一份自足任務簡報（規格依據 / 目標檔清單 / 要做什麼 / 驗收條件 / 限制：不得做架構決策、有疑慮回報），**用 Write 工具把簡報寫進 scratchpad**（gate 豁免路徑），再跑 `scripts/codex-exec.sh -d <repo> -f <brief> -q`。簡報格式見 `references/orchestration.md`。
+- Codex 交回後 **Claude 一定要 review**（正確性 / 符合 spec / 安全），不合格退回重做，別照單全收。**收工後只讀 `_last.txt`（最終回覆）＋ `git diff`**；逐字稿 log 只在退回重做 / 除錯時抽段讀（省 Claude context）。審查依 orchestration.md §5 分級：**預設單線 diff 審查，安全敏感 / 架構 diff 才開三鏡頭**。
+
+## 3.5 諮詢節奏（advice gate，鐵則）
+**預設：每個里程碑諮詢一次 `scripts/codex-consult.sh`；另在任何不可逆動作（commit / push / deploy / 刪除）前諮詢一次。里程碑內的例行判斷（要不要退回、diff 疑點、下一步順序）不需逐一諮詢——併入下一次里程碑諮詢一起批次問。** 這與 gate 的 20 分鐘憑證窗＋收尾降 3 分鐘節奏對齊。
+- 例外（可不問）：純閒聊、純狀態回報、純唯讀探索（Read / Grep / ls）、里程碑內例行判斷。
+- **不可逆動作前一律先問**；不確定是不是不可逆 → 先問。
+- 諮詢簡報一次**批次列出本里程碑所有待決問題**（方案取捨、風險、審查重點），Codex 一次回答。簡報（現況數據＋候選方案＋你的初判，請它挑戰你的假設）**用 Write 工具寫進 scratchpad**（gate 豁免路徑；**別用 shell 寫**——shell 寫檔不在豁免內會被擋成繞圈），再用 Bash 工具跑 `scripts/codex-consult.sh -d <repo> -f <brief>`（timeout 360000ms）。
+- **Claude 擁有最終決定權**：對照、調和、必要時反駁，再決定；有分歧向使用者說明。諮詢逐字稿自動存 `~/.claude/super-mode-logs/`。
+- **硬性強制**：consult-gate hook（`~/.claude/hooks/super-mode-consult-gate.js`，經 `settings.local.json` 註冊）在超級模式啟用時攔 Edit / Write / MultiEdit / NotebookEdit / **Bash** / MCP 寫入類 / 外發內建工具（RemoteTrigger / PushNotification / Cron*）。唯讀白名單（git status/diff、ls、cat、rg、測試 / lint）自動放行，**其餘一律 default-deny** 要 20 分鐘內諮詢憑證；未知 MCP 工具也 default-deny；`codex-exec.sh` 派工同樣要憑證（只有唯讀的 codex-consult / codex-check 與 super-mode 開關無條件放行）。commit / push / merge / publish / deploy 放行後憑證**降為只剩 3 分鐘**（同一條指令內 commit+push 不受影響），逼下一個里程碑重新諮詢。scratchpad 與 `~/.claude`（除 settings / hooks / 旗標憑證等安全關鍵檔，及 `conftest.py`、`package.json`、`*.sh` 等會被自動執行的檔名）寫入豁免；旗標超過 8 小時自動視為殘留解除。詳見 `references/orchestration.md`。
+
+## 4. 里程碑回寫 md
+每完成一步 / 里程碑，立即回寫規格 md（勾掉項目、記錄決策與偏差、升版、更新未決）。建議接 Stop / PostToolUse hook 強制（可主動提議幫設定）。
+
+## 5. Ultracode 疊用
+ultracode 開啟時：理解 / 設計 / 審查階段用 Workflow 多代理（唯讀分析），派工仍走 `codex exec`。對照分工見 `references/orchestration.md`。
+**鐵則：每步只有一個 worker pool 寫檔**（預設 Codex 寫程式、Claude 的 Workflow agents 只做不寫檔的研究 / 規劃 / 審查；要平行跑多個 `codex exec` 須各自在 worktree 隔離）。
+**鐵則：Workflow / subagent 一律禁止呼叫 `codex-consult.sh` / `codex-exec.sh`。** consult-gate 也會在子代理內觸發；子代理被擋時**把被擋的動作與理由回報 orchestrator（主 Claude）**，由主線統一諮詢與派工——否則 N 個平行子代理各自諮詢會燒 Codex 額度、且任一子代理的諮詢會 mint 全機憑證、commit 會降級全體憑證。審查階段子代理若要跑 build / verify（如 `npm run build`），交給主線在有憑證時跑。
+
+## 收尾
+一輪結束回報：完成了哪些步驟 / 改了哪些檔、md 規格升到哪版、還有哪些未決 / 下一步、**是否該退出超級模式**（任務收斂則建議退出）。退出時**必跑** `scripts/super-mode.sh off`（清旗標與憑證、順手清 14 天前舊 log；忘了跑會殘留擋到之後的 session，hook 的 8 小時自動解除只是最後保險）。
+
+**Codex 額度耗盡 runbook**：若 `codex-consult.sh` 印出 `CONSULT_UNAVAILABLE_QUOTA`（或 exit 42），代表 Codex 配額 / 認證失效。**立即停手、不要重試諮詢**，向使用者回報現況與選項；經使用者同意可跑 `scripts/super-mode.sh off` 降級為一般模式，由 Claude 自行完成剩餘工作。連續諮詢失敗 ≥2 次也一律回報使用者，勿在額度最稀缺時空轉。
+
+---
+**平台備註（Linux）：** Codex CLI 需在 PATH 上（`codex`，npm global 安裝，常見位置 `~/.local/bin/codex` 或 npm prefix 的 `bin/`），不需指定路徑。Hook 需要 Node：若 `node` 不在系統 PATH（例如可攜式安裝在 `~/.local/node/bin`），settings 裡的 hook 指令請寫 node 的**絕對路徑**（如 `/home/<你>/.local/node/bin/node`），否則 hook 會靜默不跑、gate 形同虛設。腳本使用 GNU coreutils（`stat -c`），BSD 環境請改用 macOS 版。腳本已封裝的坑：簡報一律落地暫存檔後用 `< file` 餵 stdin ＋ `--skip-git-repo-check`（否則卡讀 stdin / 報「Not inside a trusted directory」）；stderr 導獨立檔併入 log（絕不 `2>&1` 回灌 stdout）。沙箱：諮詢用 `--sandbox read-only --ephemeral`、派工用 `--sandbox workspace-write`。落後更新：`npm install -g @openai/codex@latest`（先問使用者）。

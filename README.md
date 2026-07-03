@@ -6,20 +6,20 @@
 
 ---
 
-## 兩個平台版本
+## 三個平台版本
 
-這個 repo 為**兩個平台提供同一個 skill**。它們**行為等價** — 相同的發現、相同的不變量（I1–I8，外加 macOS 專屬的 I9）、相同的驗收條件 — 但*實作機制*依平台翻譯（PowerShell vs bash、BOM 處理、stdin 佈線、路徑規則）。挑你機器對應的那個：
+這個 repo 為**三個平台提供同一個 skill**。它們**行為等價** — 相同的發現、相同的不變量（I1–I8，外加 `.sh` 平台（macOS/Linux）的 I9）、相同的驗收條件 — 但*實作機制*依平台翻譯（PowerShell vs bash、BOM 處理、stdin 佈線、路徑規則、BSD vs GNU userland）。挑你機器對應的那個：
 
-| | [`windows/`](windows/) | [`macos/`](macos/) |
-|---|---|---|
-| Hook/腳本執行環境 | PowerShell 5.1 + Node | bash/zsh + Node |
-| 執行腳本 | `*.ps1` | `*.sh` |
-| Codex CLI 位置 | `C:\npm\codex.cmd`（寫死） | `PATH` 上的 `codex`（Homebrew npm global） |
-| Gate 拒絕機制 | `permissionDecision` / exit 2 | stderr + exit 2 |
-| 接 hook 的設定檔 | `settings.json` | `settings.local.json` |
-| 修復紀錄 | [`windows/skills/超級模式/FIX-PLAN.md`](windows/skills/超級模式/FIX-PLAN.md) | [`macos/skills/超級模式/FIX-PLAN.md`](macos/skills/超級模式/FIX-PLAN.md) |
+| | [`windows/`](windows/) | [`macos/`](macos/) | [`linux/`](linux/) |
+|---|---|---|---|
+| Hook/腳本執行環境 | PowerShell 5.1 + Node | bash/zsh + Node | bash + Node |
+| 執行腳本 | `*.ps1` | `*.sh` | `*.sh` |
+| Codex CLI 位置 | `C:\npm\codex.cmd`（寫死） | `PATH` 上的 `codex`（Homebrew npm global） | `PATH` 上的 `codex`（npm global） |
+| Gate 拒絕機制 | `permissionDecision` / exit 2 | stderr + exit 2 | stderr + exit 2 |
+| 接 hook 的設定檔 | `settings.json` | `settings.local.json` | `settings.local.json` |
+| 修復紀錄 | [`windows/skills/超級模式/FIX-PLAN.md`](windows/skills/超級模式/FIX-PLAN.md) | [`macos/skills/超級模式/FIX-PLAN.md`](macos/skills/超級模式/FIX-PLAN.md) | [`linux/skills/超級模式/FIX-PLAN.md`](linux/skills/超級模式/FIX-PLAN.md) |
 
-> **現況。** 對 Windows 版的稽核找出了幾個真實問題（一個 gate 繞過、Codex 靜默失敗、成本反模式）；Phase 1–4 已實作、驗證並部署，Phase 5 已評估。macOS 版是這份工作的**已驗證移植** — 發現與不變量沿用、機制翻譯，並以 34 案例回歸測試臺 + 真實端到端跑驗證過。各平台完整的逐步紀錄在各自的 `FIX-PLAN.md`（上表連結）。
+> **現況。** 對 Windows 版的稽核找出了幾個真實問題（一個 gate 繞過、Codex 靜默失敗、成本反模式）；Phase 1–4 已實作、驗證並部署，Phase 5 已評估。macOS 版是這份工作的**已驗證移植** — 發現與不變量沿用、機制翻譯，並以 34 案例回歸測試臺 + 真實端到端跑驗證過。Linux 版是 macOS 版的**機械式移植**（BSD `stat -f` → GNU `stat -c`、平台文案；hook 與兩支 codex 腳本逐位元組相同），34 案例回歸 + 11 案例 e2e stdin 已在 Linux 實機全綠；真實 codex 端到端請部署後照 macOS FIX-PLAN Phase 5 劇本自跑一輪。各平台完整的逐步紀錄在各自的 `FIX-PLAN.md`（上表連結）。
 
 ---
 
@@ -34,7 +34,7 @@
 
 **2. 這個 skill 的 Codex offload — 省 Claude 用量真正的來源**
 - Codex **不是一種子代理類型** — UltraCode 無法派出「Codex agent」。
-- Codex 只在**一個地方**做事：主線的 Claude（orchestrator）主動 shell out 去跑 `codex-exec`（Windows 是 `.ps1`／macOS 是 `.sh` → `codex exec`）。那是一個獨立的外部 CLI 程序，算在你的 ChatGPT/Codex 方案上 — **不是**你的 Claude 額度。
+- Codex 只在**一個地方**做事：主線的 Claude（orchestrator）主動 shell out 去跑 `codex-exec`（Windows 是 `.ps1`／macOS 與 Linux 是 `.sh` → `codex exec`）。那是一個獨立的外部 CLI 程序，算在你的 ChatGPT/Codex 方案上 — **不是**你的 Claude 額度。
 - 把繁重的實作工作交給 Codex，才是省 Claude 用量的關鍵。
 
 兩者疊在一起時（見 skill §5）：
@@ -71,11 +71,19 @@ macos/                           # bash 版（已移植、已驗證）
     SKILL.md  FIX-PLAN.md  references/orchestration.md
     scripts/  super-mode.sh  codex-consult.sh  codex-exec.sh  codex-check.sh
     tests/    run-gate-tests.js  run-e2e.sh  gate-cases.json
+
+linux/                           # bash 版（自 macOS 機械式移植、GNU userland）
+  settings.snippet.json
+  hooks/super-mode-consult-gate.js
+  skills/超級模式/
+    SKILL.md  FIX-PLAN.md  references/orchestration.md
+    scripts/  super-mode.sh  codex-consult.sh  codex-exec.sh  codex-check.sh
+    tests/    run-gate-tests.js  run-e2e.sh  gate-cases.json
 ```
 
 ## 運作方式（一個里程碑）
 
-下面的指令用 macOS（`.sh`）的名稱；Windows 對應的是 `.ps1` 腳本、用 `-On/-Off/-Scope` 之類的 flag（見 [`windows/`](windows/)）。
+下面的指令用 macOS / Linux（`.sh`）的名稱；Windows 對應的是 `.ps1` 腳本、用 `-On/-Off/-Scope` 之類的 flag（見 [`windows/`](windows/)）。
 
 1. **啟用**並指定專案範圍：`super-mode.sh on --scope <repo>`（寫入 `~/.claude/.super-mode-active`）。
 2. **Spec-first** — 沒有講好的 spec/plan md 就不動手實作。
@@ -101,6 +109,19 @@ node ~/.claude/skills/超級模式/tests/run-gate-tests.js   # PASS 34/34
 bash ~/.claude/skills/超級模式/tests/run-e2e.sh          # 11 passed
 ```
 
+**Linux**
+```bash
+# 1. Skill → ~/.claude/skills/    2. Hook → ~/.claude/hooks/
+cp -R "linux/skills/超級模式" ~/.claude/skills/
+cp    "linux/hooks/super-mode-consult-gate.js" ~/.claude/hooks/
+# 3. 把 hook 接到 ~/.claude/settings.local.json（見 linux/settings.snippet.json），
+#    絕對路徑改成你家目錄；若 node 不在系統 PATH（可攜式安裝），command 開頭的
+#    node 也要寫絕對路徑，否則 hook 會靜默不跑。
+# 4. 驗證：
+node ~/.claude/skills/超級模式/tests/run-gate-tests.js   # PASS 34/34
+bash ~/.claude/skills/超級模式/tests/run-e2e.sh          # 11 passed
+```
+
 **Windows**
 ```powershell
 Copy-Item -Recurse ".\windows\skills\超級模式" "$env:USERPROFILE\.claude\skills\"
@@ -116,26 +137,32 @@ hook **在啟用前是 fail-open 且停用的** — 安裝它不會影響一般 
 - **bash/zsh** 執行環境；hook 用 **Node**；`codex` 在 `PATH` 上（Homebrew npm global 在 `/opt/homebrew/lib/node_modules/@openai/codex`）。腳本（用 `$HOME`）與 hook（`os.homedir()`）都沒寫死路徑；只有 `settings.local.json` 裡的 hook 指令需要你的絕對家目錄路徑。
 - 路徑等價已處理：gate 會把 `/private/tmp` ↔ `/tmp`、`/private/var` ↔ `/var` 正規化，讓 Claude Code 的 scratchpad（`/private/tmp/claude-*`）被正確當成豁免的暫存路徑。
 
+**Linux**
+- **bash** 執行環境（GNU coreutils——腳本用 `stat -c`；Alpine/BusyBox 請自行確認）；hook 用 **Node**；`codex` 在 `PATH` 上（npm global，常見於 `~/.local/bin`）。腳本與 hook 都沒寫死路徑；只有 `settings.local.json` 裡的 hook 指令需要你的絕對家目錄路徑。
+- **node 不一定在 PATH**：可攜式安裝（如 `~/.local/node/bin`）的機器，settings 裡的 hook 指令請用 node 的絕對路徑——PATH 找不到 node 時 hook 會**靜默不跑、gate 形同虛設**。部署後用一次故意違規的 Write 驗證 gate 真的會 deny。
+
 **Windows**
 - **Windows 11**、**PowerShell 5.1** 執行環境。**Codex CLI** 在 `C:\npm\codex.cmd`（位置不同就改 `$codexCmd`）。使用者家目錄在 settings matcher 指令與部分文件中寫死為 `C:\Users\user`。
 
-**兩者共通**
+**各平台共通**
 - 認證：腳本用你已登入的 Codex CLI（沒有內嵌、也不需要 API key）。
 - **Codex CLI 大約每週改版** — flag/行為會漂移。任何碰到 Codex flag 的地方，先用 `codex exec --help` 重新確認（各 FIX-PLAN 的 Phase 0/5 都這樣假設）。
 
 ## 已知的坑（血淚換來的）
 
-**Windows 專屬** — **不要**移植到 macOS：
+**Windows 專屬** — **不要**移植到 macOS / Linux：
 - Claude 的寫檔工具產生的是**無 BOM** 的 UTF-8；PowerShell 5.1 讀無 BOM 的含中文 `.ps1` 會亂碼。改完任何 `.ps1` 後，要重新補上 UTF-8 BOM 並重新驗證語法（見 `windows/.../FIX-PLAN.md` §0.5）。
 - 簡報透過 `cmd /s /c "... < file"` 餵給 Codex，因為 PS 5.1 的 `$OutputEncoding` 對 native pipe 不生效（非 ASCII 會變成 `?`）。
 
-**macOS**
+**macOS / Linux**
 - 沒有 BOM 問題 — 那些步驟已刻意移除。簡報以一般 stdin 重導向（`< file`）送給 Codex；stderr 收到獨立檔再併進 log（絕不用 `2>&1`，那會把 Codex 的雜訊回灌進 Claude 的 context）。
 - `set -e` + pipeline 會吞掉 Codex 的 exit code — 腳本用固定的 `set +e … ${PIPESTATUS[0]} … set -e` 寫法（FIX-PLAN §0.5）。
+- macOS ↔ Linux 唯二的腳本差異是 `stat`（BSD `-f %m` vs GNU `-c %Y`，在 `codex-check.sh` 與 `super-mode.sh`）——別把版本拿錯邊。
 
 ## 現況與後續
 
-每個平台都有一份分階段、弱 AI 可照做的修復計畫（每一步都有目的 / 驗收 / 對抗未來變化 / 回滾，另含不變量清單與回歸測試臺規格），且本身都經過對抗式驗證：
+每個平台都有一份分階段、弱 AI 可照做的修復／移植紀錄（每一步都有目的 / 驗收 / 對抗未來變化 / 回滾，另含不變量清單與回歸測試臺規格）：
 
 - Windows：[`windows/skills/超級模式/FIX-PLAN.md`](windows/skills/超級模式/FIX-PLAN.md)
 - macOS：[`macos/skills/超級模式/FIX-PLAN.md`](macos/skills/超級模式/FIX-PLAN.md)
+- Linux：[`linux/skills/超級模式/FIX-PLAN.md`](linux/skills/超級模式/FIX-PLAN.md)
