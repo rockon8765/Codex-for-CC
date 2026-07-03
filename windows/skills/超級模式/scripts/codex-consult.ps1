@@ -10,6 +10,8 @@
 #                prompts can trip the consult-gate's command parsing).
 #   -PromptFile  Read the consult brief from a file. PREFERRED -- write the brief
 #                to the session scratchpad (gate-exempt path) and pass it here.
+#   -NoCredential  Discussion-partner mode (outside super-mode): same read-only
+#                consult, but do NOT mint the consult-gate credential.
 # Note: set the calling tool timeout to 360000ms (6 min); Codex reasoning often exceeds the 2-min default.
 #
 # STDIN wiring (v3): the brief is normalized to a UTF-8(no BOM) temp file and fed to
@@ -20,7 +22,8 @@
 param(
   [Parameter(Mandatory = $true)][string]$Dir,
   [string]$Prompt,
-  [string]$PromptFile
+  [string]$PromptFile,
+  [switch]$NoCredential
 )
 
 $codexCmd = "C:\npm\codex.cmd"
@@ -69,11 +72,17 @@ finally {
 }
 
 if ($code -eq 0) {
-  $token = Join-Path $env:USERPROFILE ".claude\.super-mode-consult-ok"
-  # 憑證決策範圍：綁定本次諮詢的 repo(-Dir)。hook 會比對後續動作路徑是否在此 repo 下。
-  $cred = @{ repo = $Dir; ts = (Get-Date -Format o) } | ConvertTo-Json -Compress
-  Set-Content -LiteralPath $token -Value $cred -Encoding utf8
-  Write-Output "consult OK -- credential written; transcript: $log"
+  if ($NoCredential) {
+    # Discussion-partner mode: no credential, so a casual consult can never
+    # unlock super-mode gated actions in a concurrent session on this repo.
+    Write-Output "consult OK -- no credential (discussion mode); transcript: $log"
+  } else {
+    $token = Join-Path $env:USERPROFILE ".claude\.super-mode-consult-ok"
+    # 憑證決策範圍：綁定本次諮詢的 repo(-Dir)。hook 會比對後續動作路徑是否在此 repo 下。
+    $cred = @{ repo = $Dir; ts = (Get-Date -Format o) } | ConvertTo-Json -Compress
+    Set-Content -LiteralPath $token -Value $cred -Encoding utf8
+    Write-Output "consult OK -- credential written; transcript: $log"
+  }
 } else {
   # 配額/認證類失敗 → 明確標記 + 專屬 exit 42，讓上層 fail-fast、別在額度最稀缺時空轉重試
   $tail = ""
