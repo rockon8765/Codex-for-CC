@@ -22,6 +22,7 @@
 | `references/orchestration.md` | 標題；註冊 snippet 的 hook 指令與說明 | 家目錄佔位符 `/home/user/`；補「node 不在 PATH 要用絕對路徑」警告（見 §3） |
 | `settings.snippet.json` | hook 指令路徑與 `_comment` | 同上 |
 | `FIX-PLAN.md` | 本文件（取代 macOS 版全文） | macOS 版是移植過程紀錄，對 Linux 使用者只需差異與驗證 |
+| `../CLAUDE-global-rule.md` | marker 標記 `(macos)` → `(linux)` | 「Codex 討論夥伴」snippet；內容與 macOS 版相同（Bash + `.sh -n`），2026-07-05 merge 同步時補 |
 
 ## 2. 不變量對照（沿用 macOS 版 I1–I9）
 

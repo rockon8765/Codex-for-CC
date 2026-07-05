@@ -113,6 +113,7 @@ macos/                           # bash 版（已移植、已驗證）
 
 linux/                           # bash 版（自 macOS 機械式移植、GNU userland）
   settings.snippet.json
+  CLAUDE-global-rule.md          # 同上，Linux 版 snippet
   hooks/super-mode-consult-gate.js
   skills/超級模式/
     SKILL.md  FIX-PLAN.md  references/orchestration.md
@@ -172,7 +173,7 @@ Copy-Item ".\windows\hooks\super-mode-consult-gate.js" "$env:USERPROFILE\.claude
 
 hook **在啟用前是 fail-open 且停用的** — 安裝它不會影響一般 session；只有在 `super-mode.{sh,ps1} on` 之後才會作用。
 
-**（建議的最後一步）啟用「Codex 討論夥伴」全域規則** — 讓 Claude 在交付決策型輸出（方案選項、建議、規劃、結論）前，先向 Codex 諮詢反方意見再裁決：把對應平台的 [`macos/CLAUDE-global-rule.md`](macos/CLAUDE-global-rule.md) / [`windows/CLAUDE-global-rule.md`](windows/CLAUDE-global-rule.md) **全文** append 到你的 `~/.claude/CLAUDE.md`（已有 `CODEX-DISCUSSION-PARTNER` marker 就別重複加；完整防護與冪等細節見 [`docs/AI-INSTALL.md`](docs/AI-INSTALL.md) 步驟 5）。前提是 Codex CLI 已登入可用（步驟 4 的 `codex-check`）。
+**（建議的最後一步）啟用「Codex 討論夥伴」全域規則** — 讓 Claude 在交付決策型輸出（方案選項、建議、規劃、結論）前，先向 Codex 諮詢反方意見再裁決：把對應平台的 `CLAUDE-global-rule.md`（[`macos/`](macos/CLAUDE-global-rule.md)、[`linux/`](linux/CLAUDE-global-rule.md)、[`windows/`](windows/CLAUDE-global-rule.md)）**全文** append 到你的 `~/.claude/CLAUDE.md`（已有 `CODEX-DISCUSSION-PARTNER` marker 就別重複加；完整防護與冪等細節見 [`docs/AI-INSTALL.md`](docs/AI-INSTALL.md) 步驟 5）。前提是 Codex CLI 已登入可用（步驟 4 的 `codex-check`）。
 
 ## 環境假設（請依你的機器調整）
 

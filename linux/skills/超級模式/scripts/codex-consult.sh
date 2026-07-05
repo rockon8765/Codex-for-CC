@@ -6,15 +6,17 @@
 # Usage:
 #   codex-consult.sh -d <dir> -f <brief-file>   (PREFERRED — brief written to scratchpad)
 #   codex-consult.sh -d <dir> -p "<brief>"      (short briefs only)
+#   codex-consult.sh -d <dir> -n -f <brief>     (discussion mode — no consult-gate credential)
 # Tool timeout: 360000ms. Transcript: ~/.claude/super-mode-logs/codex_consult_<ts>.txt
 # Exit 42 + CONSULT_UNAVAILABLE_QUOTA = quota/auth failure -> STOP retrying, report to user.
 set -euo pipefail
-dir="" prompt="" pfile=""
+dir="" prompt="" pfile="" nocred=0
 while [ $# -gt 0 ]; do
   case "$1" in
     -d|--dir) dir="${2:-}"; shift 2 ;;
     -p|--prompt) prompt="${2:-}"; shift 2 ;;
     -f|--prompt-file) pfile="${2:-}"; shift 2 ;;
+    -n|--no-credential) nocred=1; shift ;;
     *) echo "unknown arg: $1" >&2; exit 2 ;;
   esac
 done
@@ -42,6 +44,11 @@ set -e
 rm -f "$brief_tmp" "$err_tmp"
 
 if [ "$code" -eq 0 ]; then
+  if [ "$nocred" -eq 1 ]; then
+    # discussion-partner mode: read-only consult without minting the gate credential
+    echo "consult OK -- no credential (discussion mode); transcript: $log"
+    exit 0
+  fi
   repo="$(cd "$dir" 2>/dev/null && pwd || echo "$dir")"
   CONSULT_REPO="$repo" CONSULT_BRIEF="$p" CONSULT_SESSION="${CLAUDE_SESSION_ID:-unknown}" python3 - <<'PY'
 import json, os, time, hashlib
