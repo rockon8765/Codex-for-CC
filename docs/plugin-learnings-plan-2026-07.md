@@ -1,6 +1,6 @@
 # codex-plugin-cc 學習移植規劃書
 
-> 版本：v2.2（2026-07-07）｜狀態：**已簽核**（決策與任務集＝v1.3 簽核版，未變；v2.x 只做執行步驟細化）
+> 版本：v2.3（2026-07-07）｜狀態：**已簽核**（決策與任務集＝v1.3 簽核版；v2.3 依使用者要求變更批次 1-3 執行者）
 > 依據：2026-07-06 對 [openai/codex-plugin-cc](https://github.com/openai/codex-plugin-cc)（官方，v1.0.5）四鏡頭原始碼分析＋多輪 Codex 反方諮詢（transcripts 在 `~/.claude/super-mode-logs/`：方案 `*_233713_*`、規劃書 v1.0 BLOCK `*_235207_*`、T7 排程 `*_000122_*`、執行模式 `*_001626_*`）。
 > 版本史：v1.0→v1.1 Codex BLOCK 7 findings 全採納；v1.1→v1.2 加 T7；v1.2→v1.3 §4 執行模式定案＋簽核；v1.3→v2.0 **步驟級細化**——每步含目的／操作／做對判準／對抗變化，插入文字直接內嵌，弱 AI 可照做；v2.0→v2.1 Codex 弱 AI 可執行性審查 BLOCK（`*_003110_*`）全採納——判準去 glob 化、schema 結構斷言、T7 首版 policy map＋逐點驗收表、測試臺加 reasonIncludes、live 驗證改打真實漏洞情境、T5 probe 指令具體化＋狀態檔強化、§0.5 補分支／編碼防護；v2.1→v2.2 第二輪確認審（`*_003839_*`）收殘項——T3/T4 判準去 glob 化補完、T7-S3 測試改「注入測試條目驗 map 邏輯＋空表 deny 行為」解自相矛盾（policy map 空表設計獲確認）。
 > 語言慣例：說明繁中；程式碼／指令／檔名英文。
@@ -15,6 +15,7 @@
 | broker/Stop gate/forwarder/transfer | 不採 | 見附錄 B |
 | T7 排程 | 排入本案、置於 T5 之前 | Codex ALLOW 0.78：「目前不可利用」是環境偶然非安全邊界 |
 | 執行模式 | 分批混搭（§4 表） | Codex 對「全程超級模式」BLOCK 0.74；分歧裁決記錄見 v1.3 |
+| 批次 1-3 執行者變更（2026-07-07 使用者要求） | 由「Claude 直做」改為 **Codex 任務級派工**（T1/T3/T4/T6/T2 各一派，非整批一派） | Codex 先 BLOCK 後附條件 ALLOW（`*_005846_*`）：v2.2 逐字規格中和「更貴」，殘餘風險（錯位但 rg 過、三平台漂移、T2 非零創作）以四條件兜住——精確錨點、任務級派工、收工 diff 白名單、T2 schema 逐字內嵌；規劃書治理性修改由 Claude 親改、commit 由 Claude 做 |
 | T7 誰寫 | Codex 寫、三層審查兜住 | 風險代理主張 Claude 親寫，裁決不採，分歧在案 |
 
 ## 0.5 執行者須知（每批開工前必讀，弱 AI 適用）
@@ -69,13 +70,13 @@
 
 **T1-S1 定位錨點**
 - 目的：確認四個插入點都存在，避免盲改。
-- 操作：在 `windows/skills/超級模式/references/orchestration.md` 用 `rg -n "挑戰"` 找 §3.5 諮詢簡報範本段；用 `rg -n "任務簡報"` 找 §3 派工範本段。在 `windows/CLAUDE-global-rule.md` 用 `rg -n "逼 Codex 當反方"` 找目標 bullet。macos/linux 對應檔同法。
-- 做對判準：三平台 ×（2 個 orchestration 錨點＋1 個 snippet 錨點）共 9 處全部命中，各只命中一次。
+- 操作（v2.3 修正為實測唯一錨點）：三平台 orchestration.md 用 `rg -c "明說你和我哪裡不同"`（§3.5 諮詢範本 code block 尾行）與 `rg -c "限制：不得做架構決策"`（§3 派工範本 code block 尾行）；三平台 CLAUDE-global-rule.md 用 `rg -c "不准寫成引導它附和的簡報"`。
+- 做對判準：9 處（3 錨點 ×3 平台）**各恰=1**。
 - 對抗變化：任一錨點 0 次或 ≥2 次命中→照 §0.5 第 4 條停下回報（檔案可能已被其他任務改過）。
 
 **T1-S2 諮詢範本插入反方規則**
 - 目的：讓每份諮詢簡報自帶高品質反方合約。
-- 操作：在三平台 orchestration.md §3.5 範本的「請它挑戰你的假設」語句之後，插入以下文字（三平台一字不差）：
+- 操作：在三平台 orchestration.md §3.5 諮詢範本 code block 內、「請：逐題指出我漏掉或高估的點、各給單一排序建議、明說你和我哪裡不同。」該行**之後新增一行**（三平台一字不差）：
   ```
   反方規則：(a) 攻擊面優先——往「昂貴失敗」找：資料遺失、權限/認證、競態、rollback 不可行、空狀態、版本/介面漂移；不挑 style。(b) 每個 finding 必答四問：什麼會壞？為何此路徑脆弱？影響多大？具體怎麼改？(c) 校準——一個強 finding 勝過多個弱的；判斷安全就直說，不准硬湊反對。(d) 事實紀律——推論要標注「推論」；勿把我方敘述當已驗證證據，以 repo 現況為準。
   ```
@@ -84,7 +85,7 @@
 
 **T1-S3 派工範本補輸出合約與自驗**
 - 目的：派工回報可機器驗收、Codex 收工前自驗。
-- 操作：在三平台 orchestration.md §3 派工簡報範本要素清單末尾，加兩條（一字不差）：
+- 操作：在三平台 orchestration.md §3 派工範本 code block 內「- 限制：不得做架構決策；有疑慮回報 Claude，不要自行假設。」該行**之後**加兩行（一字不差）：
   ```
   - 輸出合約：回報分「已驗證事實」與「推論/假設」兩段；驗收條件逐條自評 PASS/FAIL。
   - 收工前自驗：跑本次任務指定的測試/lint 指令，把輸出末尾貼進回報；沒跑＝未完成。
@@ -240,9 +241,9 @@
 
 | 批次 | 內容 | 執行模式 | Commit | 預估 |
 |---|---|---|---|---|
-| 批次 1 | T1＋T3＋T4 | 一般模式；Claude 直做；commit 前 `codex-consult -NoCredential` 反方審一輪 | `docs(consult): port prompt contracts from codex-plugin-cc (T1/T3/T4)` | 1.5 小時 |
-| 批次 2 | T6 | 同上 | `docs(install): offer guarded codex auto-install (T6)` | 30 分鐘 |
-| 批次 3 | T2（＋可選 T2b） | 同上 | `feat(review): add review-output schema (T2)` | 1 小時（T2b +1） |
+| 批次 1 | T1＋T3＋T4 | 一般模式；**Codex 任務級派工**（T1、T3、T4 各一派 `codex-exec`，簡報內嵌逐字文本＋精確錨點＋「錨點缺失即停」）；每派收工跑 **diff 白名單**（`git diff --name-only`＋untracked 僅允許該任務預期檔案）＋機械驗收，不過＝退回重派（Claude 不代修）；commit 前 `codex-consult -NoCredential` 反方審一輪；commit 由 Claude 做 | `docs(consult): port prompt contracts from codex-plugin-cc (T1/T3/T4)` | 2 小時 |
+| 批次 2 | T6 | 同上（T6 一派） | `docs(install): offer guarded codex auto-install (T6)` | 40 分鐘 |
+| 批次 3 | T2（＋可選 T2b） | 同上（T2 一派；**schema JSON 與 fixture 驗證腳本逐字內嵌於簡報**，Codex 零創作） | `feat(review): add review-output schema (T2)` | 1 小時（T2b +1） |
 | 批次 4 | **T7** | **超級模式＋UltraCode 雙開**：Codex 寫、Claude 逐行審、UltraCode 唯讀對抗審（子代理禁 Codex） | `feat(gate): MCP repo-bound credential hardening (T7)` | 半天 |
 | 批次 5 | T5-S0 GATE →（過）T5 實作／（不過）記錄中止 | GATE 於超級模式**外**；實作開超級模式（Codex 寫；UltraCode 不開，單次審查 pass） | `feat(consult): controlled resume for discussion partner (T5)` | 半天 |
 | 批次 6 | §6 本機同步（不進 repo commit） | 全關；§6 防護流程 Claude 手動 | — | 20 分鐘 |
