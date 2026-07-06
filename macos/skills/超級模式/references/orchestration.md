@@ -109,3 +109,4 @@ SKILL.md 的 §2 / §3 / §3.5 / §5 的詳細範本與程序。用到才讀。
 **鐵則：每步只有一個 worker pool 動手寫檔。** 預設 Codex 寫、Claude agents 只做不寫檔的工作；要平行多個 `codex exec` 須各自 `isolation: 'worktree'` 隔離，否則在同一 working tree 打架。
 **鐵則：Workflow / subagent 一律禁止呼叫 `codex-consult.sh` / `codex-exec.sh`。** 子代理被 consult-gate 擋下時，回報 orchestrator（主 Claude）由主線統一諮詢 / 派工，別讓每個子代理各自諮詢（會燒額度、mint 全機憑證、commit 降級全體）。審查子代理要跑的 build / verify 指令（如 `npm run build`、`go build`）也交由主線在有憑證時跑。
 **審查產出 findings 後先呈報使用者選擇要修哪些，勿自動批次修。**
+審查型派工帶 `-s references/review-output.schema.json`（路徑相對 skill 根目錄，跨目錄派工改傳絕對路徑），收工用 JSON 解析驗收 findings；驗證失敗 fallback 讀全文。

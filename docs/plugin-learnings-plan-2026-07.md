@@ -1,6 +1,6 @@
 # codex-plugin-cc 學習移植規劃書
 
-> 版本：v2.4（2026-07-07）｜狀態：**已簽核**（決策與任務集＝v1.3 簽核版；v2.3 變更批次 1-3 執行者；v2.4＝批次 1 commit 前審查 finding 落地——T3 fallback 改 fail-closed）
+> 版本：v2.5（2026-07-07）｜狀態：**已簽核**（決策與任務集＝v1.3 簽核版；v2.3 變更批次 1-3 執行者；v2.4＝T3 fallback 改 fail-closed；v2.5＝批次 3 commit 前審查 finding 落地——schema 文件接線的旗標平台差異＋README 路徑前綴修正）
 > 依據：2026-07-06 對 [openai/codex-plugin-cc](https://github.com/openai/codex-plugin-cc)（官方，v1.0.5）四鏡頭原始碼分析＋多輪 Codex 反方諮詢（transcripts 在 `~/.claude/super-mode-logs/`：方案 `*_233713_*`、規劃書 v1.0 BLOCK `*_235207_*`、T7 排程 `*_000122_*`、執行模式 `*_001626_*`）。
 > 版本史：v1.0→v1.1 Codex BLOCK 7 findings 全採納；v1.1→v1.2 加 T7；v1.2→v1.3 §4 執行模式定案＋簽核；v1.3→v2.0 **步驟級細化**——每步含目的／操作／做對判準／對抗變化，插入文字直接內嵌，弱 AI 可照做；v2.0→v2.1 Codex 弱 AI 可執行性審查 BLOCK（`*_003110_*`）全採納——判準去 glob 化、schema 結構斷言、T7 首版 policy map＋逐點驗收表、測試臺加 reasonIncludes、live 驗證改打真實漏洞情境、T5 probe 指令具體化＋狀態檔強化、§0.5 補分支／編碼防護；v2.1→v2.2 第二輪確認審（`*_003839_*`）收殘項——T3/T4 判準去 glob 化補完、T7-S3 測試改「注入測試條目驗 map 邏輯＋空表 deny 行為」解自相矛盾（policy map 空表設計獲確認）。
 > 語言慣例：說明繁中；程式碼／指令／檔名英文。
@@ -129,7 +129,7 @@
 
 **T2-S4 文件接線**
 - 目的：讓執行者知道何時用。
-- 操作：三平台 orchestration.md 的審查/分級段（錨點 `rg -n "審查"` 於 §5 附近）加一句：「審查型派工帶 `-SchemaFile references/review-output.schema.json`，收工用 JSON 解析驗收 findings；驗證失敗 fallback 讀全文。」README「這個 repo 有什麼」樹：在三處 `references/orchestration.md` 字樣之後**同一行**追加 `  review-output.schema.json`，不得重排樹的其他內容。
+- 操作：三平台 orchestration.md 檔末加一句用法。**旗標依平台不同**（v2.5 commit 前審查 finding）：Windows 用 `-SchemaFile`，macOS/Linux 用 `-s`（`codex-exec.sh` 只認 `-s|--schema-file`，傳 `-SchemaFile` 會 unknown-arg exit 2）。路徑 `references/review-output.schema.json` 相對 skill 根目錄，須加註「跨目錄派工改傳絕對路徑」。README「這個 repo 有什麼」樹：在三處 `references/orchestration.md` 字樣之後**同一行**追加 `  references/review-output.schema.json`（含 `references/` 前綴，勿只寫檔名——會被誤讀成 schema 在 skill 根目錄）。
 - 做對判準：`rg -c "review-output.schema.json"`：orchestration ×3 各 ≥1、README ≥1；一致性檢查通過。
 - 對抗變化：README 樹若已改版→以 `references/orchestration.md` 字樣定位；找不到→只改 orchestration 並回報。
 
@@ -255,7 +255,7 @@
 ## 5. 驗收總表（完工定義）
 
 - [x] T1：S1–S4 機械判準全過＋S5 抽查記錄（2026-07-07；S5＝批次 1 審查簡報採新範本，Codex 以 finding_bar 格式回覆，PASS）
-- [ ] T2：schema ×3＋fixture 雙向驗證＋文件接線（T2b 若做：腳本檢查＋tests）
+- [x] T2：schema ×3＋fixture 雙向驗證＋文件接線（2026-07-07；含 commit 前審查修訂：flag 平台差異＋README 路徑前綴；T2b 未做）
 - [x] T3：S1–S2 rg 判準 ×3（2026-07-07；fallback 經 commit 前審查改 fail-closed）
 - [x] T4：S1–S2 rg 判準 ×3（2026-07-07）
 - [ ] T7：S1 基線記錄＋S2 六點落實＋S3 全綠（基線＋新增）＋S4 live 驗證

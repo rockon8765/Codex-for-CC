@@ -90,3 +90,4 @@ SKILL.md 的 §2 / §3 / §3.5 / §5 的詳細範本與程序。用到才讀。
 **鐵則：Workflow / subagent 一律禁止呼叫 `codex-consult.ps1` / `codex-exec.ps1`。** 子代理被 consult-gate 擋下時，回報 orchestrator（主 Claude）由主線統一諮詢／派工，別讓每個子代理各自諮詢（會燒額度、mint 全機憑證、commit 降級全體）。
 **派工簡報的驗收條件內建「Codex 自審 + 跑測試 + lint 並回報自審結論」**（見 §3 範本），讓第一道審查花 Codex 額度、不花 Claude。
 **審查產出 findings 後先呈報使用者選擇要修哪些，勿自動批次修。**
+審查型派工帶 `-SchemaFile references/review-output.schema.json`（路徑相對 skill 根目錄，跨目錄派工改傳絕對路徑），收工用 JSON 解析驗收 findings；驗證失敗 fallback 讀全文。

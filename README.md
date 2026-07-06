@@ -93,7 +93,7 @@ windows/                         # PowerShell 版（已稽核、已部署）
   CLAUDE-global-rule.md          # 「Codex 討論夥伴」全域規則 snippet（append 到 ~/.claude/CLAUDE.md）
   hooks/super-mode-consult-gate.js
   skills/超級模式/
-    SKILL.md  FIX-PLAN.md  references/orchestration.md
+    SKILL.md  FIX-PLAN.md  references/orchestration.md  references/review-output.schema.json
     scripts/  super-mode.ps1  codex-consult.ps1  codex-exec.ps1  codex-check.ps1
     tests/    run-gate-tests.js  run-gate-tests.ps1  gate-cases.json
 
@@ -102,7 +102,7 @@ macos/                           # bash 版（已移植、已驗證）
   CLAUDE-global-rule.md          # 同上，macOS 版 snippet
   hooks/super-mode-consult-gate.js
   skills/超級模式/
-    SKILL.md  FIX-PLAN.md  references/orchestration.md
+    SKILL.md  FIX-PLAN.md  references/orchestration.md  references/review-output.schema.json
     scripts/  super-mode.sh  codex-consult.sh  codex-exec.sh  codex-check.sh
     tests/    run-gate-tests.js  run-e2e.sh  gate-cases.json
 
@@ -111,7 +111,7 @@ linux/                           # bash 版（自 macOS 機械式移植、GNU us
   CLAUDE-global-rule.md          # 同上，Linux 版 snippet
   hooks/super-mode-consult-gate.js
   skills/超級模式/
-    SKILL.md  FIX-PLAN.md  references/orchestration.md
+    SKILL.md  FIX-PLAN.md  references/orchestration.md  references/review-output.schema.json
     scripts/  super-mode.sh  codex-consult.sh  codex-exec.sh  codex-check.sh
     tests/    run-gate-tests.js  run-e2e.sh  gate-cases.json
 ```
