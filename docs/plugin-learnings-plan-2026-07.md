@@ -1,6 +1,6 @@
 # codex-plugin-cc 學習移植規劃書
 
-> 版本：v2.3（2026-07-07）｜狀態：**已簽核**（決策與任務集＝v1.3 簽核版；v2.3 依使用者要求變更批次 1-3 執行者）
+> 版本：v2.4（2026-07-07）｜狀態：**已簽核**（決策與任務集＝v1.3 簽核版；v2.3 變更批次 1-3 執行者；v2.4＝批次 1 commit 前審查 finding 落地——T3 fallback 改 fail-closed）
 > 依據：2026-07-06 對 [openai/codex-plugin-cc](https://github.com/openai/codex-plugin-cc)（官方，v1.0.5）四鏡頭原始碼分析＋多輪 Codex 反方諮詢（transcripts 在 `~/.claude/super-mode-logs/`：方案 `*_233713_*`、規劃書 v1.0 BLOCK `*_235207_*`、T7 排程 `*_000122_*`、執行模式 `*_001626_*`）。
 > 版本史：v1.0→v1.1 Codex BLOCK 7 findings 全採納；v1.1→v1.2 加 T7；v1.2→v1.3 §4 執行模式定案＋簽核；v1.3→v2.0 **步驟級細化**——每步含目的／操作／做對判準／對抗變化，插入文字直接內嵌，弱 AI 可照做；v2.0→v2.1 Codex 弱 AI 可執行性審查 BLOCK（`*_003110_*`）全採納——判準去 glob 化、schema 結構斷言、T7 首版 policy map＋逐點驗收表、測試臺加 reasonIncludes、live 驗證改打真實漏洞情境、T5 probe 指令具體化＋狀態檔強化、§0.5 補分支／編碼防護；v2.1→v2.2 第二輪確認審（`*_003839_*`）收殘項——T3/T4 判準去 glob 化補完、T7-S3 測試改「注入測試條目驗 map 邏輯＋空表 deny 行為」解自相矛盾（policy map 空表設計獲確認）。
 > 語言慣例：說明繁中；程式碼／指令／檔名英文。
@@ -148,8 +148,8 @@
 - 對抗變化：同 T1 錨點原則。
 
 **T3-S2 SKILL.md 加裁決規則**
-- 操作：三平台 SKILL.md §3.5「不可逆動作前一律先問」bullet 句尾追加：`諮詢回覆以首行裁決（格式 ^(ALLOW|BLOCK): 開頭）；BLOCK 就不做並回報使用者；首行不合格式 → fallback 讀全文自行裁決。`
-- 做對判準：`for p in windows macos linux; do rg -c "fallback 讀全文" "$p/skills/超級模式/SKILL.md"; done` 三行各=1。
+- 操作：三平台 SKILL.md §3.5「不可逆動作前一律先問」bullet 句尾追加：`諮詢回覆以首行裁決（格式 ^(ALLOW|BLOCK): 開頭）；BLOCK 就不做並回報使用者；首行不合格式 → 視為 BLOCK，重問一次取得合法首行後才可執行。`（v2.4：原「fallback 讀全文自行裁決」經 commit 前審查判定為不可逆動作合約破口，改 fail-closed。）
+- 做對判準：`for p in windows macos linux; do rg -c "視為 BLOCK，重問一次" "$p/skills/超級模式/SKILL.md"; done` 三行各=1。
 - 對抗變化：同上。
 
 ### T4 — result-handling 兩紀律
@@ -254,10 +254,10 @@
 
 ## 5. 驗收總表（完工定義）
 
-- [ ] T1：S1–S4 機械判準全過＋S5 抽查記錄
+- [x] T1：S1–S4 機械判準全過＋S5 抽查記錄（2026-07-07；S5＝批次 1 審查簡報採新範本，Codex 以 finding_bar 格式回覆，PASS）
 - [ ] T2：schema ×3＋fixture 雙向驗證＋文件接線（T2b 若做：腳本檢查＋tests）
-- [ ] T3：S1–S2 rg 判準 ×3
-- [ ] T4：S1–S2 rg 判準 ×3
+- [x] T3：S1–S2 rg 判準 ×3（2026-07-07；fallback 經 commit 前審查改 fail-closed）
+- [x] T4：S1–S2 rg 判準 ×3（2026-07-07）
 - [ ] T7：S1 基線記錄＋S2 六點落實＋S3 全綠（基線＋新增）＋S4 live 驗證
 - [ ] T5：S0 GATE 判定留存 →（過）S1–S4 全過／（不過）§0 記錄中止
 - [ ] T6：三判準命中

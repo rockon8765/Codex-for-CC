@@ -40,6 +40,8 @@ SKILL.md 的 §2 / §3 / §3.5 / §5 的詳細範本與程序。用到才讀。
 - 要做什麼：<具體、可驗收>
 - 驗收條件：<測試通過 / 行為符合 / lint 乾淨>
 - 限制：不得做架構決策；有疑慮回報 Claude，不要自行假設。
+- 輸出合約：回報分「已驗證事實」與「推論/假設」兩段；驗收條件逐條自評 PASS/FAIL。
+- 收工前自驗：跑本次任務指定的測試/lint 指令，把輸出末尾貼進回報；沒跑＝未完成。
 ```
 
 派工方式（擇一）：
@@ -62,8 +64,11 @@ SKILL.md 的 §2 / §3 / §3.5 / §5 的詳細範本與程序。用到才讀。
   2. <問題二：…>
   3. <風險 / 審查重點：…>
 請：逐題指出我漏掉或高估的點、各給單一排序建議、明說你和我哪裡不同。
+反方規則：(a) 攻擊面優先——往「昂貴失敗」找：資料遺失、權限/認證、競態、rollback 不可行、空狀態、版本/介面漂移；不挑 style。(b) 每個 finding 必答四問：什麼會壞？為何此路徑脆弱？影響多大？具體怎麼改？(c) 校準——一個強 finding 勝過多個弱的；判斷安全就直說，不准硬湊反對。(d) 事實紀律——推論要標注「推論」；勿把我方敘述當已驗證證據，以 repo 現況為準。
 ```
 簡報**一律用 Write 工具寫進 scratchpad**（gate 豁免路徑；inline `-Prompt` 含 `;|&` 等標點會被 gate 的指令解析誤判。**別用 shell 寫簡報、也別用 Bash 包 `powershell -Command` 呼叫腳本**——shell 寫 scratchpad 不在豁免內、Bash-wrapper 不符腳本放行的開頭錨定，兩者都會被擋成繞圈）。用 PowerShell 工具跑 `scripts/codex-consult.ps1 -Dir <repo> -PromptFile <brief.txt>`（read-only，工具 timeout 360000ms）。Claude 統合後決定；逐字稿自動存 `~/.claude/super-mode-logs/codex_consult_<ts>.txt`。
+
+**不可逆動作前諮詢的簡報變體**：不可逆動作（commit/push/deploy/刪除）前的諮詢，簡報末尾必加一句：「你的最終回覆第一行必須是 `ALLOW: <20 字內理由>` 或 `BLOCK: <20 字內理由>`，之前不得有任何字元。」
 
 **硬性強制（consult-gate v3）**：超級模式啟用時（`scripts/super-mode.ps1 -On [-Scope <專案根>]`），PreToolUse hook（`~/.claude/hooks/super-mode-consult-gate.js`）的規則：
 - **範圍**：帶 `-Scope` 時只攔該路徑底下的**檔案工具/shell**（檔案看 file_path、shell 看 cwd）；不帶則全域攔。**MCP 寫入類與外發內建工具沒有路徑可綁，故無論 scope 一律受攔**（fail-closed）。
@@ -84,3 +89,4 @@ SKILL.md 的 §2 / §3 / §3.5 / §5 的詳細範本與程序。用到才讀。
 **鐵則：每步只有一個 worker pool 動手寫檔。** 預設 Codex 寫、Claude agents 只做不寫檔的工作；要平行多個 `codex exec` 須各自 `isolation: 'worktree'` 隔離，否則在同一 working tree 打架。
 **鐵則：Workflow / subagent 一律禁止呼叫 `codex-consult.ps1` / `codex-exec.ps1`。** 子代理被 consult-gate 擋下時，回報 orchestrator（主 Claude）由主線統一諮詢／派工，別讓每個子代理各自諮詢（會燒額度、mint 全機憑證、commit 降級全體）。
 **派工簡報的驗收條件內建「Codex 自審 + 跑測試 + lint 並回報自審結論」**（見 §3 範本），讓第一道審查花 Codex 額度、不花 Claude。
+**審查產出 findings 後先呈報使用者選擇要修哪些，勿自動批次修。**
