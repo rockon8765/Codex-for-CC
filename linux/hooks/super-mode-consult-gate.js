@@ -21,6 +21,7 @@
  * 由 ~/.claude/settings.local.json 的 PreToolUse 註冊。
  * FAIL-OPEN：沒旗標、或任何錯誤 → 一律放行 (exit 0)，確保一般模式絕不被卡。
  * 被擋時 exit 2，stderr 訊息會回饋給 Claude。
+ * testOpts.mcpPolicy/MCP_PATHLESS_ALLOW 一旦有內容即等於開放對應 MCP 放行；生產呼叫端只傳一個參數，勿讓任何 runtime/使用者輸入流入第二參數。
  */
 const fs = require("fs");
 const os = require("os");
@@ -30,8 +31,8 @@ const WINDOW_MS = 20 * 60 * 1000; // 諮詢憑證有效視窗
 const GRACE_MS = 3 * 60 * 1000; // 收尾動作後保留的餘裕
 const FLAG_STALE_MS = 8 * 60 * 60 * 1000; // 旗標殘留自動解除門檻
 
-// 暫存根：os.tmpdir()($TMPDIR=/var/folders/...) 與 /tmp。norm() 已把 /private/tmp
-// 摺成 /tmp，因此同時涵蓋 Claude Code scratchpad(/private/tmp/claude-*) 與系統暫存。
+// 暫存根：Linux os.tmpdir() 直接回 /tmp 或 $TMPDIR，沒有 macOS /private symlink。
+// norm() 的 /private/tmp -> /tmp 摺疊是相容既有 mac 測試的無害殘留；Linux path 比對保持 case-sensitive。
 const TMP_ROOTS = [norm(os.tmpdir()), "/tmp"];
 
 const MUTATING_FILE_TOOLS = ["Edit", "Write", "MultiEdit", "NotebookEdit"];
@@ -109,6 +110,7 @@ const MCP_READ_RE = /(read|get|list|search|fetch|query|download|view|describe|in
 const MCP_WRITE_RE = /(create|update|delete|remove|move|write|submit|publish|send|upload|archive|duplicate|add|insert|patch|post|execute|fill|click|type|press|key|drag|join|copy|trigger|run_now|scale|deploy)/i;
 // 純標註/無副作用的 MCP 工具白名單（未知 MCP 一律 default-deny，這些例外放行）
 const MCP_BENIGN_RE = /(mark_chapter|read_widget)/i;
+const MCP_PATHLESS_ALLOW = [];
 
 if (require.main === module) {
   let raw = "";
@@ -126,9 +128,14 @@ if (require.main === module) {
   });
 }
 
-function decide(input, baseDir = path.join(os.homedir(), ".claude")) {
+function decide(input, testOpts) {
   try {
+  testOpts = testOpts || {};
   input = input || {};
+  const baseDir = typeof testOpts === "string"
+    ? testOpts
+    : (typeof testOpts.baseDir === "string" ? testOpts.baseDir : path.join(os.homedir(), ".claude"));
+  const mcpPolicy = Array.isArray(testOpts.mcpPolicy) ? testOpts.mcpPolicy : [];
   const claude = baseDir;
   const flag = path.join(claude, ".super-mode-active");
   const token = path.join(claude, ".super-mode-consult-ok");
@@ -150,6 +157,7 @@ function decide(input, baseDir = path.join(os.homedir(), ".claude")) {
   let gated = false;
   let consuming = false;
   let category = "";
+  let mcpAuth = null;
   let actionPath = ""; // 本動作綁定的路徑(檔案 file_path / shell cwd)，供憑證範圍比對
 
   if (MUTATING_FILE_TOOLS.includes(tool)) {
@@ -182,9 +190,9 @@ function decide(input, baseDir = path.join(os.homedir(), ".claude")) {
       // 豁免區的 conftest.py/package.json 等 → 任意程式碼執行繞過。故一律要憑證。
       // "/tmp" 子字串會誤含 /Users/x/proj/tmp/ —— 故意的保守誤擋（只多要一次憑證），勿優化掉。
       const RUNNER_RE = /(^|[;&|]\s*)\S*(pytest|npm|pnpm|yarn|cargo|go|dotnet|eslint|ruff|prettier|tsc|node|python3?)(\.exe)?\b/i;
-      const low = cmd.toLowerCase().replace(/\\/g, "/").replace(/\/private\/(tmp|var|etc)\//g, "/$1/");
+      const cmdNorm = cmd.replace(/\\/g, "/").replace(/\/private\/(tmp|var|etc)\//g, "/$1/"); // case-preserving：與 norm() case-sensitive 對齊(Linux)，避免 home/tmpdir 含大寫時漏偵測
       const HITS = [norm(os.tmpdir()), norm(claude), "/tmp", "~/.claude"];
-      if (RUNNER_RE.test(cmd) && HITS.some((h) => low.includes(h))) {
+      if (RUNNER_RE.test(cmd) && HITS.some((h) => cmdNorm.includes(h))) {
         gated = true; category = "runner 涉及暫存/設定路徑";
       } else {
         return { allow: true };
@@ -197,17 +205,40 @@ function decide(input, baseDir = path.join(os.homedir(), ".claude")) {
     gated = true;
     category = "外發/排程內建工具";
   } else if (tool.startsWith("mcp__")) {
-    // 寫入/外發優先判定（避免被 read 子字串遮蔽，如 get_and_delete）；
-    // 未知 MCP 工具 default-deny（dispatcher/eval 類兩不匹配也要憑證）。
-    if (MCP_WRITE_RE.test(tool)) {
-      gated = true;
-      category = "MCP 寫入/外發";
-    } else if (MCP_READ_RE.test(tool) || MCP_BENIGN_RE.test(tool)) {
+    // 唯讀/良性 MCP 維持放行；寫入與未知工具必須走 repo-bound policy。
+    const mcpIsWrite = MCP_WRITE_RE.test(tool);
+    const mcpIsReadOnly = (MCP_READ_RE.test(tool) || MCP_BENIGN_RE.test(tool)) && !mcpIsWrite;
+    if (mcpIsReadOnly) {
       return { allow: true };
-    } else {
-      gated = true;
-      category = "MCP 未知工具(default-deny)";
     }
+
+    let mcpPolicyEntry = null;
+    try {
+      mcpPolicyEntry =
+        mcpPolicy.find(
+          (entry) =>
+            entry &&
+            entry.tool === tool &&
+            Array.isArray(entry.pathFields) &&
+            entry.pathFields.length > 0 &&
+            entry.pathFields.every((field) => typeof field === "string" && field)
+        ) || null;
+    } catch (e) {
+      mcpPolicyEntry = null;
+    }
+    if (mcpPolicyEntry) {
+      const values = {};
+      try {
+        for (const field of mcpPolicyEntry.pathFields) values[field] = ti[field];
+      } catch (e) {}
+      mcpAuth = { kind: "pathbound", entry: mcpPolicyEntry, values };
+    } else if (MCP_PATHLESS_ALLOW.includes(tool)) {
+      mcpAuth = { kind: "pathless-allow" };
+    } else {
+      mcpAuth = { kind: "harddeny" };
+    }
+    gated = true;
+    category = mcpIsWrite ? "MCP 寫入/外發" : "MCP 未知工具(default-deny)";
   }
 
   if (!gated) return { allow: true };
@@ -216,6 +247,30 @@ function decide(input, baseDir = path.join(os.homedir(), ".claude")) {
     // 憑證決策範圍：諮詢時綁定的 repo。舊格式(純時間戳)→ credRepo 空 → 只驗時間(相容)。
     // 拿不到動作路徑(MCP/外發工具)→ 無從綁定 → 只驗時間。
     const credRepo = readCredRepo(token);
+    if (mcpAuth) {
+      const mcpDenyBase =
+        "[超級模式] MCP 寫入/未知工具無 repo path 綁定，超級模式下不放行(即使有憑證)。" +
+        "請關閉超級模式、或把此工具加入 hook 的 MCP_PATHLESS_ALLOW/policy 白名單後重試。";
+      if (mcpAuth.kind === "harddeny") {
+        return { allow: false, reason: mcpDenyBase };
+      }
+      if (mcpAuth.kind === "pathbound") {
+        const mcpRepo = credRepo;
+        const fields = mcpAuth.entry && Array.isArray(mcpAuth.entry.pathFields) ? mcpAuth.entry.pathFields : [];
+        if (!mcpRepo || !fields.length) {
+          return { allow: false, reason: mcpDenyBase + " 憑證缺少 repo 綁定或 pathFields 不可信，請重新諮詢產生綁 repo 的新憑證。" };
+        }
+        for (const field of fields) {
+          const value = mcpAuth.values ? mcpAuth.values[field] : undefined;
+          if (!isTrustedRepoPath(value, mcpRepo)) {
+            return {
+              allow: false,
+              reason: mcpDenyBase + " 欄位 " + field + " 不在憑證 repo 內: " + String(value || "(空)"),
+            };
+          }
+        }
+      }
+    }
     if (credRepo && actionPath && !isUnder(actionPath, credRepo)) {
       return {
         allow: false,
@@ -268,7 +323,7 @@ function norm(p) {
   let s = String(p).replace(/\\/g, "/"); // 容錯：反斜線輸入一律轉正斜線
   s = s.replace(/\/{2,}/g, "/"); // 摺疊重複斜線(防過度跳脫的輸入)
   s = s.replace(/^\/private\/(tmp|var|etc)(\/|$)/, "/$1$2"); // macOS symlink 等價
-  return s.replace(/\/+$/, "").toLowerCase(); // 去尾斜線 + APFS 大小寫不敏感
+  return s.replace(/\/+$/, ""); // 去尾斜線。Linux case-sensitive：不 lowercase(否則 /home/user/Proj 會被誤判在 /home/user/proj 內)
 }
 
 function isUnder(p, root) {
@@ -276,6 +331,31 @@ function isUnder(p, root) {
   const a = norm(p);
   const b = norm(root);
   return a === b || a.startsWith(b + "/");
+}
+
+function isTrustedRepoPath(p, repo) {
+  try {
+    if (typeof p !== "string" || !p.trim()) return false;
+    if (typeof repo !== "string" || !repo.trim()) return false;
+    // 字串級檢查：不處理 symlink/junction；未來若保護實體檔案 I/O，需另做 realpath。
+    if (!/^\//.test(p)) return false;
+    if (hasDotDotSegment(p)) return false;
+    const a = norm(p);
+    const b = norm(repo);
+    if (!a || !b || hasDotDotSegment(a)) return false;
+    const sep = "/";
+    return a === b || a.startsWith(b + sep);
+  } catch (e) {
+    return false;
+  }
+}
+
+function hasDotDotSegment(value) {
+  try {
+    return String(value).split(/[\\/]+/).includes("..");
+  } catch (e) {
+    return true;
+  }
 }
 
 function isExemptPath(fp, claude) {

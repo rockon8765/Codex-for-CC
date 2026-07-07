@@ -9,11 +9,12 @@ const path = require("path");
 const casesPath = path.join(__dirname, "gate-cases.json");
 const cases = JSON.parse(fs.readFileSync(casesPath, "utf8"));
 
-// hook 單一真相在 ~/.claude/hooks/（部署後）；未部署（如 repo 內 clone）fallback 到
-// 相對三層上的 hooks/（tests → 超級模式 → skills → base → hooks，live 與 repo 布局皆成立）
+// hook 載入：同目錄樹 repo 內 hooks/ 優先（tests → 超級模式 → skills → base → hooks，
+// repo 與部署 ~/.claude 布局皆成立），確保 repo 測試驗證 repo 內 hook、不被安裝版污染；
+// 相對路徑找不到(非標準部署/只同步 tests)才 fallback 到 ~/.claude/hooks/ 現役 hook。
 const hookCandidates = [
-  path.join(os.homedir(), ".claude", "hooks", "super-mode-consult-gate.js"),
   path.join(__dirname, "..", "..", "..", "hooks", "super-mode-consult-gate.js"),
+  path.join(os.homedir(), ".claude", "hooks", "super-mode-consult-gate.js"),
 ];
 const hookPath = hookCandidates.find((p) => fs.existsSync(p));
 if (!hookPath) {
@@ -61,7 +62,11 @@ for (const tc of cases) {
     }
 
     const input = replacePlaceholders(tc.input, replacements);
-    const res = decide(input, fakeBaseDir);
+    // MCP policy 注入走第二參數(物件形式)；一般案例維持傳字串 baseDir(向後相容)。
+    const testOpts = (tc.mcpPolicy !== undefined && tc.mcpPolicy !== null)
+      ? { baseDir: fakeBaseDir, mcpPolicy: replacePlaceholders(tc.mcpPolicy, replacements) }
+      : fakeBaseDir;
+    const res = decide(input, testOpts);
     const got = res && res.allow ? "allow" : "deny";
     if (got !== tc.expect) {
       failures.push({
@@ -70,6 +75,16 @@ for (const tc of cases) {
         got,
         reason: res && res.reason ? res.reason : ""
       });
+    } else if (tc.expectReasonIncludes) {
+      const reason = res && res.reason ? res.reason : "";
+      if (!reason.includes(tc.expectReasonIncludes)) {
+        failures.push({
+          name: tc.name,
+          expect: 'reason~="' + tc.expectReasonIncludes + '"',
+          got: reason || "(no reason)",
+          reason: "reason substring missing"
+        });
+      }
     }
   } catch (e) {
     failures.push({ name: tc.name, expect: tc.expect, got: "error", reason: e.stack || String(e) });

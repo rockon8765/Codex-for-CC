@@ -219,5 +219,15 @@
   { "name": "git tag -l allows", "flagContent": "", "tokenAgeMs": null,
     "input": { "tool_name": "Bash", "tool_input": { "command": "git tag -l" }, "cwd": "C:\\proj" }, "expect": "allow" },
   { "name": "git remote -v allows", "flagContent": "", "tokenAgeMs": null,
-    "input": { "tool_name": "Bash", "tool_input": { "command": "git remote -v" }, "cwd": "C:\\proj" }, "expect": "allow" }
+    "input": { "tool_name": "Bash", "tool_input": { "command": "git remote -v" }, "cwd": "C:\\proj" }, "expect": "allow" },
+  {"name":"mcp: read-only tool allows","flagContent":"","tokenAgeMs":null,"input":{"tool_name":"mcp__x__get_thing","tool_input":{}},"expect":"allow"},
+  {"name":"mcp: write tool with credential harddeny (empty policy)","flagContent":"","tokenAgeMs":60000,"tokenContent":"{\"repo\":\"C:\\\\proj\",\"ts\":\"x\"}","input":{"tool_name":"mcp__x__submit_thing","tool_input":{}},"expect":"deny","expectReasonIncludes":"無 repo path 綁定"},
+  {"name":"mcp: write+read name not allowed by read (F-read)","flagContent":"","tokenAgeMs":60000,"tokenContent":"{\"repo\":\"C:\\\\proj\",\"ts\":\"x\"}","input":{"tool_name":"mcp__x__update_and_get","tool_input":{}},"expect":"deny"},
+  {"name":"mcp: pathbound path in repo allows","flagContent":"","tokenAgeMs":60000,"tokenContent":"{\"repo\":\"C:\\\\proj\",\"ts\":\"x\"}","mcpPolicy":[{"tool":"mcp__fs__write_file","pathFields":["path"]}],"input":{"tool_name":"mcp__fs__write_file","tool_input":{"path":"C:\\proj\\src\\a.js"}},"expect":"allow"},
+  {"name":"mcp: pathbound path outside repo denies","flagContent":"","tokenAgeMs":60000,"tokenContent":"{\"repo\":\"C:\\\\proj\",\"ts\":\"x\"}","mcpPolicy":[{"tool":"mcp__fs__write_file","pathFields":["path"]}],"input":{"tool_name":"mcp__fs__write_file","tool_input":{"path":"C:\\other\\evil.js"}},"expect":"deny"},
+  {"name":"mcp: pathbound dotdot traversal denies","flagContent":"","tokenAgeMs":60000,"tokenContent":"{\"repo\":\"C:\\\\proj\",\"ts\":\"x\"}","mcpPolicy":[{"tool":"mcp__fs__write_file","pathFields":["path"]}],"input":{"tool_name":"mcp__fs__write_file","tool_input":{"path":"C:\\proj\\..\\other\\evil.js"}},"expect":"deny"},
+  {"name":"mcp: pathbound rootless path denies","flagContent":"","tokenAgeMs":60000,"tokenContent":"{\"repo\":\"C:\\\\proj\",\"ts\":\"x\"}","mcpPolicy":[{"tool":"mcp__fs__write_file","pathFields":["path"]}],"input":{"tool_name":"mcp__fs__write_file","tool_input":{"path":"\\evil.js"}},"expect":"deny"},
+  {"name":"mcp: pathbound old-format credential denies (F-scope)","flagContent":"","tokenAgeMs":60000,"tokenContent":"2020-01-01T00:00:00.000Z","mcpPolicy":[{"tool":"mcp__fs__write_file","pathFields":["path"]}],"input":{"tool_name":"mcp__fs__write_file","tool_input":{"path":"C:\\proj\\src\\a.js"}},"expect":"deny"},
+  {"name":"mcp: write without credential denies","flagContent":"","tokenAgeMs":null,"input":{"tool_name":"mcp__x__submit_thing","tool_input":{}},"expect":"deny"},
+  {"name":"mcp: malformed policy entry ignored, harddeny (no fail-open)","flagContent":"","tokenAgeMs":60000,"tokenContent":"{\"repo\":\"C:\\\\proj\",\"ts\":\"x\"}","mcpPolicy":[{"tool":"mcp__x__submit_thing","pathFields":"not-an-array"}],"input":{"tool_name":"mcp__x__submit_thing","tool_input":{}},"expect":"deny"}
 ]

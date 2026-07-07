@@ -1,6 +1,13 @@
 # codex-plugin-cc 學習移植規劃書
 
-> 版本：v2.5（2026-07-07）｜狀態：**已簽核**（決策與任務集＝v1.3 簽核版；v2.3 變更批次 1-3 執行者；v2.4＝T3 fallback 改 fail-closed；v2.5＝批次 3 commit 前審查 finding 落地——schema 文件接線的旗標平台差異＋README 路徑前綴修正）
+> 版本：v2.7（2026-07-07）｜狀態：**已簽核**（決策與任務集＝v1.3 簽核版；v2.3-v2.6 見下；v2.7＝T7 首版 hook 經兩輪對抗審找出 6 findings，拆兩批修，over-deny 採方案 A（使用者裁決））
+> 版本史簡表：v2.3 批次 1-3 改 Codex 派工；v2.4 T3 fail-closed；v2.5 schema 接線修正；v2.6 T7 hook 實作細化；v2.7 T7 拆 T7a/T7b（見下）。
+
+## T7 執行紀錄（2026-07-07，批次 4 進行中）
+T7 首版 hook 派工完成後，Claude 逐行審＋2 個唯讀對抗審子代理找出 **6 findings**（詳 super-mode-logs `*_024819_*` 諮詢簡報）：F-read（HIGH，MCP_WRITE_RE 喪失否決權）、F-overdeny（HIGH，生產空表→超級模式停用所有 MCP 送出）、F-cwd（MED-HIGH，path.resolve 對不可信值 cwd 耦合）、F-sep（MED）、F-scope（MED，credRepo||scope 稀釋綁定）、F-flag（LOW）。fail-open 總則與 I5/I9/scope/豁免/降級/簽章相容經雙審確認**未破壞**。
+- **拆兩批**（Codex 建議，`*_025306_*`）：**T7a 安全核心**（F-read/cwd/sep/scope/flag，全 default-deny 方向）已派工修復；**T7b pathless 白名單**（解 F-overdeny）待 T7a 落地後做。
+- **F-overdeny 採方案 A（使用者 2026-07-07 裁決）**：帶 path 的 MCP 做 repo 綁定；使用者實際 pathless 工具（SportsPredict/Notion/通知）進 MCP_PATHLESS_ALLOW，仍需憑證只免 repo 綁定。
+- **T7b 白名單比對機制（Claude 裁決，與 Codex 有分歧）**：工具名不可用子字串信任（`/__notion-/` 不可）。Codex 主張「connector 身份＋精確動作集＋pathless-scoped 憑證」完整分級；**Claude 裁決採較輕的 anchored-full-shape allowlist**（SportsPredict 用穩定完整 server 前綴＋精確動作集；Notion 用完整形狀 `/^mcp__[0-9a-f-]{36}__notion-(精確動作)$/`），沿用現有 20 分鐘憑證、不另建 per-tool 憑證作用域子系統。**理由**：本 repo 是單一使用者本機環境，Codex 的 confused-deputy 情境（另一 repo 的憑證觸發 pathless 遠端送出）風險低；per-tool 憑證分級對此情境過度工程。**接受的殘留風險**：超級模式下、20 分鐘憑證有效期內，白名單內工具可被觸發遠端送出而不再逐一綁定——記錄在案，若日後多人共用或風險升高再補分級。
 > 依據：2026-07-06 對 [openai/codex-plugin-cc](https://github.com/openai/codex-plugin-cc)（官方，v1.0.5）四鏡頭原始碼分析＋多輪 Codex 反方諮詢（transcripts 在 `~/.claude/super-mode-logs/`：方案 `*_233713_*`、規劃書 v1.0 BLOCK `*_235207_*`、T7 排程 `*_000122_*`、執行模式 `*_001626_*`）。
 > 版本史：v1.0→v1.1 Codex BLOCK 7 findings 全採納；v1.1→v1.2 加 T7；v1.2→v1.3 §4 執行模式定案＋簽核；v1.3→v2.0 **步驟級細化**——每步含目的／操作／做對判準／對抗變化，插入文字直接內嵌，弱 AI 可照做；v2.0→v2.1 Codex 弱 AI 可執行性審查 BLOCK（`*_003110_*`）全採納——判準去 glob 化、schema 結構斷言、T7 首版 policy map＋逐點驗收表、測試臺加 reasonIncludes、live 驗證改打真實漏洞情境、T5 probe 指令具體化＋狀態檔強化、§0.5 補分支／編碼防護；v2.1→v2.2 第二輪確認審（`*_003839_*`）收殘項——T3/T4 判準去 glob 化補完、T7-S3 測試改「注入測試條目驗 map 邏輯＋空表 deny 行為」解自相矛盾（policy map 空表設計獲確認）。
 > 語言慣例：說明繁中；程式碼／指令／檔名英文。
@@ -174,7 +181,7 @@
 **T7-S2 設計實作（Codex 派工，超級模式內）**
 - 目的：按定案設計改 hook。
 - 操作：派工簡報必含以下規格（缺一不可）：(1) 顯式 policy mapping——已知 MCP 工具→path-bound 欄位名；多路徑欄位（source＋destination 類）**全部**在 scope 內才 allow；(2) pathless 寫入/外發類預設 deny＋allowlist（初版空陣列）＋deny 訊息含修復指引（「此工具無 repo path；關閉超級模式或加入 allowlist」）；(3) 泛用路徑抽取僅輔助，不得單獨決定 allow；(4) fail-closed 範圍＝超級模式＋repo-scoped 憑證＋MCP 寫入/未知類無可信路徑，不限 -Scope；(5) 唯讀 MCP（現有 MCP_READ）行為不變；(6) fail-open 總則不變（無旗標/hook 例外→放行）。
-- **首版 policy map（內嵌於派工簡報，Codex 不得自行發明）**：初始 map＝**空表**（尚無已知 path-bound MCP 工具）；條目格式預留 `{toolPattern, pathFields:[], allFieldsMustBeInScope:true}` 供未來擴充。規則：mutating／unknown MCP 無 map 條目→deny（訊息含指引，**即使 tool_input 帶疑似 in-scope 路徑**）；MCP_READ regex 維持 allow；泛用欄位清單（cwd/file_path/path/directory/source/destination/target）**僅**用於 deny 訊息提示「偵測到疑似路徑欄位」，**不得**用於 allow 判定。為讓空表下的 map 邏輯仍可測：map 讀取處支援**測試專用**環境變數 `SUPER_MODE_MCP_POLICY_JSON`（合法 JSON 陣列才生效、否則忽略；程式註解與文件標明僅供測試臺注入，生產不設）。
+- **首版 policy map（內嵌於派工簡報，Codex 不得自行發明）**：初始 map＝**空表**（尚無已知 path-bound MCP 工具）；條目格式預留 `{toolPattern, pathFields:[], allFieldsMustBeInScope:true}` 供未來擴充。規則：mutating／unknown MCP 無 map 條目→deny（訊息含指引，**即使 tool_input 帶疑似 in-scope 路徑**）；MCP_READ regex 維持 allow；泛用欄位清單（cwd/file_path/path/directory/source/destination/target）**僅**用於 deny 訊息提示「偵測到疑似路徑欄位」，**不得**用於 allow 判定。為讓空表下的 map 邏輯仍可測：**改用 `decide(input, testOpts)` 第二參數注入**（`testOpts.mcpPolicy` 陣列），**生產完全無 env**——里程碑諮詢（`*_022007_*`）判定裸讀 env 是不必要攻擊面（任何繼承該 env 的 session 可注入任意 policy），第二參數注入才是正解。實作追加三項硬化：(a) 狀態物件 `mcpAuth={kind:"pathbound|pathless-allow|harddeny", ...}` 取代弱旗標；(b) 新增 non-throwing 嚴格 helper `isTrustedRepoPath(p,repo)`（空/相對/無法 resolve→false；**不得重用 `isUnder`**——實測其空路徑回 true）；(c) 兩條 allow 路徑硬約束：policy 精確條目+憑證+所有 pathFields canonical 後在憑證 repo 內／pathless allowlist 精確條目+憑證，其餘一律 deny。
 - 做對判準（逐點驗收表，每點需指出 diff 中對應函式／段落＋對應測試名，缺一即退回）：
 
   | 驗收點 | 證據要求 |
@@ -191,8 +198,9 @@
 
 **T7-S3 測試案例**
 - 目的：五類行為有回歸保護。
-- 操作：**先**擴充三平台 `tests/run-gate-tests.js`：支援可選欄位 `expectReasonIncludes`（斷言結果 reason 含指定子字串；未帶此欄位的既有案例行為不變）。再於三平台 `tests/gate-cases.json` 各加至少 5 案例（runner 需同步支援以 `SUPER_MODE_MCP_POLICY_JSON` 注入測試條目）：**注入測試條目**後同 repo path allow／注入條目後跨 repo path deny／**無條目時即使帶 in-scope path 仍 deny**（首版空表行為）／pathless 寫入 deny（帶 `expectReasonIncludes` 驗修復指引）／唯讀 MCP allow（不回歸）；另加 no-Scope 情境各 1。
+- 操作：**先**擴充三平台 `tests/run-gate-tests.js`：支援可選欄位 `expectReasonIncludes`（斷言 reason 含子字串）與 `mcpPolicy`（把該案例的 policy 陣列透過 `decide(input, {mcpPolicy})` 第二參數傳入；未帶則不傳、行為不變）。再於三平台 `tests/gate-cases.json` 各加至少 5 案例：注入 policy 條目後同 repo path allow／注入條目後跨 repo path deny／**無條目時即使帶 in-scope path 仍 deny**（首版空表行為）／pathless 寫入 deny（`expectReasonIncludes` 驗修復指引）／唯讀 MCP allow（不回歸）／**malformed policy 條目不 throw 也不 fail-open**；另加 no-Scope 情境各 1。
 - 做對判準：`node tests/run-gate-tests.js` 三平台全綠，總數＝S1 基線＋新增數（現場計數）。
+  - **跨平台驗證 caveat**：單一開發機（如 Windows）跑三平台 runner 屬 syntax／logic smoke（`norm` 等純字串邏輯可測）；涉平台專屬語義（case-sensitivity、path 分隔、`/private` 等價）以各自實機驗證為準。`norm` 的大小寫敏感度依平台分歧＝**正確設計**（Windows NTFS／macOS APFS 預設 case-insensitive→lowercase；Linux case-sensitive→不 lowercase），勿「統一」回去。**已知殘留**：Linux 版 `norm` 與 line 193 runner 偵測**仍保留** `/private/(tmp|var|etc)` fold（相容照抄的 mac: 測試案例），屬 accepted **low-probability over-allow**（僅當真 Linux 存在 non-symlink `/private/tmp` 且 agent 在其下跑測試框架才觸發）；未來可隨 Linux mac: 案例清理一併移除。
 - 對抗變化：測試臺格式若已演進（欄位不同）→仿照現有案例格式寫，勿發明新欄位。
 
 **T7-S4 安裝版同步（硬順序，不可顛倒）**
