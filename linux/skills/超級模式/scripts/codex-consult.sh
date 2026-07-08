@@ -7,16 +7,18 @@
 #   codex-consult.sh -d <dir> -f <brief-file>   (PREFERRED — brief written to scratchpad)
 #   codex-consult.sh -d <dir> -p "<brief>"      (short briefs only)
 #   codex-consult.sh -d <dir> -n -f <brief>     (discussion mode — no consult-gate credential)
+#   -s <schema.json>  optional (T2b): constrain Codex's reply to a JSON schema (--output-schema); read-only/ephemeral unchanged
 # Tool timeout: 360000ms. Transcript: ~/.claude/super-mode-logs/codex_consult_<ts>.txt
 # Exit 42 + CONSULT_UNAVAILABLE_QUOTA = quota/auth failure -> STOP retrying, report to user.
 set -euo pipefail
-dir="" prompt="" pfile="" nocred=0
+dir="" prompt="" pfile="" nocred=0 schema=""
 while [ $# -gt 0 ]; do
   case "$1" in
     -d|--dir) dir="${2:-}"; shift 2 ;;
     -p|--prompt) prompt="${2:-}"; shift 2 ;;
     -f|--prompt-file) pfile="${2:-}"; shift 2 ;;
     -n|--no-credential) nocred=1; shift ;;
+    -s|--schema-file) schema="${2:-}"; shift 2 ;;
     *) echo "unknown arg: $1" >&2; exit 2 ;;
   esac
 done
@@ -25,6 +27,16 @@ if   [ -n "$pfile" ]; then p="$(cat "$pfile")"
 elif [ -n "$prompt" ]; then p="$prompt"
 else echo "need -p or -f" >&2; exit 2; fi
 [ -n "${p//[[:space:]]/}" ] || { echo "prompt is empty" >&2; exit 2; }
+
+# T2b: -s 轉絕對路徑(-C 換工作根) + 啟動 codex 前先驗 JSON 可解析(fail-fast)；只約束輸出形狀，不改沙箱(read-only/ephemeral 不變)。
+schema_args=()
+if [ -n "$schema" ]; then
+  [ -f "$schema" ] || { echo "schema not found: $schema" >&2; exit 2; }
+  schema="$(cd "$(dirname "$schema")" && pwd)/$(basename "$schema")"
+  node -e 'JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"))' "$schema" \
+    || { echo "schema is not valid JSON: $schema" >&2; exit 2; }
+  schema_args=(--output-schema "$schema")
+fi
 
 logdir="$HOME/.claude/super-mode-logs"; mkdir -p "$logdir"
 stamp="$(date +%Y%m%d_%H%M%S)_$(uuidgen | tr 'A-Z' 'a-z' | tr -d '-' | cut -c1-6)"
@@ -37,6 +49,7 @@ printf '%s' "$p" > "$brief_tmp"
 # --ephemeral：短命唯讀諮詢不留 codex session 檔。
 set +e
 codex exec --sandbox read-only --ephemeral --skip-git-repo-check -C "$dir" \
+  ${schema_args[@]+"${schema_args[@]}"} \
   < "$brief_tmp" 2> "$err_tmp" | tee -a "$log"
 code=${PIPESTATUS[0]}
 set -e

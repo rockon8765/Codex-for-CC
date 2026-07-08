@@ -12,6 +12,9 @@
 #                to the session scratchpad (gate-exempt path) and pass it here.
 #   -NoCredential  Discussion-partner mode (outside super-mode): same read-only
 #                consult, but do NOT mint the consult-gate credential.
+#   -SchemaFile  Optional (T2b): JSON schema path; constrains Codex's final reply
+#                shape via --output-schema. read-only + ephemeral unchanged. Fails
+#                fast (before invoking codex) if the file is missing or invalid JSON.
 # Note: set the calling tool timeout to 360000ms (6 min); Codex reasoning often exceeds the 2-min default.
 #
 # STDIN wiring (v3): the brief is normalized to a UTF-8(no BOM) temp file and fed to
@@ -23,10 +26,17 @@ param(
   [Parameter(Mandatory = $true)][string]$Dir,
   [string]$Prompt,
   [string]$PromptFile,
-  [switch]$NoCredential
+  [switch]$NoCredential,
+  [string]$SchemaFile   # 可選(T2b)：JSON schema 檔路徑；給了就讓 Codex 回覆符合此結構(--output-schema)，好機器驗收。只約束輸出形狀，不改 read-only/ephemeral。
 )
 
 $codexCmd = "C:\npm\codex.cmd"
+
+# $Dir / $SchemaFile 會拼進 cmd /c 字串執行 → 進 cmd 前必須擋注入面(fail-closed)。
+# cmd 即使在雙引號內也會展開 %VAR%(! 可能延遲展開；& | < > ^ 為運算子)；合法 repo/schema 路徑不含這些字元。
+function Assert-CmdSafePath([string]$value, [string]$name) {
+  if ($value -match '[%!"&|<>^]') { throw ($name + ' 含 cmd 不安全字元(% ! " & | < > ^ 之一)，拒絕以防注入: ' + $value) }
+}
 
 # codex 輸出是 UTF-8：讓 PowerShell 正確解碼進 transcript
 try { [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding $false } catch {}
@@ -44,12 +54,24 @@ elseif ($Prompt)   { $p = $Prompt }
 else               { throw "Provide -Prompt or -PromptFile" }
 if ([string]::IsNullOrWhiteSpace($p)) { throw "Prompt is empty." }
 
+# T2b：給了 -SchemaFile 就轉絕對路徑並在啟動 Codex 前先驗證可解析(fail-fast)。只約束輸出形狀，不改沙箱(read-only/ephemeral 不變)。
+$schemaArg = ""
+if ($SchemaFile) {
+  if (-not (Test-Path -LiteralPath $SchemaFile)) { throw "SchemaFile not found: $SchemaFile" }
+  $SchemaFile = (Resolve-Path -LiteralPath $SchemaFile).Path   # consult 有 -C 換工作根，必須絕對路徑
+  Assert-CmdSafePath $SchemaFile 'SchemaFile'                  # 進 cmd /c 前擋注入字元
+  try { [System.IO.File]::ReadAllText($SchemaFile, (New-Object System.Text.UTF8Encoding $false)) | ConvertFrom-Json | Out-Null }
+  catch { throw "SchemaFile is not valid JSON: $SchemaFile -- $_" }
+  $schemaArg = '--output-schema "{4}" '   # 併入 $inner 最高編號 {4}(不動 codex{0}/dir{1}/brief{2}/stderr{3})
+}
+
 $logDir = Join-Path $env:USERPROFILE ".claude\super-mode-logs"
 if (-not (Test-Path $logDir)) { New-Item -ItemType Directory -Path $logDir | Out-Null }
 $log = Join-Path $logDir ("codex_consult_{0}_{1}.txt" -f (Get-Date -Format "yyyyMMdd_HHmmss"), ([guid]::NewGuid().ToString('N').Substring(0, 6)))  # 去重後綴防同秒碰撞
 
 $Dir = $Dir.TrimEnd('\')
 if ($Dir -match '^[A-Za-z]:$') { $Dir += '\' }
+Assert-CmdSafePath $Dir 'Dir'   # $Dir 也進 cmd /c 字串(既有注入面)，一併 fail-closed
 
 # 正規化落地 UTF-8(無 BOM)暫存簡報，cmd `<` 重導向 → 位元組直達 codex
 $brief = Join-Path $env:TEMP ("codex_brief_{0}.txt" -f ([guid]::NewGuid().ToString('N')))
@@ -58,7 +80,7 @@ $errFile = Join-Path $env:TEMP ("codex_err_{0}.txt" -f ([guid]::NewGuid().ToStri
 try {
   # stderr 導到獨立檔(編號佔位符 {3})；不可用 2>&1(會回灌 stdout)。$LASTEXITCODE 仍是 codex 退出碼。
   # 5.2：--ephemeral 讓短命唯讀諮詢不落地 Codex session 檔(下游不 resume 此 session，留著純浪費)
-  $inner = '"{0}" exec --sandbox read-only --ephemeral --skip-git-repo-check -C "{1}" < "{2}" 2> "{3}"' -f $codexCmd, $Dir, $brief, $errFile
+  $inner = ('"{0}" exec --sandbox read-only --ephemeral --skip-git-repo-check -C "{1}" ' + $schemaArg + '< "{2}" 2> "{3}"') -f $codexCmd, $Dir, $brief, $errFile, $SchemaFile
   & cmd.exe /d /s /c $inner | ForEach-Object { $_; Add-Content -LiteralPath $log -Value $_ -Encoding utf8 }
   $code = $LASTEXITCODE
   if (Test-Path $errFile) {
