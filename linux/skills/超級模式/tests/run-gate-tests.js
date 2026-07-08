@@ -7,7 +7,7 @@ const os = require("os");
 const path = require("path");
 
 const casesPath = path.join(__dirname, "gate-cases.json");
-const cases = JSON.parse(fs.readFileSync(casesPath, "utf8"));
+const cases = JSON.parse(fs.readFileSync(casesPath, "utf8").replace(/^﻿/, ""));
 
 // hook 載入：同目錄樹 repo 內 hooks/ 優先（tests → 超級模式 → skills → base → hooks，
 // repo 與部署 ~/.claude 布局皆成立），確保 repo 測試驗證 repo 內 hook、不被安裝版污染；
