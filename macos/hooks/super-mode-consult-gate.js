@@ -110,7 +110,13 @@ const MCP_READ_RE = /(read|get|list|search|fetch|query|download|view|describe|in
 const MCP_WRITE_RE = /(create|update|delete|remove|move|write|submit|publish|send|upload|archive|duplicate|add|insert|patch|post|execute|fill|click|type|press|key|drag|join|copy|trigger|run_now|scale|deploy)/i;
 // 純標註/無副作用的 MCP 工具白名單（未知 MCP 一律 default-deny，這些例外放行）
 const MCP_BENIGN_RE = /(mark_chapter|read_widget)/i;
-const MCP_PATHLESS_ALLOW = [];
+const MCP_PATHLESS_ALLOW = [
+  "mcp__sportspredict__join_lobby",
+  "mcp__sportspredict__submit_prediction",
+  "mcp__sportspredict__submit_predictions_batch",
+  "mcp__sportspredict__update_prediction",
+  /^mcp__[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}__notion-(create-pages|update-page|create-comment)$/,
+];
 
 if (require.main === module) {
   let raw = "";
@@ -232,7 +238,7 @@ function decide(input, testOpts) {
         for (const field of mcpPolicyEntry.pathFields) values[field] = ti[field];
       } catch (e) {}
       mcpAuth = { kind: "pathbound", entry: mcpPolicyEntry, values };
-    } else if (MCP_PATHLESS_ALLOW.includes(tool)) {
+    } else if (isMcpPathlessAllowed(tool)) {
       mcpAuth = { kind: "pathless-allow" };
     } else {
       mcpAuth = { kind: "harddeny" };
@@ -252,7 +258,13 @@ function decide(input, testOpts) {
         "[超級模式] MCP 寫入/未知工具無 repo path 綁定，超級模式下不放行(即使有憑證)。" +
         "請關閉超級模式、或把此工具加入 hook 的 MCP_PATHLESS_ALLOW/policy 白名單後重試。";
       if (mcpAuth.kind === "harddeny") {
-        return { allow: false, reason: mcpDenyBase };
+        // 被擋 tool 名來自不可信 input：移除非可列印 ASCII(含控制/零寬/雙向字元)、壓縮空白、截斷 160，再回饋。
+        const safeTool = String(tool).replace(/[^ -~]/g, "").replace(/\s+/g, " ").slice(0, 160);
+        return {
+          allow: false,
+          reason: mcpDenyBase + " 被擋工具: " + safeTool +
+            "。白名單真值在 Codex-for-CC repo 三平台 hooks/super-mode-consult-gate.js(改完須重裝同步 ~/.claude/hooks/)。",
+        };
       }
       if (mcpAuth.kind === "pathbound") {
         const mcpRepo = credRepo;
@@ -331,6 +343,14 @@ function isUnder(p, root) {
   const a = norm(p);
   const b = norm(root);
   return a === b || a.startsWith(b + "/");
+}
+
+function isMcpPathlessAllowed(tool) {
+  return MCP_PATHLESS_ALLOW.some((p) => {
+    if (typeof p === "string") return p === tool;
+    if (p instanceof RegExp) return p.test(tool);
+    return false; // 非 string 非 RegExp 的髒條目 → fail-closed，不 throw 不放行
+  });
 }
 
 function isTrustedRepoPath(p, repo) {
