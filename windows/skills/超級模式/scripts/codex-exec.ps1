@@ -30,6 +30,12 @@ param(
 )
 $codexCmd = "C:\npm\codex.cmd"
 
+# $Dir / $SchemaFile 會拼進 cmd /c 字串執行 → 進 cmd 前必須擋注入面(fail-closed)。
+# cmd 即使在雙引號內也會展開 %VAR%(! 可能延遲展開；& | < > ^ 為運算子)；合法 repo/schema 路徑不含這些字元。
+function Assert-CmdSafePath([string]$value, [string]$name) {
+  if ($value -match '[%!"&|<>^]') { throw ($name + ' 含 cmd 不安全字元(% ! " & | < > ^ 之一)，拒絕以防注入: ' + $value) }
+}
+
 # codex 輸出是 UTF-8：讓 PowerShell 正確解碼進 transcript
 try { [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding $false } catch {}
 
@@ -51,6 +57,7 @@ $schemaArg = ""
 if ($SchemaFile) {
   if (-not (Test-Path -LiteralPath $SchemaFile)) { throw "SchemaFile not found: $SchemaFile" }
   $SchemaFile = (Resolve-Path -LiteralPath $SchemaFile).Path   # EXEC 有 -C 換工作根，必須絕對路徑
+  Assert-CmdSafePath $SchemaFile 'SchemaFile'                  # 進 cmd /c 前擋注入字元
   try { [System.IO.File]::ReadAllText($SchemaFile, (New-Object System.Text.UTF8Encoding $false)) | ConvertFrom-Json | Out-Null }
   catch { throw "SchemaFile is not valid JSON: $SchemaFile -- $_" }
   $schemaArg = '--output-schema "{5}" '   # 附加成最高編號 {5}，不動 stdin{3}/stderr{4}
@@ -64,6 +71,7 @@ if (-not $OutFile) { $OutFile = Join-Path $logDir ("codex_exec_{0}_last.txt" -f 
 
 $Dir = $Dir.TrimEnd('\')
 if ($Dir -match '^[A-Za-z]:$') { $Dir += '\' }
+Assert-CmdSafePath $Dir 'Dir'   # $Dir 也進 cmd /c 字串(既有注入面)，一併 fail-closed
 
 # 正規化落地 UTF-8(無 BOM)暫存簡報，cmd `<` 重導向 → 位元組直達 codex
 $brief = Join-Path $env:TEMP ("codex_brief_{0}.txt" -f ([guid]::NewGuid().ToString('N')))
