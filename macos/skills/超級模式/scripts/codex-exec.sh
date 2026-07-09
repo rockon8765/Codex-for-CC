@@ -49,12 +49,12 @@ printf '%s' "$p" > "$brief_tmp"
 # 注意 bash 3.2：set -u 下空陣列要用 ${arr[@]+"${arr[@]}"} 展開。
 set +e
 if [ "$quiet" = "1" ]; then
-  codex exec --sandbox workspace-write --skip-git-repo-check -C "$dir" \
+  codex exec --sandbox workspace-write --disable remote_plugin --skip-git-repo-check -C "$dir" \
     ${schema_args[@]+"${schema_args[@]}"} --output-last-message "$out" \
     < "$brief_tmp" 2> "$err_tmp" >> "$log"
   code=$?
 else
-  codex exec --sandbox workspace-write --skip-git-repo-check -C "$dir" \
+  codex exec --sandbox workspace-write --disable remote_plugin --skip-git-repo-check -C "$dir" \
     ${schema_args[@]+"${schema_args[@]}"} --output-last-message "$out" \
     < "$brief_tmp" 2> "$err_tmp" | tee -a "$log"
   code=${PIPESTATUS[0]}
