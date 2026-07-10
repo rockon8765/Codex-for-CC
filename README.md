@@ -105,7 +105,7 @@ windows/                         # PowerShell 版（已稽核、已部署）
     scripts/  super-mode.ps1  codex-consult.ps1  codex-exec.ps1  codex-check.ps1
     tests/    run-gate-tests.js  run-gate-tests.ps1  gate-cases.json
 
-macos/                           # bash 版（已移植、已驗證）
+macos/                           # bash 版（自 Windows 設計移植、未原生驗證，見上方狀態矩陣）
   settings.snippet.json
   CLAUDE-global-rule.md          # 同上，macOS 版 snippet
   hooks/super-mode-consult-gate.js

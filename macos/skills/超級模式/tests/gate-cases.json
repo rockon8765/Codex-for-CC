@@ -264,5 +264,16 @@
   {"name":"mcp t7b: Notion extra suffix denies","flagContent":"","tokenAgeMs":60000,"tokenContent":"{\"repo\":\"/home/user/proj\",\"ts\":\"x\"}","input":{"tool_name":"mcp__d0ff55b5-4377-4adc-bf11-7c85fb289ffe__notion-create-pages-evil","tool_input":{}},"expect":"deny"},
   {"name":"mcp t7b: Notion underscore variant denies","flagContent":"","tokenAgeMs":60000,"tokenContent":"{\"repo\":\"/home/user/proj\",\"ts\":\"x\"}","input":{"tool_name":"mcp__d0ff55b5-4377-4adc-bf11-7c85fb289ffe__notion_create_pages","tool_input":{}},"expect":"deny"},
   {"name":"mcp t7b: Notion wrong server segment denies","flagContent":"","tokenAgeMs":60000,"tokenContent":"{\"repo\":\"/home/user/proj\",\"ts\":\"x\"}","input":{"tool_name":"mcp__d0ff55b5-4377-4adc-bf11-7c85fb289ffe__othertool-create-pages","tool_input":{}},"expect":"deny"},
-  {"name":"mcp t7b: Notion get-comments read-only allows","flagContent":"","tokenAgeMs":null,"input":{"tool_name":"mcp__d0ff55b5-4377-4adc-bf11-7c85fb289ffe__notion-get-comments","tool_input":{}},"expect":"allow"}
+  {"name":"mcp t7b: Notion get-comments read-only allows","flagContent":"","tokenAgeMs":null,"input":{"tool_name":"mcp__d0ff55b5-4377-4adc-bf11-7c85fb289ffe__notion-get-comments","tool_input":{}},"expect":"allow"},
+  {"name":"N5: set_budget (bud-GET) side-effect denies even with credential","flagContent":"","tokenAgeMs":60000,"input":{"tool_name":"mcp__x__set_budget","tool_input":{}},"expect":"deny"},
+  {"name":"N5: resolve_comment side-effect denies even with credential","flagContent":"","tokenAgeMs":60000,"input":{"tool_name":"mcp__x__resolve_comment","tool_input":{}},"expect":"deny"},
+  {"name":"N5: mark_as_read side-effect denies even with credential","flagContent":"","tokenAgeMs":60000,"input":{"tool_name":"mcp__x__mark_as_read","tool_input":{}},"expect":"deny"},
+  {"name":"N5: reply_to_thread (thread contains read) denies even with credential","flagContent":"","tokenAgeMs":60000,"input":{"tool_name":"mcp__slack__reply_to_thread","tool_input":{}},"expect":"deny"},
+  {"name":"N5: request_copilot_review (review contains view) denies even with credential","flagContent":"","tokenAgeMs":60000,"input":{"tool_name":"mcp__github__request_copilot_review","tool_input":{}},"expect":"deny"},
+  {"name":"N5: server-name pollution (get* server) + slack_reply_to_thread action still denies","flagContent":"","tokenAgeMs":60000,"input":{"tool_name":"mcp__getstuff__slack_reply_to_thread","tool_input":{}},"expect":"deny"},
+  {"name":"N5 no-regression: resolve-library-id (context7 read) still allows","flagContent":"","tokenAgeMs":null,"input":{"tool_name":"mcp__context7__resolve-library-id","tool_input":{}},"expect":"allow"},
+  {"name":"N5 no-regression: mark_chapter benign still allows","flagContent":"","tokenAgeMs":null,"input":{"tool_name":"mcp__ccd__mark_chapter","tool_input":{}},"expect":"allow"},
+  {"name":"N5 no-regression: get_thing plain read still allows","flagContent":"","tokenAgeMs":null,"input":{"tool_name":"mcp__x__get_thing","tool_input":{}},"expect":"allow"},
+  {"name":"N5 regression: benign-name + write action (mark_chapter_delete) denies","flagContent":"","tokenAgeMs":60000,"input":{"tool_name":"mcp__x__mark_chapter_delete","tool_input":{}},"expect":"deny"},
+  {"name":"N5 regression: benign-name + write action (read_widget_update) denies","flagContent":"","tokenAgeMs":60000,"input":{"tool_name":"mcp__x__read_widget_update","tool_input":{}},"expect":"deny"}
 ]

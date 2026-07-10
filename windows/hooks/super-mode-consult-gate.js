@@ -2,6 +2,11 @@
 /*
  * 超級模式 consult-gate (PreToolUse) v2
  *
+ * ⚠ 定位：這是「諮詢紀律提醒」，不是安全邊界。fail-open、可被 agent 自己 -Off 關掉、
+ *   不攔子程序副作用（test runner／某些 shell·MCP 寫法會通過）。用途是讓合作的 Claude
+ *   動手前先諮詢、少漏流程；圍堵蓄意繞過或被挾持的 agent 要靠 OS sandbox + Claude permission。
+ *   細節見 repo docs/super-mode-hardening-plan-2026-07.md「✅ 定案 姿態 A」。
+ *
  * 超級模式啟用時 (~/.claude/.super-mode-active 存在) 攔截「會改變狀態」的工具呼叫：
  *   - Edit / Write / MultiEdit / NotebookEdit（scratchpad 與 ~/.claude 路徑豁免）
  *   - Bash / PowerShell：唯讀白名單自動放行；其餘一律需要 20 分鐘內的 Codex 諮詢
@@ -101,6 +106,22 @@ const MCP_READ_RE = /(read|get|list|search|fetch|query|download|view|describe|in
 const MCP_WRITE_RE = /(create|update|delete|remove|move|write|submit|publish|send|upload|archive|duplicate|add|insert|patch|post|execute|fill|click|type|press|key|drag|join|copy|trigger|run_now|scale|deploy)/i;
 // 純標註/無副作用的 MCP 工具白名單（未知 MCP 一律 default-deny，這些例外放行）
 const MCP_BENIGN_RE = /(mark_chapter|read_widget)/i;
+// N5：名字含 read-y 字（get/read/resolve/view…）、實際有外發副作用的已知工具 → 精確封鎖(比對 action 尾段、
+// 不看 server 名，避免 server 名含 read/get/context 污染)。這是「已證實清單」而非「封住整類」：姿態 A 下用最小改動
+// 關掉誤放行(set_budget/resolve_comment/mark_as_read/reply_to_thread/request_copilot_review …)，未列舉的新
+// 變體仍可能漏放行(gate 非邊界=已接受殘餘)。完整解法(action 分詞+寫入優先+exact 例外表+MCP 三態授權)見
+// docs/super-mode-hardening-plan-2026-07.md 的 Z 案(backlog)。注意：被此表封鎖者走既有 MCP 寫入路徑=harddeny
+// (無 repo path 綁定，即使有憑證仍拒)，要放行請加進 MCP_PATHLESS_ALLOW/policy。
+const MCP_FORCE_GATE_ACTION = new Set([
+  "set_budget",
+  "resolve_comment",
+  "mark_as_read",
+  "mark_as_unread",
+  "mark_all_as_read",
+  "reply_to_thread",
+  "slack_reply_to_thread",
+  "request_copilot_review",
+]);
 const MCP_PATHLESS_ALLOW = [
   "mcp__sportspredict__join_lobby",
   "mcp__sportspredict__submit_prediction",
@@ -199,9 +220,12 @@ function decide(input, testOpts) {
     gated = true;
     category = "外發/排程內建工具";
   } else if (tool.startsWith("mcp__")) {
-    // 唯讀/良性 MCP 維持放行；寫入與未知工具必須走 repo-bound policy。
+    // 唯讀/良性 MCP 維持放行；寫入、已知副作用(N5)、未知工具必須走 repo-bound policy。
     const mcpIsWrite = MCP_WRITE_RE.test(tool);
-    const mcpIsReadOnly = (MCP_READ_RE.test(tool) || MCP_BENIGN_RE.test(tool)) && !mcpIsWrite;
+    const mcpForceGate = MCP_FORCE_GATE_ACTION.has(mcpAction(tool)); // N5：讀名誤導的已知副作用工具
+    // 寫入/已知副作用一律優先於良性白名單：mark_chapter_delete/read_widget_update 這種「良性名 +
+    // 寫入動作」不得因命中 MCP_BENIGN_RE 而繞過 write 檢查(N5 regression 修補，恢復 main 的 write 優先)。
+    const mcpIsReadOnly = !mcpIsWrite && !mcpForceGate && (MCP_BENIGN_RE.test(tool) || MCP_READ_RE.test(tool));
     if (mcpIsReadOnly) {
       return { allow: true };
     }
@@ -232,7 +256,7 @@ function decide(input, testOpts) {
       mcpAuth = { kind: "harddeny" };
     }
     gated = true;
-    category = mcpIsWrite ? "MCP 寫入/外發" : "MCP 未知工具(default-deny)";
+    category = mcpIsWrite ? "MCP 寫入/外發" : (mcpForceGate ? "MCP 已知副作用(讀名誤導)" : "MCP 未知工具(default-deny)");
   }
 
   if (!gated) return { allow: true };
@@ -336,6 +360,13 @@ function isUnder(p, root) {
   const a = norm(p);
   const b = norm(root);
   return a === b || a.startsWith(b + "\\");
+}
+
+// 取 MCP 工具名的 action 尾段(最後一個 __ 之後)、lowercase；用於 N5 exact 副作用封鎖(不看 server 名)。
+function mcpAction(tool) {
+  const s = String(tool == null ? "" : tool);
+  const i = s.lastIndexOf("__");
+  return (i >= 0 ? s.slice(i + 2) : s).toLowerCase();
 }
 
 function isMcpPathlessAllowed(tool) {
