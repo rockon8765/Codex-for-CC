@@ -5,7 +5,33 @@
 > 而是 **consult-gate 本身有至少 5 條可實測的零/低-token 繞過路徑**。attestation 重要，但排在 gate 止血之後。
 > 檔名因此從 `worker-attestation-plan` 改為 `super-mode-hardening-plan`。舊檔內容已吸收進 Phase P2。
 
-## ⚠ 執行狀態與決策點（2026-07-10 更新，暫停整理中）
+## ✅ 定案（2026-07-11）— 姿態 A：gate = 誠實提醒，非安全邊界
+
+> 2026-07-10 懸而未決的三個決策選項 (a)/(b)/(c)，已由使用者於 2026-07-11 拍板為 **(c) 的收斂版——姿態 A**。本節取代下方「暫停整理中」的狀態；下方章節保留為稽核紀錄。
+
+**觸發**：使用者要求評估本規劃書 → Codex 反方諮詢（逐字稿 `~/.claude/super-mode-logs/codex_consult_20260711_001310_d65228.txt`）+ Claude 親自查證磁碟。三個查證結果決定了方向：
+1. **`super-mode.ps1 -Off` 是一鍵解除、且是設計行為**（在 `CODEX_SAFE_RE` 放行白名單、`-Off` 刪旗標憑證、deny 訊息本身就教 Claude 這樣關）→ 證明 gate 從來不是對抗性邊界。
+2. **test-runner confused-deputy**：`npm test`/`pytest` 白名單只看命令字串、不看子程序副作用 → 連合作型 Claude 跑一個惡意 repo 的測試都會以使用者權限任意執行（本檔 §4-2 已有意接受）。
+3. **`--sandbox read-only` 只包 `codex-consult` 子程序**（`codex-consult.ps1:87`），不包主 Claude 的 Bash/PS/Edit/MCP；Windows 原生無內建 Bash sandbox（要 WSL2）→ 「靠 OS sandbox 兜底」在 Windows 標的是反事實。
+
+**定案內容**：
+- gate 定位 = **盡力而為的諮詢紀律提醒**，對合作型 Claude 有效；**不是安全邊界**（fail-open + regex + 對手掌控輸入）。README/SKILL/gate 檔頭已據實標示。
+- **停止**對 E/F（shell `sort -o`/`env CMD`）、8.3 短名、symlink 的窮舉硬化——那是負面清單窮舉的無底洞。
+- 真安全邊界（**option d**：OS containment 平面 = WSL2/container/受限帳號 hard-fail + typed capability 取代 raw shell 猜測 + push/publish broker + MCP 逐工具授權）是**另案大工程，暫不投**；個人/小團隊工具用不到。
+
+### 威脅模型（明訂——姿態 A 保護什麼、不保護什麼）
+- **在保護範圍內**：合作型 Claude 因疏忽跳過諮詢紀律（漏諮詢就 commit/publish/派工/改安全關鍵檔）。gate 把這類失誤擋下、要求先諮詢。這是它唯一可靠達成的性質。
+- **不在保護範圍內**（要涵蓋必須走 option d）：①蓄意繞過的 agent（`-Off`、等價 shell verb、alias/wrapper/API/MCP 皆可解除）；②被 prompt-injection 挾持的主 Claude；③惡意 repo 經 test-runner/build 的 confused-deputy 任意執行；④無 OS sandbox 時主 Claude 的整個工具面。
+
+**本輪已執行（姿態 A 落地）**：
+- P0.1 三輪改動（N1 + class A–D）已「保留並 commit」到 candidate 分支 `security/consult-gate-p0.1-candidate` @ `af03139`（定性為 best-effort gate 的**縱深防禦硬化**，非邊界宣稱；未 push、main `e3f55ec`/live 未動）。
+- 5 項止血：① AI-INSTALL 加 staging/rollback（先驗證 repo→備份 live→安裝→驗證→失敗回滾）② README 誠實化（移除「default-deny/三平台等價/34 案例」的安全宣稱，改狀態矩陣 + mac/linux 未原生驗證）③ SKILL/gate 檔頭標示「非安全邊界」④ N5 MCP 誤分類修補 ⑤ 本規劃書改寫（本節）。
+
+**重新界定的 Phase 範圍**：下方 §5 的 P0.2–P0.5 / P1 / P2 原以「把 gate 做成可靠邊界」為前提；姿態 A 下它們**降級為 backlog**（除非日後決定投 option d 才重新啟用）。已完成的 P0.1（縱深硬化）與 N5、文件誠實化保留為本輪成果。
+
+---
+
+## ⚠ 執行狀態與決策點（2026-07-10 — 已被上方「✅ 定案」取代，保留為紀錄）
 
 > 使用者 2026-07-10 授權用 UltraCode 開跑 P0.1，三輪 workflow 後暫停，要求整理全貌再定方向。以下是實況。
 
@@ -60,9 +86,11 @@ P0.1 技術上必須完成（E/F 也是提權路徑，非可放過的第二層�
 
 ---
 
-## 0. 一句話結論
-**開源前必須先做 Phase P0（gate 零-token 繞過止血）**。在 gate 可被零諮詢繞過的狀態下，
-README 宣稱的「default-deny、repo-bound」屬過度承諾；attestation 再精準也保護不了一道能被繞過的門。
+## 0. 一句話結論（2026-07-11 定案後）
+gate 是**諮詢紀律提醒、非安全邊界**（見上方「✅ 定案」）。開源前的必做**不是**「把 gate 補到滴水不漏」（那是負面清單窮舉的無底洞，且無 OS sandbox 兜底），而是**文件誠實化**：README/AI-INSTALL 不得把「default-deny、repo-bound、三平台等價」當成可靠強制的安全性質宣稱——本輪已修正。
+
+> （稽核當時原文，保留為紀錄）**開源前必須先做 Phase P0（gate 零-token 繞過止血）**。在 gate 可被零諮詢繞過的狀態下，README 宣稱的「default-deny、repo-bound」屬過度承諾；attestation 再精準也保護不了一道能被繞過的門。
+> —— 此判斷在 2026-07-11 被修正：正確結論不是「補到不可繞過」，而是「gate 本質做不到不可繞過，故據實標示為非邊界」。
 
 ## 1. 定位：這是 FIX-PLAN 的第二輪，不是推翻
 - `FIX-PLAN.md`（2026-07-02，Phase 1–4 已部署 live、harness 26/26）已修過**第一輪** gate 繞過：
@@ -160,6 +188,7 @@ README 宣稱的「default-deny、repo-bound」屬過度承諾；attestation 再
   私人 pathless allow（sportspredict/notion UUID）移出共用 hook → 使用者本機 `~/.claude/super-mode-mcp-policy.json`，
   該檔本身受 P0.1 保護（不可被 gate 動作寫）、schema 驗證失敗或權限不安全 → deny。
 - 驗收：`set_budget`/`resolve_comment`/`mark_as_read` → deny；共用 repo 的 pathless allow 清單為空；外部 policy 壞掉 → deny。
+- **2026-07-11 落地（姿態 A = Y0，非完整 P0.3）**：只做「已證實副作用工具的 exact FORCE_GATE」——新增 `MCP_FORCE_GATE_ACTION`（比對 action 尾段、不看 server 名，避免 server 名含 read/get/context 污染）封 `set_budget`/`resolve_comment`/`mark_as_read`/`reply_to_thread`/`slack_reply_to_thread`/`request_copilot_review`，**完全不動唯讀 heuristic**（`resolve-library-id` 等照常放行，零 regression）。Codex 諮詢（逐字稿 `codex_consult_20260711_005546_c84550.txt`）**否決**了原「override→gate」的 Y：現行 gated MCP = **harddeny**（連憑證都拒），若 override 讀取型工具會變永久封鎖；且找到 `slack_reply_to_thread`/`request_copilot_review` 兩個真實漏網（非未來假設）。**完整解法 Z（backlog）**：從 `mcp__server__ACTION` 取 action、依 `_ - . camelCase` 分詞、寫入 token 優先於讀取 token、兩張極短 exact 例外表（FORCE_ALLOW `resolve-library-id` / FORCE_GATE `resolve_comment`），並把「未知 MCP → 諮詢後可解鎖」的**三態授權**補上（現在未知 MCP 是 policy-only harddeny，不符姿態 A 的「提醒」語義）。三平台回歸：win 86 / mac 94 / linux 96 全綠（各 +9 N5 案例，含 slack/github/污染/讀取不 regression）。
 
 **P0.4【HIGH】shell operand 目標策略（N3, C5）**
 - 位置：`decide()` Bash/PS 分支的 `actionPath = cwd` 綁定（line 168–169, 274）。

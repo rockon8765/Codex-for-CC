@@ -292,5 +292,15 @@
 
   {"name":"P0.2 CLASS D: scoped flag, Write ~/.claude evil.sh denies (claude-root beats scope-outside)","flagContent":"/home/user/someRepo","tokenAgeMs":null,"input":{"tool_name":"Write","tool_input":{"file_path":"__BASE__/evil.sh"}},"expect":"deny"},
   {"name":"P0.2 CLASS D: scoped flag, Write ~/.claude skills/x/scripts/codex-consult.sh denies","flagContent":"/home/user/someRepo","tokenAgeMs":null,"input":{"tool_name":"Write","tool_input":{"file_path":"__BASE__/skills/x/scripts/codex-consult.sh"}},"expect":"deny"},
-  {"name":"P0.2 CLASS D no-over-block: scoped flag, Write ~/.claude skills/foo.md still allows (exempt at step iii)","flagContent":"/home/user/someRepo","tokenAgeMs":null,"input":{"tool_name":"Write","tool_input":{"file_path":"__BASE__/skills/foo.md"}},"expect":"allow"}
+  {"name":"P0.2 CLASS D no-over-block: scoped flag, Write ~/.claude skills/foo.md still allows (exempt at step iii)","flagContent":"/home/user/someRepo","tokenAgeMs":null,"input":{"tool_name":"Write","tool_input":{"file_path":"__BASE__/skills/foo.md"}},"expect":"allow"},
+
+  {"name":"N5: set_budget (bud-GET) side-effect denies even with credential","flagContent":"","tokenAgeMs":60000,"input":{"tool_name":"mcp__x__set_budget","tool_input":{}},"expect":"deny"},
+  {"name":"N5: resolve_comment side-effect denies even with credential","flagContent":"","tokenAgeMs":60000,"input":{"tool_name":"mcp__x__resolve_comment","tool_input":{}},"expect":"deny"},
+  {"name":"N5: mark_as_read side-effect denies even with credential","flagContent":"","tokenAgeMs":60000,"input":{"tool_name":"mcp__x__mark_as_read","tool_input":{}},"expect":"deny"},
+  {"name":"N5: reply_to_thread (thread contains read) denies even with credential","flagContent":"","tokenAgeMs":60000,"input":{"tool_name":"mcp__slack__reply_to_thread","tool_input":{}},"expect":"deny"},
+  {"name":"N5: request_copilot_review (review contains view) denies even with credential","flagContent":"","tokenAgeMs":60000,"input":{"tool_name":"mcp__github__request_copilot_review","tool_input":{}},"expect":"deny"},
+  {"name":"N5: server-name pollution (get* server) + slack_reply_to_thread action still denies","flagContent":"","tokenAgeMs":60000,"input":{"tool_name":"mcp__getstuff__slack_reply_to_thread","tool_input":{}},"expect":"deny"},
+  {"name":"N5 no-regression: resolve-library-id (context7 read) still allows","flagContent":"","tokenAgeMs":null,"input":{"tool_name":"mcp__context7__resolve-library-id","tool_input":{}},"expect":"allow"},
+  {"name":"N5 no-regression: mark_chapter benign still allows","flagContent":"","tokenAgeMs":null,"input":{"tool_name":"mcp__ccd__mark_chapter","tool_input":{}},"expect":"allow"},
+  {"name":"N5 no-regression: get_thing plain read still allows","flagContent":"","tokenAgeMs":null,"input":{"tool_name":"mcp__x__get_thing","tool_input":{}},"expect":"allow"}
 ]

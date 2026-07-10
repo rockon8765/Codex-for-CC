@@ -11,18 +11,51 @@
 
 以下每步先列 macOS 指令、再列 Windows 對應；**Linux 照 macOS 指令做，把路徑裡的 `macos/` 換成 `linux/` 即可**。
 
-## 1. 安裝 skill 與 hook
+## 1. 安裝 skill 與 hook（先驗證 → 先備份 → 安裝，失敗可回滾）
 
-**macOS**
+> ⚠️ **不要直接覆蓋既有的 live hook 再測。** 若新版有問題，你會在驗證前就毀掉一個原本可用的 hook（且無回滾）。照「先驗證 repo 版本 → 備份既有 live → 安裝 → 驗證（步驟 3）→ 失敗回滾」的順序做。
+
+**1a. 先在 repo 版本上驗證（還沒碰 `~/.claude`）**
+
+macOS / Linux（Linux 把 `macos/` 換成 `linux/`）:
+```bash
+node "macos/skills/超級模式/tests/run-gate-tests.js"   # 這裡就 FAIL → repo 版本本身有問題，別安裝，回報使用者
+```
+Windows:
+```powershell
+node ".\windows\skills\超級模式\tests\run-gate-tests.js"   # 這裡就 FAIL → 別安裝
+```
+
+**1b. 備份既有 live（若存在）——記住印出的時間戳 `ts`，回滾要用**
+
+macOS / Linux:
+```bash
+ts=$(date +%Y%m%d-%H%M%S)
+[ -e ~/.claude/hooks/super-mode-consult-gate.js ] && cp ~/.claude/hooks/super-mode-consult-gate.js ~/.claude/hooks/super-mode-consult-gate.js.bak-$ts
+[ -d ~/.claude/skills/超級模式 ] && cp -R ~/.claude/skills/超級模式 ~/.claude/skills/超級模式.bak-$ts
+echo "backup ts=$ts"
+```
+Windows:
+```powershell
+$ts = Get-Date -Format yyyyMMdd-HHmmss
+$hook = "$env:USERPROFILE\.claude\hooks\super-mode-consult-gate.js"
+if (Test-Path $hook) { Copy-Item $hook "$hook.bak-$ts" }
+$skill = "$env:USERPROFILE\.claude\skills\超級模式"
+if (Test-Path $skill) { Copy-Item -Recurse $skill "$skill.bak-$ts" }
+"backup ts=$ts"
+```
+
+**1c. 安裝（複製到 live）**
+
+macOS / Linux:
 ```bash
 cp -R "macos/skills/超級模式" ~/.claude/skills/
 cp    "macos/hooks/super-mode-consult-gate.js" ~/.claude/hooks/
 ```
-
-**Windows**
+Windows:
 ```powershell
-Copy-Item -Recurse ".\windows\skills\超級模式" "$env:USERPROFILE\.claude\skills\"
-Copy-Item ".\windows\hooks\super-mode-consult-gate.js" "$env:USERPROFILE\.claude\hooks\"
+Copy-Item -Recurse ".\windows\skills\超級模式" "$env:USERPROFILE\.claude\skills\" -Force
+Copy-Item ".\windows\hooks\super-mode-consult-gate.js" "$env:USERPROFILE\.claude\hooks\" -Force
 ```
 
 ## 2. 註冊 hook
@@ -34,9 +67,9 @@ Copy-Item ".\windows\hooks\super-mode-consult-gate.js" "$env:USERPROFILE\.claude
 
 hook 在啟用前是 fail-open 且停用的——安裝它不影響一般 session，只有 `super-mode.{sh,ps1} on` 之後才作用。
 
-## 3. 驗證
+## 3. 驗證（跑 live；FAIL 就回滾到步驟 1b 的備份）
 
-**macOS**
+**macOS / Linux**
 ```bash
 node ~/.claude/skills/超級模式/tests/run-gate-tests.js   # 應全數 PASS
 bash ~/.claude/skills/超級模式/tests/run-e2e.sh          # 應全數 passed
@@ -47,7 +80,30 @@ bash ~/.claude/skills/超級模式/tests/run-e2e.sh          # 應全數 passed
 node "$env:USERPROFILE\.claude\skills\超級模式\tests\run-gate-tests.js"   # 應全數 PASS
 ```
 
-任何 FAIL → 停下來回報使用者，不要繼續下一步。
+**任何 FAIL → 先回滾、再回報使用者、停止**（不要留一個壞掉的 live hook）：
+
+- **有備份（步驟 1b 有印 `ts`）→ 還原**
+
+  macOS / Linux:
+  ```bash
+  [ -e ~/.claude/hooks/super-mode-consult-gate.js.bak-$ts ] && cp ~/.claude/hooks/super-mode-consult-gate.js.bak-$ts ~/.claude/hooks/super-mode-consult-gate.js
+  [ -d ~/.claude/skills/超級模式.bak-$ts ] && rm -rf ~/.claude/skills/超級模式 && mv ~/.claude/skills/超級模式.bak-$ts ~/.claude/skills/超級模式
+  ```
+  Windows:
+  ```powershell
+  $hook = "$env:USERPROFILE\.claude\hooks\super-mode-consult-gate.js"
+  if (Test-Path "$hook.bak-$ts") { Copy-Item "$hook.bak-$ts" $hook -Force }
+  $skill = "$env:USERPROFILE\.claude\skills\超級模式"
+  if (Test-Path "$skill.bak-$ts") { Remove-Item -Recurse -Force $skill; Rename-Item "$skill.bak-$ts" "超級模式" }
+  ```
+
+- **全新安裝（步驟 1b 沒有備份）→ 刪掉剛裝的，並移除步驟 2 加進 settings 的 hook 區塊**（否則 settings 會指向已刪的 hook）：
+  ```bash
+  # macOS/Linux: rm -f ~/.claude/hooks/super-mode-consult-gate.js; rm -rf ~/.claude/skills/超級模式
+  # Windows:     Remove-Item -Force $hook; Remove-Item -Recurse -Force $skill
+  ```
+
+回滾後把失敗的測試輸出一併回報使用者，不要繼續下一步。
 
 ## 4. 檢查 Codex CLI 可用性
 
