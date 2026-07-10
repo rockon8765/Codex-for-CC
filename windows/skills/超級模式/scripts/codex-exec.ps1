@@ -80,7 +80,10 @@ $errFile = Join-Path $env:TEMP ("codex_err_{0}.txt" -f ([guid]::NewGuid().ToStri
 try {
   # stderr 導到獨立檔(編號佔位符 {4})；不可用 2>&1(會回灌 stdout)。$LASTEXITCODE 仍是 codex 退出碼。
   # $schemaArg 為空時 {5} 不出現、多帶的 -f 參數無害；有值時併入 --output-schema "{5}"
-  $inner = ('"{0}" exec --sandbox workspace-write --skip-git-repo-check -C "{1}" ' + $schemaArg + '--output-last-message "{2}" < "{3}" 2> "{4}"') -f $codexCmd, $Dir, $OutFile, $brief, $errFile, $SchemaFile
+  # memories 隔離(2026-07-10)：Codex 全域 config 開了 [memories]。派工關掉 memories 讀寫是為
+  # (a)可重現：worker 只依本簡報行事，不受過往記憶漂移影響；(b)斷閉環：不把本專案實作細節寫進
+  # 全域 memories，否則下次同專案 consult 讀到→反方獨立性被污染。與 consult 對稱處理。
+  $inner = ('"{0}" exec --sandbox workspace-write --skip-git-repo-check -c memories.use_memories=false -c memories.generate_memories=false -C "{1}" ' + $schemaArg + '--output-last-message "{2}" < "{3}" 2> "{4}"') -f $codexCmd, $Dir, $OutFile, $brief, $errFile, $SchemaFile
   # -Quiet：只寫 log 不回灌 stdout(省 Claude context)；非 Quiet 維持逐行 echo
   & cmd.exe /d /s /c $inner | ForEach-Object { if (-not $Quiet) { $_ }; Add-Content -LiteralPath $log -Value $_ -Encoding utf8 }
   $code = $LASTEXITCODE

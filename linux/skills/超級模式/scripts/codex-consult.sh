@@ -48,7 +48,12 @@ printf '%s' "$p" > "$brief_tmp"
 # 簡報走 stdin(< file)避開引號/長度/word-split；stderr 導獨立檔再併 log，絕不 2>&1。
 # --ephemeral：短命唯讀諮詢不留 codex session 檔。
 set +e
-codex exec --sandbox read-only --ephemeral --skip-git-repo-check -C "$dir" \
+# memories 隔離(2026-07-10)：Codex 全域 config 開了 [memories]，會把過往記憶注入 session。
+# consult 要當「獨立第二意見」→ use_memories=false 斷讀入(否則反方審查被過往記憶污染)、
+# generate_memories=false 斷寫出(否則簡報進全域 memories，下次 consult 又讀到，自我強化閉環)。
+# 0.144.1(Windows 實測)：關掉後 NO_MEMORIES_VISIBLE、exit 0、MCP 工具面/沙箱邊界皆不受影響。
+codex exec --sandbox read-only --ephemeral --skip-git-repo-check \
+  -c memories.use_memories=false -c memories.generate_memories=false -C "$dir" \
   ${schema_args[@]+"${schema_args[@]}"} \
   < "$brief_tmp" 2> "$err_tmp" | tee -a "$log"
 code=${PIPESTATUS[0]}

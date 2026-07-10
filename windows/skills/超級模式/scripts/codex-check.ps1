@@ -39,15 +39,37 @@ function Show-CapabilitySurface {
   } catch { Write-Output "MCP servers: (查詢失敗)" }
 
   try {
+    $trueFeats = @()
     foreach ($ln in (& "C:\npm\codex.cmd" features list 2>$null)) {
       $t = ($ln -split '\s+') | Where-Object { $_ -ne '' }
-      if ($t.Count -ge 2) { $flags[$t[0]] = $t[-1] }
+      if ($t.Count -ge 2) {
+        $flags[$t[0]] = $t[-1]            # 末欄 = enabled(true/false)；status 可能含空格但只取首(name)尾(enabled)
+        if ($t[-1] -eq 'true') { $trueFeats += $t[0] }
+      }
     }
-    $watch = 'remote_plugin','plugins','computer_use','browser_use','in_app_browser','multi_agent','network_proxy','respect_system_proxy'
-    $parts = @()
-    foreach ($f in $watch) { if ($flags.ContainsKey($f)) { $parts += ("{0}={1}" -f $f, $(if ($flags[$f] -eq 'true') { 'ON' } else { 'off' })) } }
-    if ($parts.Count) { Write-Output ("關鍵旗標: " + ($parts -join '  ')) }
-  } catch { Write-Output "關鍵旗標: (查詢失敗)" }
+    # 改為「列出所有 enabled=true 的 feature」而非比對 8 個白名單：升級新增的 stable/true 能力面
+    # 會自動被盤到，白名單會漏報漂移(2026-07-10 教訓：hooks/memories/browser_use_full_cdp_access 都不在舊白名單)。
+    Write-Output ("啟用 features ({0}): {1}" -f $trueFeats.Count, $(if ($trueFeats.Count) { ($trueFeats | Sort-Object) -join ', ' } else { '(無)' }))
+    # 高風險子集：這些若 ON 代表 worker 能力面超出「只讀/只改檔」，升級後尤其要盯。
+    $hot = 'hooks','memories','remote_plugin','plugins','skill_mcp_dependency_install','computer_use','browser_use','browser_use_external','browser_use_full_cdp_access','in_app_browser','multi_agent','apps','guardian_approval','network_proxy','respect_system_proxy'
+    $hotOn = @($hot | Where-Object { $flags[$_] -eq 'true' })
+    if ($hotOn.Count) { Write-Output ("  * 高風險能力面 ON: " + (($hotOn | Sort-Object) -join ', ')) }
+  } catch { Write-Output "features: (查詢失敗)" }
+
+  # hooks 盤點(2026-07-10)：hooks 已 stable。config 的 [hooks.state."<id>"] 段列出「受信任、會在
+  # codex exec(含唯讀 consult) 時執行」的 hook——這是 read-only 沙箱心智模型之外的執行面，
+  # 升級/裝新 plugin 可能靜默新增，故每次盤出來讓人看見。唯讀讀 config.toml，不改任何檔。
+  try {
+    $cfg = Join-Path $env:USERPROFILE ".codex\config.toml"
+    if (Test-Path $cfg) {
+      $hooks = @()
+      foreach ($ln in (Get-Content -LiteralPath $cfg)) {
+        if ($ln -match '^\[hooks\.state\."([^"]+)"\]') { $hooks += (($Matches[1] -split ':')[0]) }
+      }
+      $hooks = @($hooks | Select-Object -Unique)
+      if ($hooks.Count) { Write-Output ("受信任 hooks ({0}): {1}" -f $hooks.Count, ($hooks -join ', ')) }
+    }
+  } catch {}
 
   if (($flags['remote_plugin'] -eq 'true') -or $enabled.Count -gt 0) {
     Write-Output "提示: worker 繼承上述全域能力面（>『只改檔』所需）。如需收緊，可於派工時加 --disable <feature> 單次覆寫（例：--disable remote_plugin / --disable plugins）；目前未預設收緊，屬待評估選項。"

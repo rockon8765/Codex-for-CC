@@ -47,14 +47,18 @@ printf '%s' "$p" > "$brief_tmp"
 
 # 簡報走 stdin(< file)；stderr 導獨立檔再併 log，絕不 2>&1。
 # 注意 bash 3.2：set -u 下空陣列要用 ${arr[@]+"${arr[@]}"} 展開。
+# memories 隔離(2026-07-10)：派工關掉 memories 讀寫 → (a)可重現：worker 只依本簡報行事、不受過往
+# 記憶漂移影響；(b)斷閉環：不把本專案實作細節寫進全域 memories(否則下次同專案 consult 讀到→反方獨立性被污染)。
 set +e
 if [ "$quiet" = "1" ]; then
-  codex exec --sandbox workspace-write --skip-git-repo-check -C "$dir" \
+  codex exec --sandbox workspace-write --skip-git-repo-check \
+    -c memories.use_memories=false -c memories.generate_memories=false -C "$dir" \
     ${schema_args[@]+"${schema_args[@]}"} --output-last-message "$out" \
     < "$brief_tmp" 2> "$err_tmp" >> "$log"
   code=$?
 else
-  codex exec --sandbox workspace-write --skip-git-repo-check -C "$dir" \
+  codex exec --sandbox workspace-write --skip-git-repo-check \
+    -c memories.use_memories=false -c memories.generate_memories=false -C "$dir" \
     ${schema_args[@]+"${schema_args[@]}"} --output-last-message "$out" \
     < "$brief_tmp" 2> "$err_tmp" | tee -a "$log"
   code=${PIPESTATUS[0]}
