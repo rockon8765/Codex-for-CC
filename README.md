@@ -2,7 +2,15 @@
 
 一個 **Claude Code** skill：讓 Claude 當**指揮（orchestrator）**、**OpenAI Codex CLI** 當**執行（worker）**，把繁重的實作工作外包給 Codex（藉此節省 Claude Code 用量），而 Claude 專注在規劃、審查、並以 spec 當作合約。
 
-一個 `PreToolUse` 的 **consult-gate** hook 負責強制這套紀律：超級模式啟用期間，會改變狀態的工具呼叫（寫檔、shell、MCP 寫入、外發型內建工具）**預設一律拒絕（default-deny）**，除非 Claude 手上有一份 20 分鐘內、由「先跑一次唯讀 Codex 諮詢」換來的「第二意見」憑證。
+一個 `PreToolUse` 的 **consult-gate** hook 負責推動這套紀律：超級模式啟用期間，會改變狀態的工具呼叫（寫檔、shell、MCP 寫入、外發型內建工具）在**沒有** 20 分鐘內、由「先跑一次唯讀 Codex 諮詢」換來的「第二意見」憑證時會被攔下，要求先諮詢。
+
+> ⚠️ **定位與界線（請先讀）：這道 gate 是「諮詢紀律提醒」，不是安全邊界。**
+> 它的用途是讓一個**合作的** Claude 在動手前先諮詢、避免不小心跳過流程——**不是**用來圍堵一個蓄意繞過、或被 prompt-injection 挾持的 agent。具體來說，它：
+> - **設計上 fail-open**：沒有旗標、或 hook 出任何錯／輸入異常時一律放行；
+> - **可被 agent 自己關掉**：`super-mode off` 就在放行白名單內、會刪掉旗標與憑證（這是設計，gate 的 deny 訊息本身就這樣教）；
+> - **不攔子程序副作用**：測試 runner（`npm test`／`pytest`）、以及某些 shell／MCP 寫法本來就會通過（一個惡意 repo 的測試腳本能以你的權限任意執行）。
+>
+> 真正的隔離必須來自 **OS 層 sandbox（WSL2／container／受限帳號）＋ Claude Code 自己的 permission 系統**——**這個 repo 不會幫你架這層**。請把它當「省下漏掉諮詢的失誤」的紀律工具，不要把它當防線。若你要在**不可信的 repo** 或**多人環境**下用，先自行架好 OS 層隔離與嚴格 permission。
 
 這個 repo 實際提供**兩個並列能力**，別把第二個誤當第一個的附屬功能：
 
@@ -13,7 +21,7 @@
 
 ## 三個平台版本
 
-這個 repo 為**三個平台提供同一個 skill**。它們**行為等價** — 相同的發現、相同的不變量（I1–I8，外加 `.sh` 平台（macOS/Linux）的 I9）、相同的驗收條件 — 但*實作機制*依平台翻譯（PowerShell vs bash、BOM 處理、stdin 佈線、路徑規則、BSD vs GNU userland）。挑你機器對應的那個：
+這個 repo 為**三個平台提供同一個 skill**，**設計上等價** — 同一套發現、同一組不變量（I1–I8，外加 `.sh` 平台（macOS/Linux）的 I9）、同一組驗收條件 — 但*實作機制*依平台翻譯（PowerShell vs bash、BOM 處理、stdin 佈線、路徑規則、BSD vs GNU userland）。**注意「設計等價」不等於「已驗證等價」**：只有 Windows 版在其目標平台上原生跑過完整測試；macOS/Linux 版的路徑正規化（realpath）分支在非原生平台上無法執行驗證。詳見下方現況。挑你機器對應的那個：
 
 | | [`windows/`](windows/) | [`macos/`](macos/) | [`linux/`](linux/) |
 |---|---|---|---|
@@ -24,7 +32,7 @@
 | 接 hook 的設定檔 | `settings.json` | `settings.local.json` | `settings.local.json` |
 | 修復紀錄 | [`windows/skills/超級模式/FIX-PLAN.md`](windows/skills/超級模式/FIX-PLAN.md) | [`macos/skills/超級模式/FIX-PLAN.md`](macos/skills/超級模式/FIX-PLAN.md) | [`linux/skills/超級模式/FIX-PLAN.md`](linux/skills/超級模式/FIX-PLAN.md) |
 
-> **現況。** Windows 版已完整稽核並部署；macOS 版是其**已驗證移植**（34 案例回歸＋真實端到端全綠）；Linux 版是 macOS 版的**機械式移植**（僅 `stat` 與平台文案差異，見「已知的坑」），回歸＋e2e 已在 Linux 實機全綠、真實 codex 端到端請部署後照 macOS FIX-PLAN Phase 5 劇本自跑一輪。各平台的分階段紀錄（每步含目的／驗收／回滾，另含不變量清單與回歸測試臺規格，弱 AI 可照做）在各自的 `FIX-PLAN.md`（上表連結）。
+> **現況（據實）。** **Windows 版**是目前唯一在其目標平台上原生稽核＋跑過完整回歸測試的版本；本 repo 的維護與對抗測試都以它為準。**macOS／Linux 版**是從 Windows 設計移植的**未原生驗證**版本——路徑正規化（realpath）分支在 Windows 開發機上（`process.platform !== 'win32'`）不會執行，因此那條關鍵路徑**從未在 mac/linux 實機跑過**。在你自己的 mac/linux 上原生跑過 `tests/`（見安裝節）之前，請把它們當**參考實作**，不要當「與 Windows 等價、可直接信賴」的版本。各平台的分階段紀錄與回歸測試臺規格在各自的 `FIX-PLAN.md`（上表連結）；案例數以各平台 `tests/gate-cases.json` 為準（三平台不同、且會隨修補變動）。
 
 ---
 
@@ -142,8 +150,8 @@ cp    "macos/hooks/super-mode-consult-gate.js" ~/.claude/hooks/
 # 3. 把 hook 接到 ~/.claude/settings.local.json（見 macos/settings.snippet.json），
 #    並把絕對路徑改成你自己家目錄的路徑。
 # 4. 驗證：
-node ~/.claude/skills/超級模式/tests/run-gate-tests.js   # PASS 34/34
-bash ~/.claude/skills/超級模式/tests/run-e2e.sh          # 11 passed
+node ~/.claude/skills/超級模式/tests/run-gate-tests.js   # 應全數 PASS（案例數見 gate-cases.json）
+bash ~/.claude/skills/超級模式/tests/run-e2e.sh          # 應全數 passed
 ```
 
 **Linux**
@@ -155,8 +163,8 @@ cp    "linux/hooks/super-mode-consult-gate.js" ~/.claude/hooks/
 #    絕對路徑改成你家目錄；若 node 不在系統 PATH（可攜式安裝），command 開頭的
 #    node 也要寫絕對路徑，否則 hook 會靜默不跑。
 # 4. 驗證：
-node ~/.claude/skills/超級模式/tests/run-gate-tests.js   # PASS 34/34
-bash ~/.claude/skills/超級模式/tests/run-e2e.sh          # 11 passed
+node ~/.claude/skills/超級模式/tests/run-gate-tests.js   # 應全數 PASS（案例數見 gate-cases.json）
+bash ~/.claude/skills/超級模式/tests/run-e2e.sh          # 應全數 passed
 ```
 
 **Windows**
