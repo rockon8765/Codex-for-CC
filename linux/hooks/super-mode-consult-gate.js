@@ -262,8 +262,9 @@ function decide(input, testOpts) {
     // 唯讀/良性 MCP 維持放行；寫入與未知工具必須走 repo-bound policy。
     const mcpIsWrite = MCP_WRITE_RE.test(tool);
     const mcpForceGate = MCP_FORCE_GATE_ACTION.has(mcpAction(tool)); // N5：讀名誤導的已知副作用工具
-    // 良性(mark_chapter/read_widget)永遠放行；其餘須「唯讀 heuristic 命中 且 非寫入 且 非已知副作用」才放行。
-    const mcpIsReadOnly = MCP_BENIGN_RE.test(tool) || (!mcpForceGate && MCP_READ_RE.test(tool) && !mcpIsWrite);
+    // 寫入/已知副作用一律優先於良性白名單：mark_chapter_delete/read_widget_update 這種「良性名 +
+    // 寫入動作」不得因命中 MCP_BENIGN_RE 而繞過 write 檢查(N5 regression 修補，恢復 main 的 write 優先)。
+    const mcpIsReadOnly = !mcpIsWrite && !mcpForceGate && (MCP_BENIGN_RE.test(tool) || MCP_READ_RE.test(tool));
     if (mcpIsReadOnly) {
       return { allow: true };
     }

@@ -285,5 +285,7 @@
   {"name":"N5: server-name pollution (get* server) + slack_reply_to_thread action still denies","flagContent":"","tokenAgeMs":60000,"input":{"tool_name":"mcp__getstuff__slack_reply_to_thread","tool_input":{}},"expect":"deny"},
   {"name":"N5 no-regression: resolve-library-id (context7 read) still allows","flagContent":"","tokenAgeMs":null,"input":{"tool_name":"mcp__context7__resolve-library-id","tool_input":{}},"expect":"allow"},
   {"name":"N5 no-regression: mark_chapter benign still allows","flagContent":"","tokenAgeMs":null,"input":{"tool_name":"mcp__ccd__mark_chapter","tool_input":{}},"expect":"allow"},
-  {"name":"N5 no-regression: get_thing plain read still allows","flagContent":"","tokenAgeMs":null,"input":{"tool_name":"mcp__x__get_thing","tool_input":{}},"expect":"allow"}
+  {"name":"N5 no-regression: get_thing plain read still allows","flagContent":"","tokenAgeMs":null,"input":{"tool_name":"mcp__x__get_thing","tool_input":{}},"expect":"allow"},
+  {"name":"N5 regression: benign-name + write action (mark_chapter_delete) denies","flagContent":"","tokenAgeMs":60000,"input":{"tool_name":"mcp__x__mark_chapter_delete","tool_input":{}},"expect":"deny"},
+  {"name":"N5 regression: benign-name + write action (read_widget_update) denies","flagContent":"","tokenAgeMs":60000,"input":{"tool_name":"mcp__x__read_widget_update","tool_input":{}},"expect":"deny"}
 ]
