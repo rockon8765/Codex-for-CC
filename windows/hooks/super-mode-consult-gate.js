@@ -180,15 +180,45 @@ function decide(input, testOpts) {
 
   if (MUTATING_FILE_TOOLS.includes(tool)) {
     const fp = String(ti.file_path || ti.notebook_path || "");
-    if (isExemptPath(fp, claude)) return { allow: true };
-    if (scope && fp && !isUnder(fp, scope)) return { allow: true }; // scope 外不管
-    actionPath = fp;
-    gated = true;
-    category = "檔案寫入";
+    // v2 決策順序(全部以 canonical 路徑判定；安全關鍵檔保護必須 BEAT scope 捷徑)：
+    //   canonicalize 先做(詞法擋 `..`/裝置/ADS/段尾點空白 → 摺 `.`/重複分隔 → 對最近存在祖先
+    //   realpathSync.native 解 NTFS 8.3 短名/大小寫/symlink → 殘留 8.3 樣式仍視為可疑)。
+    //   (i) canonical 可疑 → gated，跳過所有捷徑。
+    //   (ii) 安全關鍵檔 → 永遠 gated(在 scope 之前) → 殺 CLASS A(scope 捷徑蓋黑名單)/B(8.3)/C(`/.`)。
+    //   (iii) 豁免(scratchpad 或 ~/.claude 下非安全非自動執行檔) → 放行。
+    //   (iv) 有 scope 且 canonical 不在 scope 下、且不在 ~/.claude 內 → 放行(gate 自己的地盤絕不因 scope 外快放行；只剩非關鍵、非 ~/.claude 檔會到這)。
+    //   (v) 其餘 → gated。
+    const canonRes = canonicalize(fp);
+    const canon = canonRes.path;
+    const claudeRes = canonicalize(claude);
+    const claudeCanon = claudeRes.path || claude;
+    actionPath = fp; // 憑證範圍比對維持用原始 fp(不動 credential 決策路徑，避免非對稱誤判)
+    if (canonRes.dangerous || claudeRes.dangerous) {
+      // fp 可疑，或連 ~/.claude base 都無法可靠正規化 → gated，不放行任何豁免/scope 捷徑(fail-closed)。
+      gated = true;
+      category = "檔案寫入(可疑路徑)";
+    } else if (isSecurityCriticalPath(canon, claudeCanon)) {
+      gated = true;
+      category = "檔案寫入(安全關鍵檔)";
+    } else if (isAmbiguousShortNameUnderClaude(canon, claudeCanon)) {
+      gated = true; // 疑似 8.3 合成短名(直屬 ~/.claude 根)
+      category = "檔案寫入(疑似 8.3 短名)";
+    } else if (isExemptPath(canon, claudeCanon)) {
+      return { allow: true };
+    } else if (scope && canon && isScopeOutside(canon, scope) && !isUnderClaudeRoot(canon, claudeCanon)) {
+      return { allow: true }; // scope 外(非關鍵檔、且不在 ~/.claude 內)不管
+    } else {
+      gated = true;
+      category = "檔案寫入";
+    }
   } else if (tool === "Bash" || tool === "PowerShell") {
-    if (scope && !isUnder(String(input.cwd || ""), scope)) return { allow: true };
-    actionPath = String(input.cwd || "");
+    const cwd = String(input.cwd || "");
     const cmd = String(ti.command || "");
+    // CLASS A shell facet 修補：cwd 在 scope 外的捷徑放行「僅限唯讀指令」；會改狀態的指令一律
+    // 落回下方 default-deny/破壞性判定(需憑證)。可疑 cwd(含 ..)不吃此捷徑。
+    // (operand/git -C 綁定屬 P0.4，此處不解析 operand。)
+    if (!isDangerousPath(cwd) && scope && !isUnder(cwd, scope) && isReadOnlyCommand(cmd)) return { allow: true };
+    actionPath = cwd;
 
     // 唯讀諮詢/查版/開關腳本：錨定開頭 + 參數尾巴無串接/替換/破壞性字樣才放行
     const m = cmd.match(CODEX_SAFE_RE);
@@ -330,7 +360,7 @@ function readScope(flag) {
       .replace(/^﻿/, "")
       .split(/\r?\n/)[0]
       .trim();
-    if (/^([a-z]:[\\/]|\\\\)/i.test(first)) return first;
+    if (/^([a-z]:[\\/]|\\\\)/i.test(first) && !isDangerousPath(first)) return first; // 可疑 scope → 視為無 scope(全域強制,較嚴格)
   } catch (e) {}
   return ""; // 空 / 舊格式(時間戳) → 全域強制
 }
@@ -355,8 +385,126 @@ function norm(p) {
   return s.replace(/\\+$/, "").toLowerCase();
 }
 
+// 詞法可疑路徑偵測(在任何路徑比對前呼叫)：Claude Code 傳絕對 file_path，合法情況不含 `..`，
+// 故「拒絕」而非「解析」即零誤判且確定性關閉提權。windows 另擋裝置路徑(\\?\ \\.\)、NTFS ADS
+// (磁碟機冒號以外的多餘 `:`)、段尾空白或點(Windows 會靜默去除 → 可繞過精確比對黑名單)。
+function isDangerousPath(p) {
+  try {
+    const s = String(p == null ? "" : p);
+    if (!s) return false;
+    const w = s.replace(/\//g, "\\"); // 統一分隔符再逐段分析
+    if (w.split(/\\+/).includes("..")) return true; // .. 段
+    if (/^\\\\[?.]\\/.test(w)) return true; // 裝置路徑 \\?\ \\.\
+    if (w.replace(/^[a-z]:/i, "").includes(":")) return true; // ADS：磁碟機冒號外的 :
+    for (const seg of w.split(/\\+/)) if (seg && /[ .]$/.test(seg)) return true; // 段尾空白/點
+    return false;
+  } catch (e) {
+    return true; // 解析失敗 → 保守視為可疑
+  }
+}
+
+// 路徑必須是「完全限定的絕對路徑」：磁碟機+分隔(C:\) 或 UNC(\\ // )。拒絕相對(foo\a)、磁碟機相對
+// (C:foo)、根相對(\foo) —— 這些無法可靠判定 containment，會被當作 scope 外而繞過(Codex 反例)。
+function isAbsoluteEnough(p) {
+  return /^[a-zA-Z]:[\\/]/.test(p) || /^[\\/]{2}/.test(p);
+}
+
+// v2 正規化：詞法擋 → 摺 `.`/重複分隔 → 要求絕對路徑 → 對「最近的存在祖先」realpathSync.native(解 NTFS
+// 8.3 短名、Windows 大小寫、symlink/junction、SUBST/mapped drive) → 接回不存在的尾段。回 { path,
+// dangerous }。任何非預期錯誤/dangling link/權限 → fail-closed(dangerous)。realpath 是唯一能打 8.3
+// 別名/SUBST/symlink 的手段，詞法辦不到。realpath 僅在本 hook 的目標平台(win32)上執行；跨平台測試臺
+// (Windows 上跑本 hook 亦即目標平台) 照跑，POSIX hook 在 Windows 上則停用 realpath(避免磁碟根偽造)。
+const PP = path.win32; // 詞法路徑運算固定用 win32 語義(不隨宿主 OS 變)
+const CAN_REALPATH = process.platform === "win32"; // 僅目標平台做真實 realpath
+function canonicalize(fp) {
+  try {
+    const raw = String(fp == null ? "" : fp);
+    if (!raw) return { path: "", dangerous: false };
+    if (isDangerousPath(raw)) return { path: raw, dangerous: true }; // (a) 詞法 reject(含 `..`/裝置/ADS/段尾點空白)
+    let n = PP.normalize(raw); // (b) 摺 `.` 與重複分隔；已在 `..` reject 之後，normalize 不會解出上層
+    if (isDangerousPath(n)) return { path: n, dangerous: true };
+    if (!isAbsoluteEnough(n)) return { path: n, dangerous: true }; // (a') 非絕對路徑 → 可疑(無法判 containment)
+    if (!CAN_REALPATH) return { path: n, dangerous: false }; // 非目標平台(測試臺跑 POSIX hook)：只做詞法正規化
+    // (c) 逐層上溯找「存在的」祖先(用 lstat：dangling symlink 本體也算存在，交給 realpath fail-closed) → realpath → 接回尾段
+    let cur = n;
+    const tail = [];
+    let guard = 0;
+    while (guard++ < 8192) {
+      let present = true;
+      try { fs.lstatSync(cur); }
+      catch (e) {
+        if (e && e.code === "ENOENT") present = false; // 此層真的不存在 → 往上找
+        else return { path: n, dangerous: true }; // (d) EACCES/ELOOP/其他 → fail-closed
+      }
+      if (present) {
+        let real;
+        try { real = fs.realpathSync.native(cur); } // 解 8.3/大小寫/symlink/SUBST；dangling link 會 throw → fail-closed
+        catch (e) { return { path: n, dangerous: true }; } // (d)
+        const joined = tail.length ? real + PP.sep + tail.slice().reverse().join(PP.sep) : real;
+        return { path: joined, dangerous: false };
+      }
+      const parent = PP.dirname(cur);
+      if (parent === cur) return { path: n, dangerous: true }; // 連根都 ENOENT(不應發生) → fail-closed
+      tail.push(PP.basename(cur));
+      cur = parent;
+    }
+    return { path: n, dangerous: true }; // guard 觸頂 → fail-closed
+  } catch (e) {
+    return { path: String(fp == null ? "" : fp), dangerous: true }; // (d)
+  }
+}
+
+// scope 外判定：scope 也走 canonicalize(兩邊一致)；scope 無法正規化 → 回 false(視為全域強制，不放行捷徑)。
+function isScopeOutside(canon, scope) {
+  const s = canonicalize(scope);
+  if (s.dangerous) return false;
+  return !isUnder(canon, s.path || scope);
+}
+
+// Windows 專屬 decide-layer 防線：canonical 路徑的「直屬 ~/.claude 根、且長得像 DOS 8.3 短名(~數字)的
+// 未解析 leaf」→ 疑似合成短名(空目錄下無真別名可被 realpath 解掉的 SETTIN~1.JSO 這類)，在豁免前 gate。
+// 刻意窄化：只擋「直屬 ~/.claude 根」的 leaf，不碰 scratchpad/skills 子目錄/其它 repo/含 `~1` 的合法長名，
+// 也不併入 isDangerousPath 或污染 scope/token 判定(Codex 建議)。真別名的攻擊已由 realpath→critical 擋掉。
+function isAmbiguousShortNameUnderClaude(canonFp, canonClaude) {
+  if (!canonFp || !canonClaude) return false;
+  const p = norm(canonFp);
+  const c = norm(canonClaude);
+  if (!p.startsWith(c + "\\")) return false;
+  const rel = p.slice(c.length + 1);
+  if (rel.indexOf("\\") !== -1) return false; // 必須是直屬 leaf(不在子目錄下)
+  return /~[0-9]/.test(rel);
+}
+
+// canonical 路徑是否為安全關鍵檔(在 scope 判定之前永遠 gated)。兩個參數都須是已 canonicalize 的路徑，
+// 兩邊同走 realpath → 大小寫/8.3/symlink 一致，比對才可靠。
+function isSecurityCriticalPath(canonFp, canonClaude) {
+  if (!canonFp) return false;
+  const p = norm(canonFp);
+  const c = norm(canonClaude);
+  return (
+    p === c + "\\.super-mode-active" ||
+    p === c + "\\.super-mode-consult-ok" ||
+    p === c + "\\settings.json" ||
+    p === c + "\\settings.local.json" ||
+    p === c + "\\.codex-check-last" ||
+    p.startsWith(c + "\\hooks\\")
+  );
+}
+
+// step(iv) scope-outside 捷徑的 claude-root 守衛：~/.claude 是 gate 自己的地盤，永不因「不在 repo
+// scope 下」而被 scope-outside 快放行。否則 scoped 旗標 + 無憑證下，可 zero-credential 覆寫非安全關鍵
+// 清單、卻仍會被 gate 無條件執行的檔(codex-consult.ps1/super-mode.ps1/任意 .ps1) → 提權。canonFp
+// 落在 canonClaude(=~/.claude) 內 → true。合法 ~/.claude 下非關鍵檔已在 step(iii) isExemptPath 放行。
+function isUnderClaudeRoot(canonFp, canonClaude) {
+  if (!canonFp || !canonClaude) return false;
+  const p = norm(canonFp);
+  const c = norm(canonClaude);
+  return p === c || p.startsWith(c + "\\");
+}
+
 function isUnder(p, root) {
   if (!p) return true; // 拿不到路徑就當在 scope 內(保守：仍要憑證)
+  if (isDangerousPath(p) || isDangerousPath(root)) return false; // .. 等可疑路徑不可判為「在範圍內」
   const a = norm(p);
   const b = norm(root);
   return a === b || a.startsWith(b + "\\");
@@ -404,20 +552,14 @@ function hasDotDotSegment(value) {
   }
 }
 
+// 輸入(fp/claude)應已 canonicalize。安全關鍵檔委派給 isSecurityCriticalPath(單一真相源)。
 function isExemptPath(fp, claude) {
   if (!fp) return false;
   const p = norm(fp);
   const c = norm(claude);
   // 安全關鍵檔絕不豁免（否則可 Write 偽造憑證 / 覆寫 settings / 抽換 hook 本體自我提權）。
-  // 這些檔仍受一般 gating：真的要改就得先有諮詢憑證。
-  if (
-    p === c + "\\.super-mode-active" ||
-    p === c + "\\.super-mode-consult-ok" ||
-    p === c + "\\settings.json" ||
-    p === c + "\\settings.local.json" ||
-    p === c + "\\.codex-check-last" ||
-    p.startsWith(c + "\\hooks\\")
-  ) {
+  // 這些檔仍受一般 gating：真的要改就得先有諮詢憑證。(step (ii) 已先擋，這裡是防禦性重複。)
+  if (isSecurityCriticalPath(fp, claude)) {
     return false;
   }
   const base = p.split("\\").pop();
@@ -427,7 +569,11 @@ function isExemptPath(fp, claude) {
   ) {
     return false;
   }
-  return p.startsWith(c + "\\") || p.startsWith(norm(os.tmpdir()) + "\\");
+  // tmp root 也走 canonicalize，讓 canon(fp) 與比對基準兩邊都是 realpath 大小寫/短名(尤其 linux
+  // case-sensitive norm 在 Windows 測試臺需兩邊一致才不誤判)。tmp 正規化失敗 → 停用 tmp 豁免(fail-closed)。
+  const tmpRes = canonicalize(os.tmpdir());
+  const underTmp = !tmpRes.dangerous && p.startsWith(norm(tmpRes.path || os.tmpdir()) + "\\");
+  return p.startsWith(c + "\\") || underTmp;
 }
 
 function isReadOnlyCommand(cmd) {
@@ -463,4 +609,4 @@ function tryUnlink(p) {
   } catch (e) {}
 }
 
-module.exports = { decide };
+module.exports = { decide, canonicalize };

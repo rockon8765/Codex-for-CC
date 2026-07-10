@@ -265,6 +265,33 @@
   {"name":"mcp t7b: Notion underscore variant denies","flagContent":"","tokenAgeMs":60000,"tokenContent":"{\"repo\":\"/home/user/proj\",\"ts\":\"x\"}","input":{"tool_name":"mcp__d0ff55b5-4377-4adc-bf11-7c85fb289ffe__notion_create_pages","tool_input":{}},"expect":"deny"},
   {"name":"mcp t7b: Notion wrong server segment denies","flagContent":"","tokenAgeMs":60000,"tokenContent":"{\"repo\":\"/home/user/proj\",\"ts\":\"x\"}","input":{"tool_name":"mcp__d0ff55b5-4377-4adc-bf11-7c85fb289ffe__othertool-create-pages","tool_input":{}},"expect":"deny"},
   {"name":"mcp t7b: Notion get-comments read-only allows","flagContent":"","tokenAgeMs":null,"input":{"tool_name":"mcp__d0ff55b5-4377-4adc-bf11-7c85fb289ffe__notion-get-comments","tool_input":{}},"expect":"allow"},
+  {"name":"N1 dotdot Write to consult-ok credential denies","flagContent":"","tokenAgeMs":null,"input":{"tool_name":"Write","tool_input":{"file_path":"__BASE__/x/../.super-mode-consult-ok"}},"expect":"deny"},
+  {"name":"N1 dotdot Write to hook body denies","flagContent":"","tokenAgeMs":null,"input":{"tool_name":"Write","tool_input":{"file_path":"__BASE__/x/../hooks/super-mode-consult-gate.js"}},"expect":"deny"},
+  {"name":"N1 dotdot Write to settings.json denies","flagContent":"","tokenAgeMs":null,"input":{"tool_name":"Write","tool_input":{"file_path":"__BASE__/x/../settings.json"}},"expect":"deny"},
+  {"name":"N1 dotdot Write to active flag denies","flagContent":"","tokenAgeMs":null,"input":{"tool_name":"Write","tool_input":{"file_path":"__BASE__/x/../.super-mode-active"}},"expect":"deny"},
+  {"name":"N1 control: normal scratchpad write (no dotdot) allows","flagContent":"","tokenAgeMs":null,"input":{"tool_name":"Write","tool_input":{"file_path":"__TMP__/claude/scratchpad/n1-control.txt"}},"expect":"allow"},
+
+  {"name":"P0.1 CLASS A: scoped flag, Write ~/.claude settings.json denies (security beats scope)","flagContent":"/Users/user/someRepo","tokenAgeMs":null,"input":{"tool_name":"Write","tool_input":{"file_path":"__BASE__/settings.json"}},"expect":"deny"},
+  {"name":"P0.1 CLASS A: scoped flag, Write ~/.claude settings.local.json denies","flagContent":"/Users/user/someRepo","tokenAgeMs":null,"input":{"tool_name":"Write","tool_input":{"file_path":"__BASE__/settings.local.json"}},"expect":"deny"},
+  {"name":"P0.1 CLASS A: scoped flag, Write consult-ok credential denies","flagContent":"/Users/user/someRepo","tokenAgeMs":null,"input":{"tool_name":"Write","tool_input":{"file_path":"__BASE__/.super-mode-consult-ok"}},"expect":"deny"},
+  {"name":"P0.1 CLASS A: scoped flag, Write .super-mode-active denies","flagContent":"/Users/user/someRepo","tokenAgeMs":null,"input":{"tool_name":"Write","tool_input":{"file_path":"__BASE__/.super-mode-active"}},"expect":"deny"},
+  {"name":"P0.1 CLASS A: scoped flag, Write .codex-check-last denies","flagContent":"/Users/user/someRepo","tokenAgeMs":null,"input":{"tool_name":"Write","tool_input":{"file_path":"__BASE__/.codex-check-last"}},"expect":"deny"},
+  {"name":"P0.1 CLASS A: scoped flag, Write hook body under hooks/ denies","flagContent":"/Users/user/someRepo","tokenAgeMs":null,"input":{"tool_name":"Write","tool_input":{"file_path":"__BASE__/hooks/super-mode-consult-gate.js"}},"expect":"deny"},
+  {"name":"P0.1 CLASS A: scoped flag, non-critical write UNDER scope still gated denies","flagContent":"/Users/user/someRepo","tokenAgeMs":null,"input":{"tool_name":"Write","tool_input":{"file_path":"/Users/user/someRepo/src/app.js"}},"expect":"deny"},
+  {"name":"P0.1 CLASS A: scoped flag, non-critical write OUTSIDE scope still allows (no over-block)","flagContent":"/Users/user/someRepo","tokenAgeMs":null,"input":{"tool_name":"Write","tool_input":{"file_path":"/Users/user/elsewhere/x.js"}},"expect":"allow"},
+
+  {"name":"P0.1 CLASS C: dot-segment Write to settings.json denies","flagContent":"","tokenAgeMs":null,"input":{"tool_name":"Write","tool_input":{"file_path":"__BASE__/./settings.json"}},"expect":"deny"},
+  {"name":"P0.1 CLASS C: dot-segment Write to consult-ok denies","flagContent":"","tokenAgeMs":null,"input":{"tool_name":"Write","tool_input":{"file_path":"__BASE__/./.super-mode-consult-ok"}},"expect":"deny"},
+  {"name":"P0.1 CLASS C: dot-segment Write to hook body denies","flagContent":"","tokenAgeMs":null,"input":{"tool_name":"Write","tool_input":{"file_path":"__BASE__/./hooks/super-mode-consult-gate.js"}},"expect":"deny"},
+
+  {"name":"P0.1 no-over-block: non-critical ~/.claude/skills file allows","flagContent":"","tokenAgeMs":null,"input":{"tool_name":"Write","tool_input":{"file_path":"__BASE__/skills/foo.md"}},"expect":"allow"},
+  {"name":"P0.1 no-over-block: repo file write WITH matching credential allows","flagContent":"","tokenAgeMs":60000,"tokenContent":"{\"repo\":\"/Users/user/proj\",\"ts\":\"x\"}","input":{"tool_name":"Write","tool_input":{"file_path":"/Users/user/proj/src/app.js"}},"expect":"allow"},
+  {"name":"P0.1 no-over-block: POSIX file with ~1 in name allows (no 8.3 short-name concept on POSIX)","flagContent":"","tokenAgeMs":null,"input":{"tool_name":"Write","tool_input":{"file_path":"__TMP__/claude/scratchpad/note~1.txt"}},"expect":"allow"},
+
+  {"name":"P0.2 CLASS D: scoped flag, Write ~/.claude evil.sh denies (claude-root beats scope-outside)","flagContent":"/Users/user/someRepo","tokenAgeMs":null,"input":{"tool_name":"Write","tool_input":{"file_path":"__BASE__/evil.sh"}},"expect":"deny"},
+  {"name":"P0.2 CLASS D: scoped flag, Write ~/.claude skills/x/scripts/codex-consult.sh denies","flagContent":"/Users/user/someRepo","tokenAgeMs":null,"input":{"tool_name":"Write","tool_input":{"file_path":"__BASE__/skills/x/scripts/codex-consult.sh"}},"expect":"deny"},
+  {"name":"P0.2 CLASS D no-over-block: scoped flag, Write ~/.claude skills/foo.md still allows (exempt at step iii)","flagContent":"/Users/user/someRepo","tokenAgeMs":null,"input":{"tool_name":"Write","tool_input":{"file_path":"__BASE__/skills/foo.md"}},"expect":"allow"},
+
   {"name":"N5: set_budget (bud-GET) side-effect denies even with credential","flagContent":"","tokenAgeMs":60000,"input":{"tool_name":"mcp__x__set_budget","tool_input":{}},"expect":"deny"},
   {"name":"N5: resolve_comment side-effect denies even with credential","flagContent":"","tokenAgeMs":60000,"input":{"tool_name":"mcp__x__resolve_comment","tool_input":{}},"expect":"deny"},
   {"name":"N5: mark_as_read side-effect denies even with credential","flagContent":"","tokenAgeMs":60000,"input":{"tool_name":"mcp__x__mark_as_read","tool_input":{}},"expect":"deny"},
