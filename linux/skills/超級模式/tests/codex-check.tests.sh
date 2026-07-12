@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # codex-check.sh 合成測試臺。用法: bash codex-check.tests.sh [測試名…]；無參數跑全部。
 # 原理: HOME 指到暫存目錄（隔離快取）、PATH 前置 stubs、跑真腳本斷言行為。
+# stub env: CODEX_STUB_VERSION/NONE, CODEX_STUB_VERSION_PREFIX, CODEX_STUB_MODE=ok|ansi|echo-only, CODEX_STUB_LASTMSG, CODEX_STUB_SUPPORTS_LASTMSG, CODEX_STUB_TRACE, CODEX_STUB_HELP_PAD, NPM_STUB_MODE=ok|fail|sleep|print-then-hang|print-then-fail|multiline|blank2|junk, NPM_STUB_VERSION
 set -u
 here="$(cd "$(dirname "$0")" && pwd)"
 script="$here/../scripts/codex-check.sh"

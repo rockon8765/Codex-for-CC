@@ -497,7 +497,7 @@ exit "$smoke"
 
 ---
 
-## Task 7：Windows ps1 同語義移植（pending-native 分支；先測試臺後 SUT）
+## Task 7：Windows ps1 同語義移植（pending-native 分支；先測試臺後 SUT）（✅ 於獨立分支 fix/codex-check-hardening-windows-pending-native 完成，未併 main）
 
 **Files**：Modify `windows/skills/超級模式/scripts/codex-check.ps1`；Create `windows/skills/超級模式/tests/codex-check.tests.ps1`
 

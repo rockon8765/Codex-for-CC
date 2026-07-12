@@ -10,6 +10,8 @@ case "${1:-}" in -f|--force) force="1" ;; "") : ;; *) echo "unknown arg: $1" >&2
 cache="$HOME/.claude/.codex-check-last"
 cache_format="format=2"
 cache_tmp=""
+lastmsg_file=""
+trap 'rm -f "$cache_tmp" "$lastmsg_file"' EXIT
 
 # --- 能力面盤點（唯讀，跨平台）------------------------------------------------
 # 盤點 worker 每次派工實際帶著的能力面（啟用外掛 / MCP / 關鍵旗標）。
@@ -61,10 +63,12 @@ fi
 
 echo "=== installed ==="
 installed_raw="$(codex --version 2>&1 || true)"
-printf '%s\n' "$installed_raw" | head -1 || true
 # H1: 優先從 codex 錨定行抽版本；錨定行沒有才退回全輸出第一個版本樣 token（banner 誤中風險見規劃書 D5）
 inst_ver="$(printf '%s\n' "$installed_raw" | grep -E '^codex(-cli)?[[:space:]]' | grep -oE '[0-9]+\.[0-9]+\.[0-9]+[^ ]*' | head -1 || true)"
 [ -n "$inst_ver" ] || inst_ver="$(printf '%s\n' "$installed_raw" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+[^ ]*' | head -1 || true)"
+disp_line="$(printf '%s\n' "$installed_raw" | grep -E '^codex(-cli)?[[:space:]]' | head -1 || true)"
+[ -n "$disp_line" ] || disp_line="$(printf '%s\n' "$installed_raw" | head -1 || true)"
+printf '%s\n' "$disp_line"
 echo "=== latest on npm ==="
 # C3: npm view 離線/失敗留空（不可拿去跟 installed 比，否則離線就誤報 OUTDATED；smoke 才是權威判定）
 # H3: env 收緊 + perl alarm watchdog（單一行程契約：SIGALRM 殺 npm 主行程=單一 node 行程）。
@@ -142,7 +146,6 @@ rm -f "$lastmsg_file"
 
 if [ "$sentinel_ok" = "1" ]; then
   cache_tmp="$(mktemp "${cache}.tmp.XXXXXX")"
-  trap 'rm -f "$cache_tmp"' EXIT
   printf '%s installed=%s latest=%s verdict=%s smoke=OK at %s\n' \
     "$cache_format" "$inst_ver" "$latest_disp" "$verdict" "$(date +%Y-%m-%dT%H:%M:%S%z)" > "$cache_tmp" \
     && mv -f "$cache_tmp" "$cache"
