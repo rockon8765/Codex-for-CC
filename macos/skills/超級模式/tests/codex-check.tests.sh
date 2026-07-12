@@ -53,8 +53,25 @@ t_h1_no_version() {       # 完全抽不到版本 → UNKNOWN(installed) 且 smo
   printf '%s' "$out" | grep -q 'UNKNOWN (installed'; assert h1_no_version "verdict UNKNOWN(installed)" $?
   assert h1_no_version "smoke 照跑 exit 0" "$rc"
 }
+t_h5_multiline() {   # 多行 → UNKNOWN、不可死在 smoke 前
+  setup; run_check NPM_STUB_MODE=multiline
+  printf '%s' "$out" | grep -q 'UNKNOWN (latest'; assert h5_multiline "UNKNOWN" $?
+  assert h5_multiline "smoke 照跑 exit 0" "$rc"
+}
+t_h5_blank_second_line() {  # 第二行空白、第三行垃圾 → 仍 UNKNOWN（不可只驗第二行）
+  setup; run_check NPM_STUB_MODE=blank2
+  printf '%s' "$out" | grep -q 'UNKNOWN (latest'; assert h5_blank2 "UNKNOWN" $?
+}
+t_h5_junk() {        # 尾部垃圾 0.145.0garbage → UNKNOWN
+  setup; run_check NPM_STUB_MODE=junk
+  printf '%s' "$out" | grep -q 'UNKNOWN (latest'; assert h5_junk "UNKNOWN" $?
+}
+t_h5_prerelease_current() {  # 合法 prerelease 尾綴照走狀態機（CURRENT 回歸）
+  setup; run_check CODEX_STUB_VERSION=0.144.0-alpha.4 NPM_STUB_VERSION=0.144.0
+  printf '%s' "$out" | grep -q '^CURRENT'; assert h5_prerelease_current "CURRENT" $?
+}
 
-all_tests="t_happy_path t_offline_unknown t_fake_pass_rejected t_ansi_stripped t_h1_leading_warning t_h1_warning_has_version t_h1_no_version"
+all_tests="t_happy_path t_offline_unknown t_fake_pass_rejected t_ansi_stripped t_h1_leading_warning t_h1_warning_has_version t_h1_no_version t_h5_multiline t_h5_blank_second_line t_h5_junk t_h5_prerelease_current"
 tests="${*:-$all_tests}"
 for t in $tests; do
   case " $all_tests " in

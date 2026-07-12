@@ -64,7 +64,12 @@ inst_ver="$(printf '%s\n' "$installed_raw" | grep -E '^codex(-cli)?[[:space:]]' 
 echo "=== latest on npm ==="
 # C3: npm view 離線/失敗留空（不可拿去跟 installed 比，否則離線就誤報 OUTDATED；smoke 才是權威判定）
 latest_raw="$(npm view '@openai/codex' version 2>/dev/null || true)"
-case "$latest_raw" in [0-9]*.[0-9]*.[0-9]*) latest="$latest_raw" ;; *) latest="" ;; esac
+# H5: 恰一行（單次 awk，避 head 的 SIGPIPE）＋ 版本 token 文法全匹配；否則一律當查不到（→ UNKNOWN）
+latest_line="$(printf '%s' "$latest_raw" | awk 'NR==1{l=$0} END{if(NR==1) print l}')"
+latest=""
+if [ -n "$latest_line" ] && printf '%s' "$latest_line" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z]+(\.[0-9A-Za-z-]+)*)?(\+[0-9A-Za-z]+(\.[0-9A-Za-z-]+)*)?$'; then
+  latest="$latest_line"
+fi
 latest_disp="${latest:-(unknown - offline)}"
 echo "$latest_disp"
 # C3: 版本狀態機 CURRENT/BEHIND/AHEAD/UNKNOWN。可攜比較用 POSIX awk 拆 major.minor.patch，避開 BSD 不支援的 sort -V。
@@ -79,14 +84,13 @@ else
     na=split(a,x,"[.]"); nb=split(b,y,"[.]");
     for(i=1;i<=3;i++){ xi=(i<=na?x[i]+0:0); yi=(i<=nb?y[i]+0:0);
       if(xi<yi){print -1; exit} if(xi>yi){print 1; exit} }
-    print 0 }')"
-  if [ "$cmp" -lt 0 ]; then
-    verdict="BEHIND ($inst_ver -> $latest) -- 更新屬系統變更，先問使用者再跑 npm install -g @openai/codex@latest"
-  elif [ "$cmp" -gt 0 ]; then
-    verdict="AHEAD ($inst_ver > $latest) -- 本機比 registry 新（prerelease/私建），非落後"
-  else
-    verdict="CURRENT ($inst_ver vs $latest) -- base 版本相同（多半 prerelease 尾綴差異）"
-  fi
+    print 0 }' || true)"
+  case "$cmp" in
+    -1) verdict="BEHIND ($inst_ver -> $latest) -- 更新屬系統變更，先問使用者再跑 npm install -g @openai/codex@latest" ;;
+    1)  verdict="AHEAD ($inst_ver > $latest) -- 本機比 registry 新（prerelease/私建），非落後" ;;
+    0)  verdict="CURRENT ($inst_ver vs $latest) -- base 版本相同（多半 prerelease 尾綴差異）" ;;
+    *)  verdict="UNKNOWN (版本比較失敗) -- 無法判定新舊，改看下方 smoke test 認定可用性" ;;
+  esac
 fi
 echo "$verdict"
 
