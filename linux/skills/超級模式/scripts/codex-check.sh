@@ -21,29 +21,56 @@ echo "=== installed ==="
 installed="$(codex --version 2>&1 | head -1)"
 echo "$installed"
 echo "=== latest on npm ==="
-# npm view 離線/失敗不得中止整支腳本（smoke 才是權威判定）
-latest="$(npm view '@openai/codex' version 2>/dev/null || true)"; [ -n "$latest" ] || latest="(unknown - offline)"
-echo "$latest"
+# C3: npm view 離線/失敗留空（不可拿去跟 installed 比，否則離線就誤報 OUTDATED；smoke 才是權威判定）
+latest_raw="$(npm view '@openai/codex' version 2>/dev/null || true)"
+case "$latest_raw" in [0-9]*.[0-9]*.[0-9]*) latest="$latest_raw" ;; *) latest="" ;; esac
+latest_disp="${latest:-(unknown - offline)}"
+echo "$latest_disp"
 inst_ver="$(printf '%s' "$installed" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+[^ ]*' | head -1 || true)"
-if [ "$inst_ver" = "$latest" ]; then
+# C3: 版本狀態機 CURRENT/BEHIND/AHEAD/UNKNOWN。可攜比較用 POSIX awk 拆 major.minor.patch，避開 BSD 不支援的 sort -V。
+if [ -z "$latest" ]; then
+  verdict="UNKNOWN (latest 查不到，可能離線) -- 無法判定新舊，改看下方 smoke test 認定可用性"
+elif [ "$inst_ver" = "$latest" ]; then
   verdict="UP-TO-DATE"
 else
-  verdict="OUTDATED ($inst_ver -> $latest) -- 更新屬系統變更，先問使用者再跑 npm install -g @openai/codex@latest"
+  cmp="$(awk -v a="$inst_ver" -v b="$latest" 'BEGIN{
+    na=split(a,x,"[.]"); nb=split(b,y,"[.]");
+    for(i=1;i<=3;i++){ xi=(i<=na?x[i]+0:0); yi=(i<=nb?y[i]+0:0);
+      if(xi<yi){print -1; exit} if(xi>yi){print 1; exit} }
+    print 0 }')"
+  if [ "$cmp" -lt 0 ]; then
+    verdict="BEHIND ($inst_ver -> $latest) -- 更新屬系統變更，先問使用者再跑 npm install -g @openai/codex@latest"
+  elif [ "$cmp" -gt 0 ]; then
+    verdict="AHEAD ($inst_ver > $latest) -- 本機比 registry 新（prerelease/私建），非落後"
+  else
+    verdict="CURRENT ($inst_ver vs $latest) -- base 版本相同（多半 prerelease 尾綴差異）"
+  fi
 fi
 echo "$verdict"
 
 echo "=== read-only smoke test ==="
 # codex exec 必須餵空 stdin + --skip-git-repo-check，否則卡讀 stdin / 報不受信任目錄
+# C2: 捕捉輸出並回顯，驗真回了 CODEX_OK（光看 exit code 會把「壞掉但 exit 0」誤判成可用）。
 set +e
-printf '' | codex exec --sandbox read-only --skip-git-repo-check -C "${TMPDIR:-/tmp}" "Reply with exactly: CODEX_OK"
+smoke_out="$(printf '' | codex exec --sandbox read-only --skip-git-repo-check -C "${TMPDIR:-/tmp}" "Reply with exactly: CODEX_OK" 2>&1)"
 smoke=$?
 set -e
+printf '%s\n' "$smoke_out"
+# user prompt echo 也含 CODEX_OK，只看有沒有出現會假通過；要 "codex" marker 之後的回覆段才算數。先剝 ANSI（literal ESC，避 BSD sed 不支援 \x1b）。
+esc="$(printf '\033')"
+clean="$(printf '%s' "$smoke_out" | sed "s/${esc}\[[0-9;]*m//g")"
+reply="$(printf '%s\n' "$clean" | awk 'f{print} /^[[:space:]]*codex[[:space:]]*$/{f=1}')"
 
-if [ "$smoke" -eq 0 ]; then
+if [ "$smoke" -eq 0 ] && printf '%s' "$reply" | grep -q 'CODEX_OK'; then
   printf 'installed=%s latest=%s verdict=%s smoke=OK at %s\n' \
-    "$inst_ver" "$latest" "$verdict" "$(date +%Y-%m-%dT%H:%M:%S%z)" > "$cache"
+    "$inst_ver" "$latest_disp" "$verdict" "$(date +%Y-%m-%dT%H:%M:%S%z)" > "$cache"
 else
-  echo "codex-check: smoke test failed (exit $smoke) -- 刪除快取，下次呼叫強制重查" >&2
+  if [ "$smoke" -eq 0 ]; then
+    echo "codex-check: smoke exit 0 但輸出無 CODEX_OK 回覆 sentinel（codex 可能壞了）-- 刪快取，下次強制重查" >&2
+  else
+    echo "codex-check: smoke test failed (exit $smoke) -- 刪除快取，下次呼叫強制重查" >&2
+  fi
   rm -f "$cache"
+  [ "$smoke" -ne 0 ] || smoke=1
 fi
 exit "$smoke"
