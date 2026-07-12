@@ -1,0 +1,53 @@
+#!/usr/bin/env bash
+# codex-check.sh 合成測試臺。用法: bash codex-check.tests.sh [測試名…]；無參數跑全部。
+# 原理: HOME 指到暫存目錄（隔離快取）、PATH 前置 stubs、跑真腳本斷言行為。
+set -u
+here="$(cd "$(dirname "$0")" && pwd)"
+script="$here/../scripts/codex-check.sh"
+stubs="$here/codex-check-stubs"
+fails=0; total=0
+
+setup() { fake_home="$(mktemp -d)"; mkdir -p "$fake_home/.claude"; }
+invoke_check() {  # invoke_check <force|noforce> [ENV=V…] — 唯一進入點；stub 預設在此統一注入（後傳 env 可覆寫）
+  mode="$1"; shift
+  arg=""; [ "$mode" = "force" ] && arg="-f"
+  out="$(env HOME="$fake_home" PATH="$stubs:$PATH" CODEX_STUB_LASTMSG=CODEX_OK "$@" bash "$script" $arg 2>&1)"; rc=$?
+}
+run_check() { invoke_check force "$@"; }
+assert() {  # assert <測試名> <描述> <0|非0>
+  total=$((total+1))
+  if [ "$3" -eq 0 ]; then echo "PASS: $1 — $2"; else echo "FAIL: $1 — $2"; fails=$((fails+1)); fi
+}
+
+t_happy_path() {
+  setup; run_check
+  assert happy_path "exit 0" "$rc"
+  printf '%s' "$out" | grep -q 'UP-TO-DATE'; assert happy_path "verdict UP-TO-DATE" $?
+  grep -q 'smoke=OK' "$fake_home/.claude/.codex-check-last"; assert happy_path "快取寫入" $?
+}
+t_offline_unknown() {   # C3 回歸：離線 → UNKNOWN、絕無 OUTDATED
+  setup; run_check NPM_STUB_MODE=fail
+  printf '%s' "$out" | grep -q '^UNKNOWN'; assert offline_unknown "verdict UNKNOWN" $?
+  if printf '%s' "$out" | grep -q 'OUTDATED'; then assert offline_unknown "無 OUTDATED" 1; else assert offline_unknown "無 OUTDATED" 0; fi
+}
+t_fake_pass_rejected() {  # C2 回歸：只有 prompt echo、無回覆、exit 0 → 判失敗（SUPPORTS=0 走 legacy 路徑）
+  setup; echo stale > "$fake_home/.claude/.codex-check-last"
+  run_check CODEX_STUB_MODE=echo-only CODEX_STUB_SUPPORTS_LASTMSG=0 CODEX_STUB_LASTMSG=
+  if [ "$rc" -eq 1 ]; then assert fake_pass_rejected "exit 1" 0; else assert fake_pass_rejected "exit 1（實際 $rc）" 1; fi
+  if [ ! -f "$fake_home/.claude/.codex-check-last" ]; then assert fake_pass_rejected "快取已刪" 0; else assert fake_pass_rejected "快取已刪" 1; fi
+}
+t_ansi_stripped() {       # C2 回歸：marker/回覆包 ANSI 仍認得（legacy 路徑）
+  setup; run_check CODEX_STUB_MODE=ansi CODEX_STUB_SUPPORTS_LASTMSG=0 CODEX_STUB_LASTMSG=
+  assert ansi_stripped "exit 0" "$rc"
+}
+
+all_tests="t_happy_path t_offline_unknown t_fake_pass_rejected t_ansi_stripped"
+tests="${*:-$all_tests}"
+for t in $tests; do
+  case " $all_tests " in
+    *" $t "*) "$t" ;;
+    *) echo "unknown test: $t" >&2; exit 2 ;;
+  esac
+done
+echo "TOTAL $total FAIL $fails"
+exit "$((fails > 0))"

@@ -1,0 +1,40 @@
+#!/bin/bash
+# codex stub for codex-check tests. env 介面見 codex-check.tests.sh 檔頭。
+[ -n "${CODEX_STUB_TRACE:-}" ] && printf '%s\n' "$*" >> "$CODEX_STUB_TRACE"
+ver="${CODEX_STUB_VERSION:-0.144.1}"
+supports="${CODEX_STUB_SUPPORTS_LASTMSG:-1}"
+case "$1" in
+  --version)
+    [ -n "${CODEX_STUB_VERSION_PREFIX:-}" ] && printf '%s\n' "$CODEX_STUB_VERSION_PREFIX"
+    [ "$ver" = "NONE" ] || echo "codex-cli $ver"
+    exit 0 ;;
+  plugin|mcp|features) exit 0 ;;
+  exec)
+    if [ "${2:-}" = "--help" ]; then
+      echo "Usage: codex exec [OPTIONS] [PROMPT]"
+      [ "$supports" = "1" ] && echo "  -o, --output-last-message <FILE>  Write last agent message to file"
+      exit 0
+    fi
+    # shift-based 掃 argv：抓 -o/--output-last-message（含缺值防護）
+    lastmsg_file=""
+    shift
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        -o|--output-last-message)
+          [ $# -ge 2 ] || { echo "error: missing value for $1" >&2; exit 2; }
+          [ "$supports" = "1" ] || { echo "error: unexpected argument '$1'" >&2; exit 2; }
+          lastmsg_file="$2"; shift ;;
+      esac
+      shift
+    done
+    if [ -n "$lastmsg_file" ] && [ -n "${CODEX_STUB_LASTMSG:-}" ]; then
+      printf '%s\n' "$CODEX_STUB_LASTMSG" > "$lastmsg_file"
+    fi
+    case "${CODEX_STUB_MODE:-ok}" in
+      ok)        printf 'user\nReply with exactly: CODEX_OK\ncodex\nCODEX_OK\ntokens used\n123\n' ;;
+      ansi)      printf 'user\nReply with exactly: CODEX_OK\n\033[1;32mcodex\033[0m\n\033[32mCODEX_OK\033[0m\ntokens used\n123\n' ;;
+      echo-only) printf 'user\nReply with exactly: CODEX_OK\ntokens used\n123\n' ;;
+    esac
+    exit 0 ;;
+  *) exit 0 ;;
+esac

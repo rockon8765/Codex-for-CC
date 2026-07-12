@@ -1,0 +1,11 @@
+#!/bin/bash
+# npm stub. NPM_STUB_MODE: ok|fail|sleep|print-then-hang|multiline|blank2|junk
+case "${NPM_STUB_MODE:-ok}" in
+  ok)              echo "${NPM_STUB_VERSION:-0.144.1}"; exit 0 ;;
+  fail)            echo "npm error network request failed" >&2; exit 1 ;;
+  sleep)           exec sleep 60 ;;                            # 單一行程 hang（exec 取代殼，配 D2 契約）
+  print-then-hang) printf '0.145.0\n'; exec sleep 60 ;;        # 先印完整版本再 hang（驗 rc!=0 丟 stdout）
+  multiline)       printf '0.145.0\nNOTICE something\n'; exit 0 ;;
+  blank2)          printf '0.145.0\n\nNOTICE\n'; exit 0 ;;     # 第二行空白、第三行垃圾
+  junk)            echo "0.145.0garbage"; exit 0 ;;
+esac
