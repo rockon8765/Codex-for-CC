@@ -118,11 +118,23 @@ $env:npm_config_fetch_retries = '0'
 $env:npm_config_fetch_timeout = '15000'
 $npmJob = $null
 try {
-  $npmJob = Start-Job -ScriptBlock { & $using:npmCmd view '@openai/codex' version 2>$null }
+  # D2：rc != 0 一律丟棄 stdout（鏡像 bash 的 `if latest_candidate="$(... npm view ...)"`──只在
+  #     npm 的原生 exit code = 0 時才採信輸出）。PS job 的 State=Completed 只代表 scriptblock 跑完，
+  #     不代表內部 npm 命令 exit 0──故在 job 內把 $LASTEXITCODE 隨輸出一起帶出來；State=Completed
+  #     且 Rc=0 才可信任 stdout，Rc 非 0 或收不到（$null）一律當失敗丟棄，不得進 H5。
+  $npmJob = Start-Job -ScriptBlock {
+    $o = & $using:npmCmd view '@openai/codex' version 2>$null
+    [pscustomobject]@{ Out = $o; Rc = $LASTEXITCODE }
+  }
   $done = Wait-Job $npmJob -Timeout 20
   $lvRaw = $null
   if ($done -and $npmJob.State -eq 'Completed') {
-    $lvRaw = (Receive-Job $npmJob -ErrorAction SilentlyContinue | Out-String)
+    $result = @(Receive-Job $npmJob -ErrorAction SilentlyContinue) | Select-Object -Last 1
+    if ($result -and ($null -ne $result.Rc) -and ($result.Rc -eq 0)) {
+      # & cmd 輸出可能是陣列（多行）；比照舊碼經 Out-String 正規化成單一字串再交給 H5 判文法。
+      $lvRaw = (@($result.Out) | Out-String)
+    }
+    # else：Rc 非 0（含收不到結果時的 $null）→ $lvRaw 留 $null，丟棄 stdout，不進 H5。
   } else {
     Stop-Job $npmJob -ErrorAction SilentlyContinue
   }
