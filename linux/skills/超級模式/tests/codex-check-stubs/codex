@@ -13,7 +13,7 @@ case "$1" in
     if [ "${2:-}" = "--help" ]; then
       echo "Usage: codex exec [OPTIONS] [PROMPT]"
       [ "$supports" = "1" ] && echo "  -o, --output-last-message <FILE>  Write last agent message to file"
-      if [ -n "${CODEX_STUB_HELP_PAD:-}" ]; then awk -v n="$CODEX_STUB_HELP_PAD" 'BEGIN{ s="xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"; while (length(out) < n) out = out s "\n"; printf "%s", out }'; fi
+      if [ -n "${CODEX_STUB_HELP_PAD:-}" ]; then exec awk -v n="$CODEX_STUB_HELP_PAD" 'BEGIN{ s="xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"; while (length(out) < n) out = out s "\n"; printf "%s", out }'; fi
       exit 0
     fi
     # shift-based 掃 argv：抓 -o/--output-last-message（含缺值防護）
