@@ -11,9 +11,9 @@ cache="$HOME/.claude/.codex-check-last"
 cache_format="format=2"
 cache_tmp=""
 if [ "$force" != "1" ] && [ -f "$cache" ] && \
-   awk 'NR==1 && $0 ~ /^format=2 installed=.+ smoke=OK at [0-9]+-[0-9]+-[0-9]+T[0-9:]+[+-][0-9]+$/ {ok=1}
+   awk 'NR==1 && $0 ~ /^format=2 installed=[^ ]* latest=.+ verdict=.+ smoke=OK at [0-9]+-[0-9]+-[0-9]+T[0-9:]+[+-][0-9]+$/ {ok=1}
         END{exit (ok && NR==1)?0:1}' "$cache" 2>/dev/null; then
-  age_s=$(( $(date +%s) - $(stat -c %Y "$cache") ))   # GNU stat（Linux）
+  age_s=$(( $(date +%s) - $(stat -c %Y "$cache" 2>/dev/null || echo 0) ))   # GNU stat（Linux）；stat 失敗→0→age 超界→當 miss
   if [ "$age_s" -ge 0 ] && [ "$age_s" -lt 86400 ]; then
     echo "codex-check: $(( age_s / 3600 ))h 前查過，跳過（-f 強制重查）。上次結果："
     cat "$cache"
@@ -23,7 +23,7 @@ fi
 
 echo "=== installed ==="
 installed_raw="$(codex --version 2>&1 || true)"
-printf '%s\n' "$installed_raw" | head -1
+printf '%s\n' "$installed_raw" | head -1 || true
 # H1: 優先從 codex 錨定行抽版本；錨定行沒有才退回全輸出第一個版本樣 token（banner 誤中風險見規劃書 D5）
 inst_ver="$(printf '%s\n' "$installed_raw" | grep -E '^codex(-cli)?[[:space:]]' | grep -oE '[0-9]+\.[0-9]+\.[0-9]+[^ ]*' | head -1 || true)"
 [ -n "$inst_ver" ] || inst_ver="$(printf '%s\n' "$installed_raw" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+[^ ]*' | head -1 || true)"
@@ -69,8 +69,8 @@ echo "$verdict"
 echo "=== read-only smoke test ==="
 # H2: 能力探測（非版本閘門）：help 有 --output-last-message 才用（~0.04s）；沒有 → legacy marker 路徑（已知 substring 弱點，見規劃書）。
 use_lastmsg=0
-if codex exec --help 2>/dev/null | grep -q -- '--output-last-message'; then use_lastmsg=1; fi
-lastmsg_file="${TMPDIR:-/tmp}/codex-check-lastmsg.$$"
+if codex exec --help 2>/dev/null | grep -- '--output-last-message' >/dev/null; then use_lastmsg=1; fi
+lastmsg_file="$(mktemp "${TMPDIR:-/tmp}/codex-check-lastmsg.XXXXXX" 2>/dev/null || echo "${TMPDIR:-/tmp}/codex-check-lastmsg.$$")"
 rm -f "$lastmsg_file"
 set +e
 if [ "$use_lastmsg" = "1" ]; then
