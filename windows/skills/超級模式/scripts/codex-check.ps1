@@ -220,7 +220,7 @@ if ($smokeExit -eq 0 -and $sawSentinel) {
   # H4：atomic 寫入——唯一 tmp（$PID + GUID）→ Move-Item -Force；finally 清殘留 tmp。
   # 時戳走 %z 無冒號格式（+0800）以吻合上方讀取 regex；含 format=2 前綴。
   $now = Get-Date
-  $ts = $now.ToString("yyyy-MM-ddTHH:mm:ss") + ($now.ToString("zzz") -replace ':', '')
+  $ts = $now.ToString("yyyy-MM-ddTHH:mm:ss", [System.Globalization.CultureInfo]::InvariantCulture) + ($now.ToString("zzz", [System.Globalization.CultureInfo]::InvariantCulture) -replace ':', '')
   $cacheLine = "format=2 installed={0} latest={1} verdict={2} smoke=OK at {3}" -f $instVer, $latestDisp, $verdict, $ts
   $cacheTmp = "$cache.tmp.$PID." + [guid]::NewGuid().ToString('N')
   try {
