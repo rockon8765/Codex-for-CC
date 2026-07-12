@@ -9,7 +9,10 @@
 #>
 param([switch]$Force)
 $ErrorActionPreference = "Stop"
-$codex = "C:\npm\codex.ps1"
+# 可注入執行檔路徑（seam）：production 預設不變，測試用 env 覆寫指向 stub。
+# PATH stub 攔不到 C:\npm 絕對路徑，故用專屬 env 注入而非改 PATH。
+$codexCmd = if ($env:CODEX_CHECK_CODEX_CMD) { $env:CODEX_CHECK_CODEX_CMD } else { 'C:\npm\codex.cmd' }
+$npmCmd   = if ($env:CODEX_CHECK_NPM_CMD)   { $env:CODEX_CHECK_NPM_CMD }   else { 'npm' }
 $cache = Join-Path $env:USERPROFILE ".claude\.codex-check-last"
 
 function Show-CapabilitySurface {
@@ -20,7 +23,7 @@ function Show-CapabilitySurface {
   $flags = @{}
 
   try {
-    foreach ($ln in (& "C:\npm\codex.cmd" plugin list 2>$null)) {
+    foreach ($ln in (& $codexCmd plugin list 2>$null)) {
       $cols = $ln -split '\s{2,}'
       if ($cols.Count -ge 2 -and $cols[1] -match 'enabled') { $enabled += ($cols[0].Trim() -split '@')[0] }
     }
@@ -29,7 +32,7 @@ function Show-CapabilitySurface {
 
   try {
     $servers = @()
-    foreach ($ln in (& "C:\npm\codex.cmd" mcp list 2>$null)) {
+    foreach ($ln in (& $codexCmd mcp list 2>$null)) {
       if ([string]::IsNullOrWhiteSpace($ln) -or $ln -match '^\s*Name\s') { continue }
       $name = (($ln -split '\s+') | Where-Object { $_ -ne '' })[0]
       $st = if ($ln -match '\bdisabled\b') { 'disabled' } elseif ($ln -match '\benabled\b') { 'enabled' } else { '?' }
@@ -40,7 +43,7 @@ function Show-CapabilitySurface {
 
   try {
     $trueFeats = @()
-    foreach ($ln in (& "C:\npm\codex.cmd" features list 2>$null)) {
+    foreach ($ln in (& $codexCmd features list 2>$null)) {
       $t = ($ln -split '\s+') | Where-Object { $_ -ne '' }
       if ($t.Count -ge 2) {
         $flags[$t[0]] = $t[-1]            # 末欄 = enabled(true/false)；status 可能含空格但只取首(name)尾(enabled)
@@ -89,11 +92,11 @@ if (-not $Force -and (Test-Path $cache)) {
   }
 }
 
-$installedRaw = (& $codex --version) -join ' '
+$installedRaw = (& $codexCmd --version) -join ' '
 # npm view 離線/不存在時 latest 留 $null（C3：不可拿去跟 installed 比，否則離線就誤報 OUTDATED）
 $latest = $null
 try {
-  $lv = (npm view '@openai/codex' version | Out-String).Trim()
+  $lv = (& $npmCmd view '@openai/codex' version | Out-String).Trim()
   if ($lv -match '^\d+\.\d+\.\d+') { $latest = $lv }
 } catch { $latest = $null }
 $instVer = if ($installedRaw -match '(\d+\.\d+\.\d+\S*)') { $Matches[1] } else { $installedRaw }
@@ -126,7 +129,7 @@ Write-Output $verdict
 
 Write-Output "=== read-only smoke test ==="
 # v3 佈線：cmd /s /c + `< NUL`(空 stdin)，prompt 走引號好的 cmd 參數，避開 PS pipe 編碼坑
-$inner = '"{0}" exec --sandbox read-only --skip-git-repo-check -C "{1}" "Reply with exactly: CODEX_OK" < NUL' -f "C:\npm\codex.cmd", $env:TEMP.TrimEnd('\')
+$inner = '"{0}" exec --sandbox read-only --skip-git-repo-check -C "{1}" "Reply with exactly: CODEX_OK" < NUL' -f $codexCmd, $env:TEMP.TrimEnd('\')
 # C2：捕捉輸出並回顯。光看 exit code 會把「壞掉但 exit 0」的 codex 誤判成可用，故要驗真回了 CODEX_OK。
 $smokeOut = & cmd.exe /d /s /c $inner 2>&1
 $smokeExit = $LASTEXITCODE
