@@ -208,7 +208,7 @@ function Invoke-Check {
   if ($script:out -match [regex]::Escape('C:\npm')) { $antiHit = $true }
   if ($antiHit) { Assert $script:currentTest 'anti-live: 無 C:\npm 痕跡' 1 } else { Assert $script:currentTest 'anti-live: 無 C:\npm 痕跡' 0 }
 }
-function Run-Check { param([hashtable]$Overrides = @{}) Invoke-Check -Mode force -Overrides $Overrides }
+function Run-Check { param([hashtable]$Overrides = @{}); Invoke-Check -Mode force -Overrides $Overrides }
 
 # --- 22 測試案例（鏡像 bash runner）----------------------------------------
 function t_happy_path {
