@@ -69,7 +69,7 @@ docs/codex-check-hardening-plan-2026-07.md   # 本檔
 - Runner 用法 `bash codex-check.tests.sh [測試名…]`；無參數跑全部；未知測試名 → `exit 2`；結尾印 `TOTAL <n> FAIL <m>`；任一 FAIL → exit 1。後續任務只「追加測試函式＋登記 `all_tests`」，**不再改 helper**。
 - Stub env 介面：`CODEX_STUB_VERSION`（預設 `0.144.1`；`NONE`=不印版本行）、`CODEX_STUB_VERSION_PREFIX`（版本行前多印一行）、`CODEX_STUB_MODE`（`ok|ansi|echo-only`）、`CODEX_STUB_LASTMSG`（`-o` 檔內容；空=不寫檔）、`CODEX_STUB_SUPPORTS_LASTMSG`（`1`預設；`0`=help 不列旗標且收到 `-o` 時模擬 unknown-option exit 2）、`CODEX_STUB_TRACE`（設了就把每次 argv append 進該檔）、`NPM_STUB_MODE`（`ok|fail|sleep|print-then-hang|multiline|blank2|junk`）、`NPM_STUB_VERSION`（預設 `0.144.1`）。
 
-- [ ] **Step 1: 寫 codex stub**（`tests/codex-check-stubs/codex`，`chmod +x`）
+- [x] **Step 1: 寫 codex stub**（`tests/codex-check-stubs/codex`，`chmod +x`）
 
 ```bash
 #!/bin/bash
@@ -114,7 +114,7 @@ case "$1" in
 esac
 ```
 
-- [ ] **Step 2: 寫 npm stub**（`tests/codex-check-stubs/npm`，`chmod +x`）
+- [x] **Step 2: 寫 npm stub**（`tests/codex-check-stubs/npm`，`chmod +x`）
 
 ```bash
 #!/bin/bash
@@ -130,7 +130,7 @@ case "${NPM_STUB_MODE:-ok}" in
 esac
 ```
 
-- [ ] **Step 3: 寫 runner**（`tests/codex-check.tests.sh`；helper 一次到位，含 stub 預設注入與未知測試名防護）
+- [x] **Step 3: 寫 runner**（`tests/codex-check.tests.sh`；helper 一次到位，含 stub 預設注入與未知測試名防護）
 
 ```bash
 #!/usr/bin/env bash
@@ -190,9 +190,9 @@ exit "$((fails > 0))"
 
 （註：Task 1 時腳本尚無 help 探測與 lastmsg 路徑，`CODEX_STUB_LASTMSG`/`SUPPORTS` 預設無作用、4 測全走現行 marker 路徑——應全綠；它們在 Task 6 後語義自動落位，不需回頭改測試。）
 
-- [ ] **Step 4: 跑基準綠**：`bash macos/skills/超級模式/tests/codex-check.tests.sh` → `TOTAL … FAIL 0`
-- [ ] **Step 5: 複製三檔到 linux 對應路徑並跑一次**
-- [ ] **Step 6: Commit** `test(超級模式): codex-check 合成測試臺（stub + runner，mac/linux）`
+- [x] **Step 4: 跑基準綠**：`bash macos/skills/超級模式/tests/codex-check.tests.sh` → `TOTAL … FAIL 0`
+- [x] **Step 5: 複製三檔到 linux 對應路徑並跑一次**
+- [x] **Step 6: Commit** `test(超級模式): codex-check 合成測試臺（stub + runner，mac/linux）`
 
 ---
 
@@ -200,7 +200,7 @@ exit "$((fails > 0))"
 
 **Files**：Modify `macos/.../scripts/codex-check.sh`（installed 段 58–60、67 行；verdict 段 69 行）＋linux 對應；Modify 兩份 runner
 
-- [ ] **Step 1: 加失敗測試**（追加函式＋登記 `all_tests`）
+- [x] **Step 1: 加失敗測試**（追加函式＋登記 `all_tests`）
 
 ```bash
 t_h1_leading_warning() {  # 版本行前有 warning → 仍抽到版本 → UP-TO-DATE
@@ -218,8 +218,8 @@ t_h1_no_version() {       # 完全抽不到版本 → UNKNOWN(installed) 且 smo
 }
 ```
 
-- [ ] **Step 2: 確認紅**：`bash .../codex-check.tests.sh t_h1_leading_warning t_h1_warning_has_version t_h1_no_version`（現行 `head -1` 抓 warning → 空/錯版本 → 誤報 BEHIND）
-- [ ] **Step 3: 改實作**——installed 段改為：
+- [x] **Step 2: 確認紅**：`bash .../codex-check.tests.sh t_h1_leading_warning t_h1_warning_has_version t_h1_no_version`（現行 `head -1` 抓 warning → 空/錯版本 → 誤報 BEHIND）
+- [x] **Step 3: 改實作**——installed 段改為：
 
 ```bash
 echo "=== installed ==="
@@ -238,7 +238,7 @@ if [ -z "$inst_ver" ]; then
 elif [ -z "$latest" ]; then
 ```
 
-- [ ] **Step 4: 全綠 → 同步 linux → Commit** `fix(超級模式): codex-check H1 — installed 版本錨定 codex 行抽取，抽不到降 UNKNOWN`
+- [x] **Step 4: 全綠 → 同步 linux → Commit** `fix(超級模式): codex-check H1 — installed 版本錨定 codex 行抽取，抽不到降 UNKNOWN`
 
 ---
 
@@ -246,7 +246,7 @@ elif [ -z "$latest" ]; then
 
 **Files**：Modify latest 驗證段（mac 63–66 行）＋awk 比較段（74–86 行）＋linux 對應；Modify 兩份 runner
 
-- [ ] **Step 1: 加失敗測試**
+- [x] **Step 1: 加失敗測試**
 
 ```bash
 t_h5_multiline() {   # 多行 → UNKNOWN、不可死在 smoke 前
@@ -268,8 +268,8 @@ t_h5_prerelease_current() {  # 合法 prerelease 尾綴照走狀態機（CURRENT
 }
 ```
 
-- [ ] **Step 2: 確認紅**（multiline/blank2 現況：glob 收多行 → `awk -v` 內嵌換行報錯 → `set -e` 殺腳本）
-- [ ] **Step 3: 改實作**——latest 驗證段改為（查詢行本 Task 不動，Task 4 再改）：
+- [x] **Step 2: 確認紅**（multiline/blank2 現況：glob 收多行 → `awk -v` 內嵌換行報錯 → `set -e` 殺腳本）
+- [x] **Step 3: 改實作**——latest 驗證段改為（查詢行本 Task 不動，Task 4 再改）：
 
 ```bash
 latest_raw="$(npm view '@openai/codex' version 2>/dev/null || true)"
@@ -299,7 +299,7 @@ awk 比較段補防線（awk 加 `|| true`，`if/elif` 改 `case`）：
   esac
 ```
 
-- [ ] **Step 4: 全綠 → 同步 linux → Commit** `fix(超級模式): codex-check H5 — latest 恰一行＋版本 token 文法驗證，awk 失敗降 UNKNOWN`
+- [x] **Step 4: 全綠 → 同步 linux → Commit** `fix(超級模式): codex-check H5 — latest 恰一行＋版本 token 文法驗證，awk 失敗降 UNKNOWN`
 
 ---
 
@@ -307,7 +307,7 @@ awk 比較段補防線（awk 加 `|| true`，`if/elif` 改 `case`）：
 
 **Files**：Modify `latest_raw=` 查詢段＋linux 對應；Modify 兩份 runner
 
-- [ ] **Step 1: 加失敗測試**
+- [x] **Step 1: 加失敗測試**
 
 ```bash
 t_h3_npm_hang() {   # npm 卡（單一行程 exec sleep 60）→ 20s watchdog 放行 → UNKNOWN、全程 < 40s
@@ -323,8 +323,8 @@ t_h3_partial_stdout_discarded() {  # 先印完整版本再 hang → rc!=0 → st
 }
 ```
 
-- [ ] **Step 2: 確認紅**（現況等滿 60s；print-then-hang 的 `0.145.0` 會被收下誤報 BEHIND）
-- [ ] **Step 3: 改實作**——查詢段改為（取代 Task 3 中的 `latest_raw=` 那行）：
+- [x] **Step 2: 確認紅**（現況等滿 60s；print-then-hang 的 `0.145.0` 會被收下誤報 BEHIND）
+- [x] **Step 3: 改實作**——查詢段改為（取代 Task 3 中的 `latest_raw=` 那行）：
 
 ```bash
 # H3: env 收緊 + perl alarm watchdog（單一行程契約：SIGALRM 殺 npm 主行程=單一 node 行程）。
@@ -336,7 +336,7 @@ if latest_candidate="$(npm_config_fetch_retries=0 npm_config_fetch_timeout=15000
 fi
 ```
 
-- [ ] **Step 4: 全綠（兩測各 ~20s）→ 同步 linux → Commit** `fix(超級模式): codex-check H3 — npm view 15s env 上限 + 20s alarm watchdog，rc!=0 丟棄輸出`
+- [x] **Step 4: 全綠（兩測各 ~20s）→ 同步 linux → Commit** `fix(超級模式): codex-check H3 — npm view 15s env 上限 + 20s alarm watchdog，rc!=0 丟棄輸出`
 
 ---
 
@@ -344,7 +344,7 @@ fi
 
 **Files**：Modify 快取讀段（mac 49–56 行）與寫段（103–104 行）＋linux 對應；Modify 兩份 runner
 
-- [ ] **Step 1: 加失敗測試**（cache 測試走 `invoke_check noforce`，享有 stub 預設注入——修 rev1 的假綠洞）
+- [x] **Step 1: 加失敗測試**（cache 測試走 `invoke_check noforce`，享有 stub 預設注入——修 rev1 的假綠洞）
 
 ```bash
 t_h4_empty_cache_miss() {   # <24h 空快取檔 → miss（照跑全檢且成功）
@@ -378,8 +378,8 @@ t_h4_newformat_cache_hit() {   # 新格式且 <24h → hit、跳過、exit 0
 }
 ```
 
-- [ ] **Step 2: 確認紅**（空檔/舊格式/截斷/future-mtime 現況 <24h 都直接 exit 0）
-- [ ] **Step 3: 改實作**——`cache=` 宣告下加 `cache_format="format=2"`；讀段改為（awk regex 不用 brace 量詞）：
+- [x] **Step 2: 確認紅**（空檔/舊格式/截斷/future-mtime 現況 <24h 都直接 exit 0）
+- [x] **Step 3: 改實作**——`cache=` 宣告下加 `cache_format="format=2"`；讀段改為（awk regex 不用 brace 量詞）：
 
 ```bash
 if [ "$force" != "1" ] && [ -f "$cache" ] && \
@@ -404,7 +404,7 @@ fi
     && mv -f "$cache_tmp" "$cache"
 ```
 
-- [ ] **Step 4: 全綠 → 同步 linux（讀段 `stat -c %Y`）→ Commit** `fix(超級模式): codex-check H4 — 快取全行格式+future-mtime 驗證、mktemp atomic 寫入`
+- [x] **Step 4: 全綠 → 同步 linux（讀段 `stat -c %Y`）→ Commit** `fix(超級模式): codex-check H4 — 快取全行格式+future-mtime 驗證、mktemp atomic 寫入`
 
 ---
 
@@ -412,7 +412,7 @@ fi
 
 **Files**：Modify smoke 段（mac 89–114 行）＋linux 對應；Modify 兩份 runner
 
-- [ ] **Step 1: 加失敗測試**
+- [x] **Step 1: 加失敗測試**
 
 ```bash
 t_h2_exact_ok() {    # 支援 -o：lastmsg 檔 == CODEX_OK → OK（transcript 無 marker 也行）
@@ -435,8 +435,8 @@ t_h2_no_flag_when_unsupported() {  # help 無旗標 → 絕不傳 -o（argv trac
 }
 ```
 
-- [ ] **Step 2: 確認紅**（`t_h2_exact_ok`：現況 echo-only 無 marker → fail；`t_h2_not_ok_rejected`/`t_h2_refusal_rejected`：現況不讀 lastmsg 檔，transcript ok-mode 的 substring 誤過 → rc=0 → 紅）
-- [ ] **Step 3: 改實作**——smoke 段整段改為：
+- [x] **Step 2: 確認紅**（`t_h2_exact_ok`：現況 echo-only 無 marker → fail；`t_h2_not_ok_rejected`/`t_h2_refusal_rejected`：現況不讀 lastmsg 檔，transcript ok-mode 的 substring 誤過 → rc=0 → 紅）
+- [x] **Step 3: 改實作**——smoke 段整段改為：
 
 ```bash
 echo "=== read-only smoke test ==="
@@ -493,7 +493,7 @@ fi
 exit "$smoke"
 ```
 
-- [ ] **Step 4: 全綠（此時 runner 應為 18 測；以 `TOTAL` 實際輸出為準）→ 同步 linux → Commit** `fix(超級模式): codex-check H2 — help 能力探測 + --output-last-message 精確 sentinel，無旗標走 marker 路徑`
+- [x] **Step 4: 全綠（此時 runner 應為 18 測；以 `TOTAL` 實際輸出為準）→ 同步 linux → Commit** `fix(超級模式): codex-check H2 — help 能力探測 + --output-last-message 精確 sentinel，無旗標走 marker 路徑`
 
 ---
 
@@ -515,29 +515,29 @@ $npmCmd   = if ($env:CODEX_CHECK_NPM_CMD)   { $env:CODEX_CHECK_NPM_CMD }   else 
 
 **TDD 順序（rev2 修正）**：Step 1 先寫測試臺與 stub、確認紅，Step 2 才改 SUT。
 
-- [ ] **Step 1: 寫 `codex-check.tests.ps1` ＋ stub**，要求：
+- [x] **Step 1: 寫 `codex-check.tests.ps1` ＋ stub**，要求：
   - stub 為寫進 `$env:TEMP\codex-check-test-<GUID>\` 的 `codex-stub.cmd`／`npm-stub.cmd`（讀同名 `CODEX_STUB_*`/`NPM_STUB_*` 環境變數，語義同 bash stub，含 SUPPORTS/TRACE/help/print-then-hang）；經 `CODEX_CHECK_CODEX_CMD`/`CODEX_CHECK_NPM_CMD` 注入，**不靠 PATH**。
   - 每個測試案例以**獨立子行程** `powershell.exe -NoProfile -ExecutionPolicy Bypass -File <SUT>` 執行（SUT 內含 `exit`，同行程會殺掉 runner）。
   - 測試名單鏡像 bash runner 全部案例；每案斷言 stub trace **從未**出現 `C:\npm`（防打 live）。
   - runner 於 finally 清 temp 目錄與殘留 job。
-- [ ] **Step 2: 改 SUT（語義對照，訊息字串與 bash 版逐字相同）**：
+- [x] **Step 2: 改 SUT（語義對照，訊息字串與 bash 版逐字相同）**：
   - **H1**：`$instVer` 優先從 `^codex(-cli)?\s` 錨定行 regex 抽；抽不到 → `UNKNOWN (installed 版本解析不到)` 分支（現行 else 落回原字串比較，必須移除）。
   - **H5**：先 `$lv -notmatch '[\r\n]'`（拒多行）再全匹配 `'^\d+\.\d+\.\d+(-[0-9A-Za-z]+(\.[0-9A-Za-z-]+)*)?(\+[0-9A-Za-z]+(\.[0-9A-Za-z-]+)*)?$'`；`[version]` cast 的 catch → `UNKNOWN (版本比較失敗)`。
   - **H3**：查詢改 job 完整生命週期——`$job = Start-Job { & $using:npmCmd view '@openai/codex' version 2>$null }`；`Wait-Job $job -Timeout 20` 回傳 job 物件表示完成 → **僅當 `$job.State -eq 'Completed'` 才 `Receive-Job` 取 stdout**；逾時 → `Stop-Job $job`、`$latest = $null`；`finally { Remove-Job $job -Force; 還原 $env:npm_config_* }`。env 設定/還原包 try/finally。（`Stop-Job` 能否清掉 npm.cmd 衍生的 node 樹＝Windows 真機驗證項。）
   - **H4**：讀取驗「恰一行＋全行格式」（regex 同 bash 語義）＋ `0 -le age_s -lt 86400`；寫入 `Set-Content -LiteralPath "$cache.tmp.$PID.$([guid]::NewGuid().ToString('N'))"` → `Move-Item -Force`，finally 清殘留 tmp。
   - **H2**：能力探測 `(& $codexCmd exec --help 2>&1) -match '--output-last-message'` → 加 `--output-last-message $lastMsgPath`（`$lastMsgPath = Join-Path $env:TEMP "codex-check-lastmsg.$PID.$([guid]::NewGuid().ToString('N')).txt"`，跑前刪、finally 刪——**不可用固定檔名**，防 stale sentinel）；讀檔剝 CR、trim、略空白行後「恰一行 `-ceq 'CODEX_OK'`」；無旗標 → 現行 `$parts[-1] -match` 路徑。
   - **編碼鐵律**：ps1 以 **UTF-8 BOM** 保存（repo 既有慣例、PS 5.1 非 ASCII 必須）；runner 斷言 SUT 與 tests 檔頭 `EF BB BF`。
-- [ ] **Step 3: 語法預檢**：mac 有 pwsh → 用單引號包裹的 `pwsh -NoProfile -Command '$e=$null; [System.Management.Automation.Language.Parser]::ParseFile("<abs path>", [ref]$null, [ref]$e) | Out-Null; if ($e) { $e; exit 1 }'`（**單引號防 zsh 展開 `$e`；有 parse error 必須 exit 非零**）；無 pwsh → 跳過並在 commit message 註明。PS7 parse 僅算預檢，最終仍須 Windows PS 5.1。
-- [ ] **Step 4: Commit＋push 分支（不動 main）**，訊息帶「待 Windows 原生驗證——故不進 main」語義
+- [x] **Step 3: 語法預檢**：mac 有 pwsh → 用單引號包裹的 `pwsh -NoProfile -Command '$e=$null; [System.Management.Automation.Language.Parser]::ParseFile("<abs path>", [ref]$null, [ref]$e) | Out-Null; if ($e) { $e; exit 1 }'`（**單引號防 zsh 展開 `$e`；有 parse error 必須 exit 非零**）；無 pwsh → 跳過並在 commit message 註明。PS7 parse 僅算預檢，最終仍須 Windows PS 5.1。
+- [x] **Step 4: Commit＋push 分支（不動 main）**，訊息帶「待 Windows 原生驗證——故不進 main」語義
 - [ ] **Windows 原生 promote gate（留給 Windows 真機 session 的驗收單）**：全部測試案例綠；真 Codex `-Force` 跑通＋cache hit；`Stop-Job` 後無殘留 node/job；BOM 檢查過；PS 5.1 parse 過。
 
 ---
 
 ## Task 8：收尾驗證與 promote 協定（POSIX 分支）
 
-- [ ] **Step 1: mac 原生全跑**：runner 全綠（以 `TOTAL … FAIL 0` 為準）＋真 codex `bash macos/.../scripts/codex-check.sh -f` 跑通（verdict 行＋精確 sentinel＋新格式快取）＋無 `-f` 驗快取命中
-- [ ] **Step 2: Debian 容器跑 linux 版**：`docker run --rm -i -v "<repo>/linux/skills/超級模式:/sut:ro" debian:stable-slim bash /sut/tests/codex-check.tests.sh`（順帶驗 perl-base 存在假設與 mawk 下的兩次-sub awk 片段；無真 codex 屬已知限制，標 provisional）
-- [ ] **Step 3: 依全域 CLAUDE.md 送 Codex 反方檢核**（簡報附本計畫、全部測試輸出、真機 `-f` 輸出）
+- [x] **Step 1: mac 原生全跑**：runner 全綠（以 `TOTAL … FAIL 0` 為準）＋真 codex `bash macos/.../scripts/codex-check.sh -f` 跑通（verdict 行＋精確 sentinel＋新格式快取）＋無 `-f` 驗快取命中
+- [x] **Step 2: Debian 容器跑 linux 版**：`docker run --rm -i -v "<repo>/linux/skills/超級模式:/sut:ro" debian:stable-slim bash /sut/tests/codex-check.tests.sh`（順帶驗 perl-base 存在假設與 mawk 下的兩次-sub awk 片段；無真 codex 屬已知限制，標 provisional）
+- [x] **Step 3: 依全域 CLAUDE.md 送 Codex 反方檢核**（簡報附本計畫、全部測試輸出、真機 `-f` 輸出）
 - [ ] **Step 4: 徵使用者同意後 promote POSIX 分支進 main**（cherry-pick 改寫訊息或 ff 由使用者選；核對 tree/blob；push 後 `ls-remote` 驗證；刪遠端分支）
 - [ ] **Step 5: 問使用者是否同步部署 live** `~/.claude/skills/超級模式/scripts/codex-check.sh`（備份→覆蓋→blob 核對→`-f` 實測，比照 2026-07-12 流程）
 
@@ -557,3 +557,15 @@ $npmCmd   = if ($env:CODEX_CHECK_NPM_CMD)   { $env:CODEX_CHECK_NPM_CMD }   else 
 4. bash legacy 路徑 `printf | grep -q` 大輸出 SIGPIPE 假失敗維持不修（fail-closed、發生率低）。
 5. H1 fallback（無錨定行時取第一個版本樣 token）在 banner 含其他工具版本號時可能誤中——錨定優先已把此風險壓到「codex 完全改版本行格式」的情境。
 6. Windows 分支在 Windows 真機驗證前不 promote；`Stop-Job` 對 node 行程樹的清理效果列入 Windows 原生驗收單。
+
+---
+
+## 執行紀錄（2026-07-13，本計畫執行 session 回寫）
+
+- **POSIX 分支** `fix/codex-check-hardening-posix`（base 5fd2465）：Task 1–6 逐字實作（8c9c110 → 2a50ed5），每 task 獨立 TDD＋逐字審查。
+- **計畫外修正（Codex 反方檢核兩輪）**：
+  - Round 1 裁定 BLOCK → `a4a5376` 修 5 項：H4 快取全欄位驗證（regex 補 `latest=.+ verdict=.+`）、H2 help 探測 `grep -q`→`grep >/dev/null`（杜絕 SIGPIPE 141 誤降 legacy）、H1 顯示管線 `|| true`、stat 失敗當 miss（TOCTOU）、lastmsg 改 mktemp（fallback $$）。
+  - Round 2 裁定 BLOCK 解除（0.96）／POSIX→main ALLOW（0.94，staged-release 揭露前提）→ `e34050e` 修 3 項測試可信度（help-pad exec 傳播 rc、巨 banner 攻擊形狀改短首行＋巨尾、latest 欄位隔離）＋補 print-then-fail 對等測試。
+- **最終驗證**：mac runner `TOTAL 41 FAIL 0`；Debian stable-slim 容器 `TOTAL 41 FAIL 0`；真 codex 0.144.1 `-f` exit 0（format=2 快取、精確 sentinel、命中跳過）。
+- **Windows 分支** `fix/codex-check-hardening-windows-pending-native`（已 push）：54e5be7 seam → 3e16111 測試臺 → 8f4f40b H1–H5 → 8f7b7fe 語法修 → 42905bd InvariantCulture 時間戳（審查 Important）→ ad49bd6 H4 regex 同步＋鏡像測試 → 00ea972 H3 捕捉 npm 原生 exit code（Codex round 2 新發現）。原生驗收單新增：cmd.exe 8191 行長限制（huge-banner 測試 30000 字元 prefix）、Stop-Job process-tree、$LASTEXITCODE 路徑實測。
+- **未決（留待使用者/後續）**：Task 8 Step 4 promote、Step 5 live 部署、H1 三平台語義分岔（D5 fallback vs Task 7 直接 UNKNOWN——plan 內部矛盾，須裁決）、runner setup fail-fast（唯讀環境韌性，獨立 handoff）、linux 真 codex E2E（維持 provisional）。
