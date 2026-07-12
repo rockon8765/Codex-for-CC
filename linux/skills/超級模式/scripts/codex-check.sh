@@ -8,10 +8,14 @@ force="0"
 case "${1:-}" in -f|--force) force="1" ;; "") : ;; *) echo "unknown arg: $1" >&2; exit 2 ;; esac
 
 cache="$HOME/.claude/.codex-check-last"
-if [ "$force" != "1" ] && [ -f "$cache" ]; then
-  age_h=$(( ( $(date +%s) - $(stat -c %Y "$cache") ) / 3600 ))   # GNU stat（Linux）
-  if [ "$age_h" -lt 24 ]; then
-    echo "codex-check: ${age_h}h 前查過，跳過（-f 強制重查）。上次結果："
+cache_format="format=2"
+cache_tmp=""
+if [ "$force" != "1" ] && [ -f "$cache" ] && \
+   awk 'NR==1 && $0 ~ /^format=2 installed=.+ smoke=OK at [0-9]+-[0-9]+-[0-9]+T[0-9:]+[+-][0-9]+$/ {ok=1}
+        END{exit (ok && NR==1)?0:1}' "$cache" 2>/dev/null; then
+  age_s=$(( $(date +%s) - $(stat -c %Y "$cache") ))   # GNU stat（Linux）
+  if [ "$age_s" -ge 0 ] && [ "$age_s" -lt 86400 ]; then
+    echo "codex-check: $(( age_s / 3600 ))h 前查過，跳過（-f 強制重查）。上次結果："
     cat "$cache"
     exit 0
   fi
@@ -76,8 +80,11 @@ clean="$(printf '%s' "$smoke_out" | sed "s/${esc}\[[0-9;]*m//g")"
 reply="$(printf '%s\n' "$clean" | awk 'f{print} /^[[:space:]]*codex[[:space:]]*$/{f=1}')"
 
 if [ "$smoke" -eq 0 ] && printf '%s' "$reply" | grep -q 'CODEX_OK'; then
-  printf 'installed=%s latest=%s verdict=%s smoke=OK at %s\n' \
-    "$inst_ver" "$latest_disp" "$verdict" "$(date +%Y-%m-%dT%H:%M:%S%z)" > "$cache"
+  cache_tmp="$(mktemp "${cache}.tmp.XXXXXX")"
+  trap 'rm -f "$cache_tmp"' EXIT
+  printf '%s installed=%s latest=%s verdict=%s smoke=OK at %s\n' \
+    "$cache_format" "$inst_ver" "$latest_disp" "$verdict" "$(date +%Y-%m-%dT%H:%M:%S%z)" > "$cache_tmp" \
+    && mv -f "$cache_tmp" "$cache"
 else
   if [ "$smoke" -eq 0 ]; then
     echo "codex-check: smoke exit 0 但輸出無 CODEX_OK 回覆 sentinel（codex 可能壞了）-- 刪快取，下次強制重查" >&2

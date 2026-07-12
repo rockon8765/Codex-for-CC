@@ -81,8 +81,37 @@ t_h3_partial_stdout_discarded() {  # 先印完整版本再 hang → rc!=0 → st
   setup; run_check NPM_STUB_MODE=print-then-hang
   printf '%s' "$out" | grep -q 'UNKNOWN (latest'; assert h3_partial "timeout 部分輸出不進狀態機" $?
 }
+t_h4_empty_cache_miss() {   # <24h 空快取檔 → miss（照跑全檢且成功）
+  setup; : > "$fake_home/.claude/.codex-check-last"
+  invoke_check noforce
+  printf '%s' "$out" | grep -q 'read-only smoke test'; assert h4_empty_cache "空檔當 miss、跑了全檢" $?
+  assert h4_empty_cache "全檢成功 exit 0" "$rc"
+}
+t_h4_oldformat_cache_miss() {  # 舊格式（無 format=2）→ miss
+  setup; echo "installed=0.1.0 latest=0.1.0 verdict=UP-TO-DATE smoke=OK at x" > "$fake_home/.claude/.codex-check-last"
+  invoke_check noforce
+  printf '%s' "$out" | grep -q 'read-only smoke test'; assert h4_oldformat_cache "舊格式當 miss" $?
+  assert h4_oldformat_cache "全檢成功 exit 0" "$rc"
+}
+t_h4_truncated_line_miss() {   # 截斷行（只剩前綴）→ miss（全行格式驗證）
+  setup; printf 'format=2 installed=' > "$fake_home/.claude/.codex-check-last"
+  invoke_check noforce
+  printf '%s' "$out" | grep -q 'read-only smoke test'; assert h4_truncated "截斷行當 miss" $?
+}
+t_h4_future_mtime_miss() {     # 合法格式但 mtime 在未來 → miss
+  setup; invoke_check force     # 先產生合法快取
+  touch -t 203001010000 "$fake_home/.claude/.codex-check-last"
+  invoke_check noforce
+  printf '%s' "$out" | grep -q 'read-only smoke test'; assert h4_future_mtime "future-mtime 當 miss" $?
+}
+t_h4_newformat_cache_hit() {   # 新格式且 <24h → hit、跳過、exit 0
+  setup; invoke_check force
+  invoke_check noforce
+  printf '%s' "$out" | grep -q '跳過'; assert h4_newformat_cache "快取命中跳過" $?
+  assert h4_newformat_cache "exit 0" "$rc"
+}
 
-all_tests="t_happy_path t_offline_unknown t_fake_pass_rejected t_ansi_stripped t_h1_leading_warning t_h1_warning_has_version t_h1_no_version t_h5_multiline t_h5_blank_second_line t_h5_junk t_h5_prerelease_current t_h3_npm_hang t_h3_partial_stdout_discarded"
+all_tests="t_happy_path t_offline_unknown t_fake_pass_rejected t_ansi_stripped t_h1_leading_warning t_h1_warning_has_version t_h1_no_version t_h5_multiline t_h5_blank_second_line t_h5_junk t_h5_prerelease_current t_h3_npm_hang t_h3_partial_stdout_discarded t_h4_empty_cache_miss t_h4_oldformat_cache_miss t_h4_truncated_line_miss t_h4_future_mtime_miss t_h4_newformat_cache_hit"
 tests="${*:-$all_tests}"
 for t in $tests; do
   case " $all_tests " in
