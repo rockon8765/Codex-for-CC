@@ -67,19 +67,42 @@ fi
 echo "$verdict"
 
 echo "=== read-only smoke test ==="
-# codex exec 必須餵空 stdin + --skip-git-repo-check，否則卡讀 stdin / 報不受信任目錄
-# C2: 捕捉輸出並回顯，驗真回了 CODEX_OK（光看 exit code 會把「壞掉但 exit 0」誤判成可用）。
+# H2: 能力探測（非版本閘門）：help 有 --output-last-message 才用（~0.04s）；沒有 → legacy marker 路徑（已知 substring 弱點，見規劃書）。
+use_lastmsg=0
+if codex exec --help 2>/dev/null | grep -q -- '--output-last-message'; then use_lastmsg=1; fi
+lastmsg_file="${TMPDIR:-/tmp}/codex-check-lastmsg.$$"
+rm -f "$lastmsg_file"
 set +e
-smoke_out="$(printf '' | codex exec --sandbox read-only --skip-git-repo-check -C "${TMPDIR:-/tmp}" "Reply with exactly: CODEX_OK" 2>&1)"
+if [ "$use_lastmsg" = "1" ]; then
+  smoke_out="$(printf '' | codex exec --sandbox read-only --skip-git-repo-check -C "${TMPDIR:-/tmp}" \
+    --output-last-message "$lastmsg_file" "Reply with exactly: CODEX_OK" 2>&1)"
+else
+  smoke_out="$(printf '' | codex exec --sandbox read-only --skip-git-repo-check -C "${TMPDIR:-/tmp}" \
+    "Reply with exactly: CODEX_OK" 2>&1)"
+fi
 smoke=$?
 set -e
 printf '%s\n' "$smoke_out"
-# user prompt echo 也含 CODEX_OK，只看有沒有出現會假通過；要 "codex" marker 之後的回覆段才算數。先剝 ANSI（literal ESC，避 BSD sed 不支援 \x1b）。
-esc="$(printf '\033')"
-clean="$(printf '%s' "$smoke_out" | sed "s/${esc}\[[0-9;]*m//g")"
-reply="$(printf '%s\n' "$clean" | awk 'f{print} /^[[:space:]]*codex[[:space:]]*$/{f=1}')"
+sentinel_ok=0
+if [ "$use_lastmsg" = "1" ]; then
+  # 精確比對：剝 CR、逐行 trim（兩次 sub，避 anchored-gsub-alternation 歷史相容疑慮）、略空白行後「恰一非空行 == CODEX_OK」
+  if [ "$smoke" -eq 0 ] && [ -f "$lastmsg_file" ] && \
+     awk '{ sub(/\r$/, ""); sub(/^[[:blank:]]+/, ""); sub(/[[:blank:]]+$/, "") }
+          /^$/ { next }
+          { n++; if ($0 != "CODEX_OK") bad=1 }
+          END { exit (n == 1 && !bad) ? 0 : 1 }' "$lastmsg_file"; then
+    sentinel_ok=1
+  fi
+else
+  # legacy：剝 ANSI 後取 "codex" marker 之後段、substring 搜尋
+  esc="$(printf '\033')"
+  clean="$(printf '%s' "$smoke_out" | sed "s/${esc}\[[0-9;]*m//g")"
+  reply="$(printf '%s\n' "$clean" | awk 'f{print} /^[[:space:]]*codex[[:space:]]*$/{f=1}')"
+  if [ "$smoke" -eq 0 ] && printf '%s' "$reply" | grep -q 'CODEX_OK'; then sentinel_ok=1; fi
+fi
+rm -f "$lastmsg_file"
 
-if [ "$smoke" -eq 0 ] && printf '%s' "$reply" | grep -q 'CODEX_OK'; then
+if [ "$sentinel_ok" = "1" ]; then
   cache_tmp="$(mktemp "${cache}.tmp.XXXXXX")"
   trap 'rm -f "$cache_tmp"' EXIT
   printf '%s installed=%s latest=%s verdict=%s smoke=OK at %s\n' \
@@ -87,7 +110,7 @@ if [ "$smoke" -eq 0 ] && printf '%s' "$reply" | grep -q 'CODEX_OK'; then
     && mv -f "$cache_tmp" "$cache"
 else
   if [ "$smoke" -eq 0 ]; then
-    echo "codex-check: smoke exit 0 但輸出無 CODEX_OK 回覆 sentinel（codex 可能壞了）-- 刪快取，下次強制重查" >&2
+    echo "codex-check: smoke exit 0 但無精確 CODEX_OK sentinel（codex 可能壞了）-- 刪快取，下次強制重查" >&2
   else
     echo "codex-check: smoke test failed (exit $smoke) -- 刪除快取，下次呼叫強制重查" >&2
   fi

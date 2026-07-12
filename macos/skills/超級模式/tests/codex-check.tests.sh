@@ -111,7 +111,26 @@ t_h4_newformat_cache_hit() {   # 新格式且 <24h → hit、跳過、exit 0
   assert h4_newformat_cache "exit 0" "$rc"
 }
 
-all_tests="t_happy_path t_offline_unknown t_fake_pass_rejected t_ansi_stripped t_h1_leading_warning t_h1_warning_has_version t_h1_no_version t_h5_multiline t_h5_blank_second_line t_h5_junk t_h5_prerelease_current t_h3_npm_hang t_h3_partial_stdout_discarded t_h4_empty_cache_miss t_h4_oldformat_cache_miss t_h4_truncated_line_miss t_h4_future_mtime_miss t_h4_newformat_cache_hit"
+t_h2_exact_ok() {    # 支援 -o：lastmsg 檔 == CODEX_OK → OK（transcript 無 marker 也行）
+  setup; run_check CODEX_STUB_MODE=echo-only
+  assert h2_exact_ok "exit 0（憑 lastmsg 檔）" "$rc"
+}
+t_h2_not_ok_rejected() {  # lastmsg 為 NOT_CODEX_OK → substring 假通過要擋
+  setup; run_check CODEX_STUB_LASTMSG=NOT_CODEX_OK
+  if [ "$rc" -eq 1 ]; then assert h2_not_ok "exit 1" 0; else assert h2_not_ok "exit 1（實際 $rc）" 1; fi
+}
+t_h2_refusal_rejected() { # lastmsg 是含 CODEX_OK 的句子 → 非精確 → 擋
+  setup; run_check "CODEX_STUB_LASTMSG=I cannot reply CODEX_OK"
+  if [ "$rc" -eq 1 ]; then assert h2_refusal "exit 1" 0; else assert h2_refusal "exit 1（實際 $rc）" 1; fi
+}
+t_h2_no_flag_when_unsupported() {  # help 無旗標 → 絕不傳 -o（argv trace 佐證）、走 marker 路徑成功
+  setup; tracef="$fake_home/argv.trace"
+  run_check CODEX_STUB_SUPPORTS_LASTMSG=0 CODEX_STUB_LASTMSG= CODEX_STUB_TRACE="$tracef"
+  assert h2_no_flag "exit 0（marker 路徑）" "$rc"
+  if grep -q 'output-last-message' "$tracef"; then assert h2_no_flag "未傳 -o（trace 無旗標）" 1; else assert h2_no_flag "未傳 -o（trace 無旗標）" 0; fi
+}
+
+all_tests="t_happy_path t_offline_unknown t_fake_pass_rejected t_ansi_stripped t_h1_leading_warning t_h1_warning_has_version t_h1_no_version t_h5_multiline t_h5_blank_second_line t_h5_junk t_h5_prerelease_current t_h3_npm_hang t_h3_partial_stdout_discarded t_h4_empty_cache_miss t_h4_oldformat_cache_miss t_h4_truncated_line_miss t_h4_future_mtime_miss t_h4_newformat_cache_hit t_h2_exact_ok t_h2_not_ok_rejected t_h2_refusal_rejected t_h2_no_flag_when_unsupported"
 tests="${*:-$all_tests}"
 for t in $tests; do
   case " $all_tests " in
