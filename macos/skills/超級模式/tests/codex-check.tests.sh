@@ -70,8 +70,19 @@ t_h5_prerelease_current() {  # 合法 prerelease 尾綴照走狀態機（CURRENT
   setup; run_check CODEX_STUB_VERSION=0.144.0-alpha.4 NPM_STUB_VERSION=0.144.0
   printf '%s' "$out" | grep -q '^CURRENT'; assert h5_prerelease_current "CURRENT" $?
 }
+t_h3_npm_hang() {   # npm 卡（單一行程 exec sleep 60）→ 20s watchdog 放行 → UNKNOWN、全程 < 40s
+  setup; start=$(date +%s)
+  run_check NPM_STUB_MODE=sleep
+  dur=$(( $(date +%s) - start ))
+  printf '%s' "$out" | grep -q 'UNKNOWN (latest'; assert h3_npm_hang "UNKNOWN" $?
+  if [ "$dur" -lt 40 ]; then assert h3_npm_hang "40s 內完成（實際 ${dur}s）" 0; else assert h3_npm_hang "40s 內完成（實際 ${dur}s）" 1; fi
+}
+t_h3_partial_stdout_discarded() {  # 先印完整版本再 hang → rc!=0 → stdout 必須丟棄 → UNKNOWN（不可 BEHIND/AHEAD）
+  setup; run_check NPM_STUB_MODE=print-then-hang
+  printf '%s' "$out" | grep -q 'UNKNOWN (latest'; assert h3_partial "timeout 部分輸出不進狀態機" $?
+}
 
-all_tests="t_happy_path t_offline_unknown t_fake_pass_rejected t_ansi_stripped t_h1_leading_warning t_h1_warning_has_version t_h1_no_version t_h5_multiline t_h5_blank_second_line t_h5_junk t_h5_prerelease_current"
+all_tests="t_happy_path t_offline_unknown t_fake_pass_rejected t_ansi_stripped t_h1_leading_warning t_h1_warning_has_version t_h1_no_version t_h5_multiline t_h5_blank_second_line t_h5_junk t_h5_prerelease_current t_h3_npm_hang t_h3_partial_stdout_discarded"
 tests="${*:-$all_tests}"
 for t in $tests; do
   case " $all_tests " in
