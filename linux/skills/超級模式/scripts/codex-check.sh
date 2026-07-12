@@ -18,17 +18,21 @@ if [ "$force" != "1" ] && [ -f "$cache" ]; then
 fi
 
 echo "=== installed ==="
-installed="$(codex --version 2>&1 | head -1)"
-echo "$installed"
+installed_raw="$(codex --version 2>&1 || true)"
+printf '%s\n' "$installed_raw" | head -1
+# H1: 優先從 codex 錨定行抽版本；錨定行沒有才退回全輸出第一個版本樣 token（banner 誤中風險見規劃書 D5）
+inst_ver="$(printf '%s\n' "$installed_raw" | grep -E '^codex(-cli)?[[:space:]]' | grep -oE '[0-9]+\.[0-9]+\.[0-9]+[^ ]*' | head -1 || true)"
+[ -n "$inst_ver" ] || inst_ver="$(printf '%s\n' "$installed_raw" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+[^ ]*' | head -1 || true)"
 echo "=== latest on npm ==="
 # C3: npm view 離線/失敗留空（不可拿去跟 installed 比，否則離線就誤報 OUTDATED；smoke 才是權威判定）
 latest_raw="$(npm view '@openai/codex' version 2>/dev/null || true)"
 case "$latest_raw" in [0-9]*.[0-9]*.[0-9]*) latest="$latest_raw" ;; *) latest="" ;; esac
 latest_disp="${latest:-(unknown - offline)}"
 echo "$latest_disp"
-inst_ver="$(printf '%s' "$installed" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+[^ ]*' | head -1 || true)"
 # C3: 版本狀態機 CURRENT/BEHIND/AHEAD/UNKNOWN。可攜比較用 POSIX awk 拆 major.minor.patch，避開 BSD 不支援的 sort -V。
-if [ -z "$latest" ]; then
+if [ -z "$inst_ver" ]; then
+  verdict="UNKNOWN (installed 版本解析不到) -- 無法判定新舊，改看下方 smoke test 認定可用性"
+elif [ -z "$latest" ]; then
   verdict="UNKNOWN (latest 查不到，可能離線) -- 無法判定新舊，改看下方 smoke test 認定可用性"
 elif [ "$inst_ver" = "$latest" ]; then
   verdict="UP-TO-DATE"

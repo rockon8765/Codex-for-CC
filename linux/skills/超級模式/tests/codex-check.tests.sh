@@ -40,8 +40,21 @@ t_ansi_stripped() {       # C2 回歸：marker/回覆包 ANSI 仍認得（legacy
   setup; run_check CODEX_STUB_MODE=ansi CODEX_STUB_SUPPORTS_LASTMSG=0 CODEX_STUB_LASTMSG=
   assert ansi_stripped "exit 0" "$rc"
 }
+t_h1_leading_warning() {  # 版本行前有 warning → 仍抽到版本 → UP-TO-DATE
+  setup; run_check CODEX_STUB_VERSION_PREFIX="warning: something enabled"
+  printf '%s' "$out" | grep -q 'UP-TO-DATE'; assert h1_leading_warning "warning 前置仍 UP-TO-DATE" $?
+}
+t_h1_warning_has_version() {  # warning 內含別的版本號 → 錨定行優先、不誤抓
+  setup; run_check CODEX_STUB_VERSION_PREFIX="warning: node 22.1.0 is deprecated"
+  printf '%s' "$out" | grep -q 'UP-TO-DATE'; assert h1_warning_has_version "錨定 codex-cli 行、不吃 22.1.0" $?
+}
+t_h1_no_version() {       # 完全抽不到版本 → UNKNOWN(installed) 且 smoke 照跑、exit 0
+  setup; run_check CODEX_STUB_VERSION=NONE CODEX_STUB_VERSION_PREFIX="some banner text"
+  printf '%s' "$out" | grep -q 'UNKNOWN (installed'; assert h1_no_version "verdict UNKNOWN(installed)" $?
+  assert h1_no_version "smoke 照跑 exit 0" "$rc"
+}
 
-all_tests="t_happy_path t_offline_unknown t_fake_pass_rejected t_ansi_stripped"
+all_tests="t_happy_path t_offline_unknown t_fake_pass_rejected t_ansi_stripped t_h1_leading_warning t_h1_warning_has_version t_h1_no_version"
 tests="${*:-$all_tests}"
 for t in $tests; do
   case " $all_tests " in
