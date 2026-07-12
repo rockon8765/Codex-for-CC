@@ -83,10 +83,10 @@ function Show-CapabilitySurface {
 # 能力面盤點無模型推理、成本低 → 放在 24h 快取檢查之前，每次呼叫都印（貴的 smoke test 仍走快取）。
 Show-CapabilitySurface
 
-# H4：命中需「恰一行 + 全行格式（format=2 前綴 + ISO-ish 時戳）+ 0<=age<86400s」；否則落回全檢。
+# H4：命中需「恰一行 + 全行格式（format=2 前綴 + installed/latest/verdict 全欄位 + ISO-ish 時戳）+ 0<=age<86400s」；否則落回全檢。
 if (-not $Force -and (Test-Path -LiteralPath $cache)) {
   $cacheLines = @(Get-Content -LiteralPath $cache)
-  $fmtOk = ($cacheLines.Count -eq 1) -and ($cacheLines[0] -match '^format=2 installed=.+ smoke=OK at [0-9]+-[0-9]+-[0-9]+T[0-9:]+[+-][0-9]+$')
+  $fmtOk = ($cacheLines.Count -eq 1) -and ($cacheLines[0] -match '^format=2 installed=[^ ]* latest=.+ verdict=.+ smoke=OK at [0-9]+-[0-9]+-[0-9]+T[0-9:]+[+-][0-9]+$')
   if ($fmtOk) {
     $ageSec = ((Get-Date) - (Get-Item -LiteralPath $cache).LastWriteTime).TotalSeconds
     if ($ageSec -ge 0 -and $ageSec -lt 86400) {
