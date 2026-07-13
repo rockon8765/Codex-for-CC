@@ -568,4 +568,4 @@ $npmCmd   = if ($env:CODEX_CHECK_NPM_CMD)   { $env:CODEX_CHECK_NPM_CMD }   else 
   - Round 2 裁定 BLOCK 解除（0.96）／POSIX→main ALLOW（0.94，staged-release 揭露前提）→ `e34050e` 修 3 項測試可信度（help-pad exec 傳播 rc、巨 banner 攻擊形狀改短首行＋巨尾、latest 欄位隔離）＋補 print-then-fail 對等測試。
 - **最終驗證**：mac runner `TOTAL 41 FAIL 0`；Debian stable-slim 容器 `TOTAL 41 FAIL 0`；真 codex 0.144.1 `-f` exit 0（format=2 快取、精確 sentinel、命中跳過）。
 - **Windows 分支** `fix/codex-check-hardening-windows-pending-native`（已 push）：54e5be7 seam → 3e16111 測試臺 → 8f4f40b H1–H5 → 8f7b7fe 語法修 → 42905bd InvariantCulture 時間戳（審查 Important）→ ad49bd6 H4 regex 同步＋鏡像測試 → 00ea972 H3 捕捉 npm 原生 exit code（Codex round 2 新發現）。原生驗收單新增：cmd.exe 8191 行長限制（huge-banner 測試 30000 字元 prefix）、Stop-Job process-tree、$LASTEXITCODE 路徑實測。
-- **未決（留待使用者/後續）**：Task 8 Step 4 promote、Step 5 live 部署、H1 三平台語義分岔（D5 fallback vs Task 7 直接 UNKNOWN——plan 內部矛盾，須裁決）、runner setup fail-fast（唯讀環境韌性，獨立 handoff）、linux 真 codex E2E（維持 provisional）。
+- **未決（留待使用者/後續）**：Task 8 Step 4 promote、Step 5 live 部署、H1 三平台語義分岔——已裁決（2026-07-13，使用者選 Windows 補 D5 fallback，windows 分支 0ac2a80）、runner setup fail-fast（唯讀環境韌性，獨立 handoff）、linux 真 codex E2E（維持 provisional）。
