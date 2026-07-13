@@ -529,7 +529,7 @@ $npmCmd   = if ($env:CODEX_CHECK_NPM_CMD)   { $env:CODEX_CHECK_NPM_CMD }   else 
   - **編碼鐵律**：ps1 以 **UTF-8 BOM** 保存（repo 既有慣例、PS 5.1 非 ASCII 必須）；runner 斷言 SUT 與 tests 檔頭 `EF BB BF`。
 - [x] **Step 3: 語法預檢**：mac 有 pwsh → 用單引號包裹的 `pwsh -NoProfile -Command '$e=$null; [System.Management.Automation.Language.Parser]::ParseFile("<abs path>", [ref]$null, [ref]$e) | Out-Null; if ($e) { $e; exit 1 }'`（**單引號防 zsh 展開 `$e`；有 parse error 必須 exit 非零**）；無 pwsh → 跳過並在 commit message 註明。PS7 parse 僅算預檢，最終仍須 Windows PS 5.1。
 - [x] **Step 4: Commit＋push 分支（不動 main）**，訊息帶「待 Windows 原生驗證——故不進 main」語義
-- [ ] **Windows 原生 promote gate（留給 Windows 真機 session 的驗收單）**：全部測試案例綠；真 Codex `-Force` 跑通＋cache hit；`Stop-Job` 後無殘留 node/job；BOM 檢查過；PS 5.1 parse 過。
+- [x] **Windows 原生 promote gate（留給 Windows 真機 session 的驗收單）**：全部測試案例綠；真 Codex `-Force` 跑通＋cache hit；`Stop-Job` 後無殘留 node/job；BOM 檢查過；PS 5.1 parse 過。（2026-07-13 完成，見執行紀錄「Windows 原生 gate」節）
 
 ---
 
@@ -569,3 +569,14 @@ $npmCmd   = if ($env:CODEX_CHECK_NPM_CMD)   { $env:CODEX_CHECK_NPM_CMD }   else 
 - **最終驗證**：mac runner `TOTAL 41 FAIL 0`；Debian stable-slim 容器 `TOTAL 41 FAIL 0`；真 codex 0.144.1 `-f` exit 0（format=2 快取、精確 sentinel、命中跳過）。
 - **Windows 分支** `fix/codex-check-hardening-windows-pending-native`（已 push）：54e5be7 seam → 3e16111 測試臺 → 8f4f40b H1–H5 → 8f7b7fe 語法修 → 42905bd InvariantCulture 時間戳（審查 Important）→ ad49bd6 H4 regex 同步＋鏡像測試 → 00ea972 H3 捕捉 npm 原生 exit code（Codex round 2 新發現）。原生驗收單新增：cmd.exe 8191 行長限制（huge-banner 測試 30000 字元 prefix）、Stop-Job process-tree、$LASTEXITCODE 路徑實測。
 - **未決（留待使用者/後續）**：Task 8 Step 4 promote、Step 5 live 部署、H1 三平台語義分岔——已裁決（2026-07-13，使用者選 Windows 補 D5 fallback，windows 分支 0ac2a80）、runner setup fail-fast（唯讀環境韌性，獨立 handoff）、linux 真 codex E2E（維持 provisional）。
+
+## 執行紀錄（2026-07-13，Windows 原生 gate＋promote 回寫）
+
+- **驗收環境**：Windows 11、Windows PowerShell 5.1.26100.8655（powershell.exe 全程；pwsh 7.6.3 僅 parse 預檢不計入）、真 codex `C:\npm\codex.cmd` 0.144.1。
+- **驗收結果（handoff `docs/handoff-codex-check-windows-native-gate.md` 七項）**：①PS 5.1 parse 兩檔 0 error ②BOM 兩檔 `EF BB BF` ③測試臺最終 `TOTAL 75 FAIL 0`（28 案）④t_h3 系列單跑後 OS 層無殘留 ping/node/job（`Get-Job` 跨 session 不可見，以 tasklist 前後快照為證）⑤真 codex `-Force` exit 0、transcript 含噪音仍精確 sentinel、快取行 `format=2 installed=0.144.1 latest=0.144.3 verdict=BEHIND (…) smoke=OK at 2026-07-13T14:43:01+0800` ⑥立即重跑命中快取「0h 前查過，跳過」exit 0 ⑦H1–H5 verdict/訊息字串 18 項程式化比對與 bash 版逐字相同。
+- **gate 抓到並修復 2 紅**：
+  - 首跑 `TOTAL 72 FAIL 5`（全是期望 UP-TO-DATE/CURRENT 案）→ 根因＝測試臺 fake home 缺 `AppData\Local`，PS 5.1 下 SUT 內 `Receive-Job` 丟 terminating「The Persistence Path does not exist」→ catch 折成假 offline；h3/h5 期望恰為 UNKNOWN 而掩蓋。修＝Setup 補建空目錄（`2bf2049`，SUT 未動）。附帶：PS 在 profile 解析失效時把 `ModuleAnalysisCache` 回退寫入 CWD 污染 repo——已清除並實證修後不再生。
+  - 真 `-Force` 首跑 exit 1 → SUT 真 bug（合成 stub 蓋不到）：真 codex stderr 噪音「Reading additional input from stdin...」＋PS 層 `2>&1`＋EAP=Stop → NativeCommandError terminating 炸死 smoke。修＝`2>&1` 下沉 cmd 層（=bash `2>&1` 逐字對應，語義不動）＋新增回歸案 `t_smoke_stderr_noise_no_crash`（TDD 先紅後綠）＋runner 捕 SUT 輸出暫降 EAP=Continue（`4c3d477`）。
+- **Codex 反方諮詢**：PROCEED-WITH-CHANGES——採納註解去定論化＋repo 污染處理；「npm 成功哨兵 preflight」＝runner setup fail-fast（本計畫明確排除、獨立 handoff）、NPM_STUB_TRACE 正向佐證、SUT catch 階段化 stderr 診斷（SUT 輸出變更需使用者拍板）記 backlog。實測確認 Start-Job→Stop-Job 會清 cmd/ping 行程樹，暫無必要改 Process 重寫。
+- **promote 完成（使用者同意後）**：merge `94df080` → push main → `ls-remote` 核對 main=`94df080` → 遠端/本地驗證分支已刪（遠端只剩 main）。**main 自此可宣稱 codex-check H1–H5 三平台語義等價**（linux 能力面盤點段仍缺，屬另一 handoff）。
+- **順帶**：npm registry 已有 codex 0.144.3（本機 0.144.1 → verdict=BEHIND）；升級屬系統變更，待使用者決定。
