@@ -538,8 +538,8 @@ $npmCmd   = if ($env:CODEX_CHECK_NPM_CMD)   { $env:CODEX_CHECK_NPM_CMD }   else 
 - [x] **Step 1: mac 原生全跑**：runner 全綠（以 `TOTAL … FAIL 0` 為準）＋真 codex `bash macos/.../scripts/codex-check.sh -f` 跑通（verdict 行＋精確 sentinel＋新格式快取）＋無 `-f` 驗快取命中
 - [x] **Step 2: Debian 容器跑 linux 版**：`docker run --rm -i -v "<repo>/linux/skills/超級模式:/sut:ro" debian:stable-slim bash /sut/tests/codex-check.tests.sh`（順帶驗 perl-base 存在假設與 mawk 下的兩次-sub awk 片段；無真 codex 屬已知限制，標 provisional）
 - [x] **Step 3: 依全域 CLAUDE.md 送 Codex 反方檢核**（簡報附本計畫、全部測試輸出、真機 `-f` 輸出）
-- [ ] **Step 4: 徵使用者同意後 promote POSIX 分支進 main**（cherry-pick 改寫訊息或 ff 由使用者選；核對 tree/blob；push 後 `ls-remote` 驗證；刪遠端分支）
-- [ ] **Step 5: 問使用者是否同步部署 live** `~/.claude/skills/超級模式/scripts/codex-check.sh`（備份→覆蓋→blob 核對→`-f` 實測，比照 2026-07-12 流程）
+- [x] **Step 4: 徵使用者同意後 promote POSIX 分支進 main**（cherry-pick 改寫訊息或 ff 由使用者選；核對 tree/blob；push 後 `ls-remote` 驗證；刪遠端分支）
+- [x] **Step 5: 問使用者是否同步部署 live** `~/.claude/skills/超級模式/scripts/codex-check.sh`（備份→覆蓋→blob 核對→`-f` 實測，比照 2026-07-12 流程）
 
 ---
 
