@@ -9,7 +9,10 @@
 #>
 param([switch]$Force)
 $ErrorActionPreference = "Stop"
-$codex = "C:\npm\codex.ps1"
+# 可注入執行檔路徑（seam）：production 預設不變，測試用 env 覆寫指向 stub。
+# PATH stub 攔不到 C:\npm 絕對路徑，故用專屬 env 注入而非改 PATH。
+$codexCmd = if ($env:CODEX_CHECK_CODEX_CMD) { $env:CODEX_CHECK_CODEX_CMD } else { 'C:\npm\codex.cmd' }
+$npmCmd   = if ($env:CODEX_CHECK_NPM_CMD)   { $env:CODEX_CHECK_NPM_CMD }   else { 'npm' }
 $cache = Join-Path $env:USERPROFILE ".claude\.codex-check-last"
 
 function Show-CapabilitySurface {
@@ -20,7 +23,7 @@ function Show-CapabilitySurface {
   $flags = @{}
 
   try {
-    foreach ($ln in (& "C:\npm\codex.cmd" plugin list 2>$null)) {
+    foreach ($ln in (& $codexCmd plugin list 2>$null)) {
       $cols = $ln -split '\s{2,}'
       if ($cols.Count -ge 2 -and $cols[1] -match 'enabled') { $enabled += ($cols[0].Trim() -split '@')[0] }
     }
@@ -29,7 +32,7 @@ function Show-CapabilitySurface {
 
   try {
     $servers = @()
-    foreach ($ln in (& "C:\npm\codex.cmd" mcp list 2>$null)) {
+    foreach ($ln in (& $codexCmd mcp list 2>$null)) {
       if ([string]::IsNullOrWhiteSpace($ln) -or $ln -match '^\s*Name\s') { continue }
       $name = (($ln -split '\s+') | Where-Object { $_ -ne '' })[0]
       $st = if ($ln -match '\bdisabled\b') { 'disabled' } elseif ($ln -match '\benabled\b') { 'enabled' } else { '?' }
@@ -40,7 +43,7 @@ function Show-CapabilitySurface {
 
   try {
     $trueFeats = @()
-    foreach ($ln in (& "C:\npm\codex.cmd" features list 2>$null)) {
+    foreach ($ln in (& $codexCmd features list 2>$null)) {
       $t = ($ln -split '\s+') | Where-Object { $_ -ne '' }
       if ($t.Count -ge 2) {
         $flags[$t[0]] = $t[-1]            # 末欄 = enabled(true/false)；status 可能含空格但只取首(name)尾(enabled)
@@ -80,41 +83,105 @@ function Show-CapabilitySurface {
 # 能力面盤點無模型推理、成本低 → 放在 24h 快取檢查之前，每次呼叫都印（貴的 smoke test 仍走快取）。
 Show-CapabilitySurface
 
-if (-not $Force -and (Test-Path $cache)) {
-  $age = (Get-Date) - (Get-Item -LiteralPath $cache).LastWriteTime
-  if ($age.TotalHours -lt 24) {
-    Write-Output ("codex-check: {0:N1}h 前查過，跳過（-Force 強制重查）。上次結果：" -f $age.TotalHours)
-    Get-Content -LiteralPath $cache
-    exit 0
+# H4：命中需「恰一行 + 全行格式（format=2 前綴 + installed/latest/verdict 全欄位 + ISO-ish 時戳）+ 0<=age<86400s」；否則落回全檢。
+if (-not $Force -and (Test-Path -LiteralPath $cache)) {
+  $cacheLines = @(Get-Content -LiteralPath $cache)
+  $fmtOk = ($cacheLines.Count -eq 1) -and ($cacheLines[0] -match '^format=2 installed=[^ ]* latest=.+ verdict=.+ smoke=OK at [0-9]+-[0-9]+-[0-9]+T[0-9:]+[+-][0-9]+$')
+  if ($fmtOk) {
+    $ageSec = ((Get-Date) - (Get-Item -LiteralPath $cache).LastWriteTime).TotalSeconds
+    if ($ageSec -ge 0 -and $ageSec -lt 86400) {
+      Write-Output ("codex-check: {0}h 前查過，跳過（-f 強制重查）。上次結果：" -f [int][math]::Floor($ageSec / 3600))
+      Get-Content -LiteralPath $cache
+      exit 0
+    }
   }
 }
 
-$installedRaw = (& $codex --version) -join ' '
-# npm view 離線/不存在時 latest 留 $null（C3：不可拿去跟 installed 比，否則離線就誤報 OUTDATED）
+# H1：優先從 codex(-cli) 錨定行抽版本；錨定行沒有才退回全輸出第一個版本樣 token（banner 誤中風險見規劃書 D5）；
+#     兩段都抽不到 → $instVer 留空（下方走 UNKNOWN(installed)）。對齊 POSIX 兩段式抽取（使用者裁決）。
+$installedRaw = & $codexCmd --version
+$instVer = ""
+foreach ($ln in @($installedRaw)) {
+  $s = [string]$ln
+  if ($s -match '^codex(-cli)?\s') {
+    $mm = [regex]::Match($s, '\d+\.\d+\.\d+\S*')
+    if ($mm.Success) { $instVer = $mm.Value; break }
+  }
+}
+if (-not $instVer) {
+  # D5 fallback：錨定行沒有才退回全輸出第一個版本樣 token（banner 誤中風險見規劃書 D5）。
+  foreach ($ln in @($installedRaw)) {
+    $mm2 = [regex]::Match([string]$ln, '[0-9]+\.[0-9]+\.[0-9]+[^ ]*')
+    if ($mm2.Success) { $instVer = $mm2.Value; break }
+  }
+}
+
+# H3：npm 查詢走 job 完整生命週期 + 20s watchdog。逾時 → Stop-Job、丟棄部分 stdout（不可拿去比對）。
+#     env 收緊（retries=0/timeout=15000）與 job 清理都包 try/finally。
+# C3：npm 離線/失敗留 $null（不可拿去跟 installed 比，否則離線就誤報 OUTDATED；smoke 才是權威判定）。
 $latest = $null
+$prevRetries = $env:npm_config_fetch_retries
+$prevTimeout = $env:npm_config_fetch_timeout
+$env:npm_config_fetch_retries = '0'
+$env:npm_config_fetch_timeout = '15000'
+$npmJob = $null
 try {
-  $lv = (npm view '@openai/codex' version | Out-String).Trim()
-  if ($lv -match '^\d+\.\d+\.\d+') { $latest = $lv }
-} catch { $latest = $null }
-$instVer = if ($installedRaw -match '(\d+\.\d+\.\d+\S*)') { $Matches[1] } else { $installedRaw }
+  # D2：rc != 0 一律丟棄 stdout（鏡像 bash 的 `if latest_candidate="$(... npm view ...)"`──只在
+  #     npm 的原生 exit code = 0 時才採信輸出）。PS job 的 State=Completed 只代表 scriptblock 跑完，
+  #     不代表內部 npm 命令 exit 0──故在 job 內把 $LASTEXITCODE 隨輸出一起帶出來；State=Completed
+  #     且 Rc=0 才可信任 stdout，Rc 非 0 或收不到（$null）一律當失敗丟棄，不得進 H5。
+  $npmJob = Start-Job -ScriptBlock {
+    $o = & $using:npmCmd view '@openai/codex' version 2>$null
+    [pscustomobject]@{ Out = $o; Rc = $LASTEXITCODE }
+  }
+  $done = Wait-Job $npmJob -Timeout 20
+  $lvRaw = $null
+  if ($done -and $npmJob.State -eq 'Completed') {
+    $result = @(Receive-Job $npmJob -ErrorAction SilentlyContinue) | Select-Object -Last 1
+    if ($result -and ($null -ne $result.Rc) -and ($result.Rc -eq 0)) {
+      # & cmd 輸出可能是陣列（多行）；比照舊碼經 Out-String 正規化成單一字串再交給 H5 判文法。
+      $lvRaw = (@($result.Out) | Out-String)
+    }
+    # else：Rc 非 0（含收不到結果時的 $null）→ $lvRaw 留 $null，丟棄 stdout，不進 H5。
+  } else {
+    Stop-Job $npmJob -ErrorAction SilentlyContinue
+  }
+  # H5：先拒多行（$lv 含 CR/LF 即棄）再對版本 token 文法全匹配；否則一律當查不到（→ UNKNOWN）。
+  if ($lvRaw) {
+    $lv = $lvRaw.Trim()
+    if ($lv -and ($lv -notmatch '[\r\n]') -and ($lv -match '^\d+\.\d+\.\d+(-[0-9A-Za-z]+(\.[0-9A-Za-z-]+)*)?(\+[0-9A-Za-z]+(\.[0-9A-Za-z-]+)*)?$')) {
+      $latest = $lv
+    }
+  }
+} catch {
+  $latest = $null
+} finally {
+  if ($npmJob) { Remove-Job $npmJob -Force -ErrorAction SilentlyContinue }
+  $env:npm_config_fetch_retries = $prevRetries
+  $env:npm_config_fetch_timeout = $prevTimeout
+}
 $latestDisp = if ($latest) { $latest } else { "(unknown - offline)" }
 
 Write-Output "installed: $instVer"
 Write-Output "latest:    $latestDisp"
-# C3：版本狀態機 CURRENT/BEHIND/AHEAD/UNKNOWN。latest 查不到 → UNKNOWN，不誤報 OUTDATED（smoke test 才是權威可用性判定）。
-if (-not $latest) {
+# C3/H1：版本狀態機。任何 UNKNOWN 都不誤報 OUTDATED（smoke test 才是權威可用性判定）。
+if (-not $instVer) {
+  $verdict = "UNKNOWN (installed 版本解析不到) -- 無法判定新舊，改看下方 smoke test 認定可用性"
+} elseif (-not $latest) {
   $verdict = "UNKNOWN (latest 查不到，可能離線) -- 無法判定新舊，改看下方 smoke test 認定可用性"
 } elseif ($instVer -eq $latest) {
   $verdict = "UP-TO-DATE"
 } else {
-  # 盡量做語意版本比較（strip prerelease 尾綴後用 [version] 比）；比不出來退回中性字樣、不硬報 OUTDATED
+  # 語意版本比較（strip prerelease 尾綴後用 [version] 比）；[version] cast 失敗 → UNKNOWN(版本比較失敗)。
   $cmp = $null
   try {
     $ia = [version]([regex]::Match($instVer, '^\d+\.\d+\.\d+').Value)
     $la = [version]([regex]::Match($latest,  '^\d+\.\d+\.\d+').Value)
     $cmp = $ia.CompareTo($la)
   } catch { $cmp = $null }
-  if ($cmp -lt 0) {
+  if ($null -eq $cmp) {
+    $verdict = "UNKNOWN (版本比較失敗) -- 無法判定新舊，改看下方 smoke test 認定可用性"
+  } elseif ($cmp -lt 0) {
     $verdict = "BEHIND ($instVer -> $latest) -- 更新屬系統變更，先問使用者再跑 npm install -g @openai/codex@latest"
   } elseif ($cmp -gt 0) {
     $verdict = "AHEAD ($instVer > $latest) -- 本機比 registry 新（prerelease/私建），非落後"
@@ -125,25 +192,72 @@ if (-not $latest) {
 Write-Output $verdict
 
 Write-Output "=== read-only smoke test ==="
-# v3 佈線：cmd /s /c + `< NUL`(空 stdin)，prompt 走引號好的 cmd 參數，避開 PS pipe 編碼坑
-$inner = '"{0}" exec --sandbox read-only --skip-git-repo-check -C "{1}" "Reply with exactly: CODEX_OK" < NUL' -f "C:\npm\codex.cmd", $env:TEMP.TrimEnd('\')
-# C2：捕捉輸出並回顯。光看 exit code 會把「壞掉但 exit 0」的 codex 誤判成可用，故要驗真回了 CODEX_OK。
-$smokeOut = & cmd.exe /d /s /c $inner 2>&1
-$smokeExit = $LASTEXITCODE
-$smokeOut | ForEach-Object { Write-Output $_ }
-# user prompt echo 也含 "CODEX_OK"，不能只看字串有沒有出現；要 codex 回覆段（"codex" marker 之後）才算數。
-# 先剝 ANSI 顏色碼，免得 codex 灌色時 marker 行變 "<esc>[..mcodex<esc>[0m" 匹配不到 → 假失敗。
-$joined = [regex]::Replace((($smokeOut -join "`n")), "$([char]27)\[[0-9;]*m", "")
-$parts = $joined -split '(?m)^\s*codex\s*$'
-$sawSentinel = ($parts.Count -ge 2) -and ($parts[-1] -match 'CODEX_OK')
+$tmpDir = $env:TEMP.TrimEnd('\')
+# H2：能力探測（非版本閘門）——help 有 --output-last-message 才用精確 sentinel 路徑；沒有 → legacy marker 路徑。
+$useLastmsg = $false
+try {
+  $helpOut = (& $codexCmd exec --help 2>&1) | Out-String
+  if ($helpOut -match '--output-last-message') { $useLastmsg = $true }
+} catch { $useLastmsg = $false }
+# GUID 唯一檔名（絕不用固定名，防讀到上輪 stale sentinel）；跑前刪、finally 刪。
+$lastMsgPath = Join-Path $tmpDir ("codex-check-lastmsg.$PID." + [guid]::NewGuid().ToString('N') + ".txt")
+if (Test-Path -LiteralPath $lastMsgPath) { Remove-Item -LiteralPath $lastMsgPath -Force -ErrorAction SilentlyContinue }
+$smokeExit = 1
+$sawSentinel = $false
+try {
+  # v3 佈線：cmd /s /c + `< NUL`(空 stdin)，prompt 走引號好的 cmd 參數，避開 PS pipe 編碼坑。
+  # stderr 合流（2>&1）必須做在 cmd 層、不可做在 PS 層：真 codex 會往 stderr 印噪音（實測
+  # "Reading additional input from stdin..."），PS 5.1 在 EAP=Stop 下會把 native stderr 包成
+  # NativeCommandError 直接 terminating、smoke 中途死掉（2026-07-13 Windows 原生 gate 抓到）。
+  # cmd 層合流 = bash 版 `2>&1` 的逐字對應，transcript 語義相同。
+  if ($useLastmsg) {
+    $inner = '"{0}" exec --sandbox read-only --skip-git-repo-check -C "{1}" --output-last-message "{2}" "Reply with exactly: CODEX_OK" < NUL 2>&1' -f $codexCmd, $tmpDir, $lastMsgPath
+  } else {
+    $inner = '"{0}" exec --sandbox read-only --skip-git-repo-check -C "{1}" "Reply with exactly: CODEX_OK" < NUL 2>&1' -f $codexCmd, $tmpDir
+  }
+  # C2：捕捉輸出並回顯。光看 exit code 會把「壞掉但 exit 0」的 codex 誤判成可用，故要驗真回了 CODEX_OK。
+  $smokeOut = & cmd.exe /d /s /c $inner
+  $smokeExit = $LASTEXITCODE
+  $smokeOut | ForEach-Object { Write-Output $_ }
+  if ($useLastmsg) {
+    # 精確比對：讀 lastmsg 檔，剝 CR、trim、略空白行後「恰一非空行 -ceq CODEX_OK」。
+    if ($smokeExit -eq 0 -and (Test-Path -LiteralPath $lastMsgPath)) {
+      $nonBlank = @()
+      foreach ($rawLn in (Get-Content -LiteralPath $lastMsgPath)) {
+        $tln = ([string]$rawLn -replace "`r", '').Trim()
+        if ($tln -ne '') { $nonBlank += $tln }
+      }
+      if ($nonBlank.Count -eq 1 -and $nonBlank[0] -ceq 'CODEX_OK') { $sawSentinel = $true }
+    }
+  } else {
+    # legacy：user prompt echo 也含 "CODEX_OK"，要 codex 回覆段（"codex" marker 之後）才算數。
+    # 先剝 ANSI 顏色碼，免得 codex 灌色時 marker 行變 "<esc>[..mcodex<esc>[0m" 匹配不到 → 假失敗。
+    $joined = [regex]::Replace((($smokeOut -join "`n")), "$([char]27)\[[0-9;]*m", "")
+    $parts = $joined -split '(?m)^\s*codex\s*$'
+    $sawSentinel = ($parts.Count -ge 2) -and ($parts[-1] -match 'CODEX_OK')
+  }
+} finally {
+  if (Test-Path -LiteralPath $lastMsgPath) { Remove-Item -LiteralPath $lastMsgPath -Force -ErrorAction SilentlyContinue }
+}
 
 if ($smokeExit -eq 0 -and $sawSentinel) {
-  Set-Content -LiteralPath $cache -Encoding utf8 -Value ("installed={0} latest={1} verdict={2} smoke=OK at {3}" -f $instVer, $latestDisp, $verdict, (Get-Date -Format o))
+  # H4：atomic 寫入——唯一 tmp（$PID + GUID）→ Move-Item -Force；finally 清殘留 tmp。
+  # 時戳走 %z 無冒號格式（+0800）以吻合上方讀取 regex；含 format=2 前綴。
+  $now = Get-Date
+  $ts = $now.ToString("yyyy-MM-ddTHH:mm:ss", [System.Globalization.CultureInfo]::InvariantCulture) + ($now.ToString("zzz", [System.Globalization.CultureInfo]::InvariantCulture) -replace ':', '')
+  $cacheLine = "format=2 installed={0} latest={1} verdict={2} smoke=OK at {3}" -f $instVer, $latestDisp, $verdict, $ts
+  $cacheTmp = "$cache.tmp.$PID." + [guid]::NewGuid().ToString('N')
+  try {
+    Set-Content -LiteralPath $cacheTmp -Encoding utf8 -Value $cacheLine
+    Move-Item -LiteralPath $cacheTmp -Destination $cache -Force
+  } finally {
+    if (Test-Path -LiteralPath $cacheTmp) { Remove-Item -LiteralPath $cacheTmp -Force -ErrorAction SilentlyContinue }
+  }
   $smoke = 0
 } else {
   # smoke 失敗（exit≠0，或 exit 0 但沒回 CODEX_OK sentinel）→ 刪快取，別讓已壞的 codex 在 24h 內被舊快取報成 OK
   if ($smokeExit -eq 0) {
-    Write-Warning "codex-check: smoke exit 0 但輸出無 CODEX_OK 回覆 sentinel（codex 可能壞了）-- 刪快取，下次強制重查"
+    Write-Warning "codex-check: smoke exit 0 但無精確 CODEX_OK sentinel（codex 可能壞了）-- 刪快取，下次強制重查"
   } else {
     Write-Warning "codex-check: smoke test failed (exit $smokeExit) -- 刪除快取，下次呼叫強制重查"
   }
