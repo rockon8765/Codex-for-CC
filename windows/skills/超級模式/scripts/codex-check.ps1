@@ -97,7 +97,8 @@ if (-not $Force -and (Test-Path -LiteralPath $cache)) {
   }
 }
 
-# H1：優先從 codex(-cli) 錨定行抽版本；抽不到 → $instVer 留空（下方走 UNKNOWN(installed)，不再落回原字串比較）。
+# H1：優先從 codex(-cli) 錨定行抽版本；錨定行沒有才退回全輸出第一個版本樣 token（banner 誤中風險見規劃書 D5）；
+#     兩段都抽不到 → $instVer 留空（下方走 UNKNOWN(installed)）。對齊 POSIX 兩段式抽取（使用者裁決）。
 $installedRaw = & $codexCmd --version
 $instVer = ""
 foreach ($ln in @($installedRaw)) {
@@ -105,6 +106,13 @@ foreach ($ln in @($installedRaw)) {
   if ($s -match '^codex(-cli)?\s') {
     $mm = [regex]::Match($s, '\d+\.\d+\.\d+\S*')
     if ($mm.Success) { $instVer = $mm.Value; break }
+  }
+}
+if (-not $instVer) {
+  # D5 fallback：錨定行沒有才退回全輸出第一個版本樣 token（banner 誤中風險見規劃書 D5）。
+  foreach ($ln in @($installedRaw)) {
+    $mm2 = [regex]::Match([string]$ln, '[0-9]+\.[0-9]+\.[0-9]+[^ ]*')
+    if ($mm2.Success) { $instVer = $mm2.Value; break }
   }
 }
 
