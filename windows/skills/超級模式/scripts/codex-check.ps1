@@ -206,13 +206,17 @@ $smokeExit = 1
 $sawSentinel = $false
 try {
   # v3 佈線：cmd /s /c + `< NUL`(空 stdin)，prompt 走引號好的 cmd 參數，避開 PS pipe 編碼坑。
+  # stderr 合流（2>&1）必須做在 cmd 層、不可做在 PS 層：真 codex 會往 stderr 印噪音（實測
+  # "Reading additional input from stdin..."），PS 5.1 在 EAP=Stop 下會把 native stderr 包成
+  # NativeCommandError 直接 terminating、smoke 中途死掉（2026-07-13 Windows 原生 gate 抓到）。
+  # cmd 層合流 = bash 版 `2>&1` 的逐字對應，transcript 語義相同。
   if ($useLastmsg) {
-    $inner = '"{0}" exec --sandbox read-only --skip-git-repo-check -C "{1}" --output-last-message "{2}" "Reply with exactly: CODEX_OK" < NUL' -f $codexCmd, $tmpDir, $lastMsgPath
+    $inner = '"{0}" exec --sandbox read-only --skip-git-repo-check -C "{1}" --output-last-message "{2}" "Reply with exactly: CODEX_OK" < NUL 2>&1' -f $codexCmd, $tmpDir, $lastMsgPath
   } else {
-    $inner = '"{0}" exec --sandbox read-only --skip-git-repo-check -C "{1}" "Reply with exactly: CODEX_OK" < NUL' -f $codexCmd, $tmpDir
+    $inner = '"{0}" exec --sandbox read-only --skip-git-repo-check -C "{1}" "Reply with exactly: CODEX_OK" < NUL 2>&1' -f $codexCmd, $tmpDir
   }
   # C2：捕捉輸出並回顯。光看 exit code 會把「壞掉但 exit 0」的 codex 誤判成可用，故要驗真回了 CODEX_OK。
-  $smokeOut = & cmd.exe /d /s /c $inner 2>&1
+  $smokeOut = & cmd.exe /d /s /c $inner
   $smokeExit = $LASTEXITCODE
   $smokeOut | ForEach-Object { Write-Output $_ }
   if ($useLastmsg) {
