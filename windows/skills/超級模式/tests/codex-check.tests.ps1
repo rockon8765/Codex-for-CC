@@ -186,6 +186,11 @@ function Assert-Bom {
 function Setup {
   $script:fakeHome = Join-Path $env:TEMP ('codex-check-home-' + [guid]::NewGuid().ToString('N'))
   New-Item -ItemType Directory -Path (Join-Path $script:fakeHome '.claude') -Force | Out-Null
+  # 實測（PS 5.1.26100，2026-07-13 Windows 原生 gate）：USERPROFILE 重導到缺 AppData\Local 的目錄時，
+  # SUT 內 Receive-Job 丟 terminating「The Persistence Path does not exist」（-EA SilentlyContinue 擋不住），
+  # 被 SUT 的 catch 折成 $latest=$null → npm 查詢永遠 UNKNOWN（假 offline），五個正向 verdict 案全紅。
+  # bisect：fake home 補建空的 AppData\Local 即恢復。此為 fake profile 保真度修補，不改 SUT 行為。
+  New-Item -ItemType Directory -Path (Join-Path $script:fakeHome 'AppData\Local') -Force | Out-Null
   $script:fakeHomes += $script:fakeHome
 }
 function CacheFile { return (Join-Path $script:fakeHome '.claude\.codex-check-last') }
