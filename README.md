@@ -33,6 +33,8 @@
 | 修復紀錄 | [`windows/skills/超級模式/FIX-PLAN.md`](windows/skills/超級模式/FIX-PLAN.md) | [`macos/skills/超級模式/FIX-PLAN.md`](macos/skills/超級模式/FIX-PLAN.md) | [`linux/skills/超級模式/FIX-PLAN.md`](linux/skills/超級模式/FIX-PLAN.md) |
 
 > **現況（據實）。** **Windows 版**是目前唯一在其目標平台上原生稽核＋跑過完整回歸測試的版本；本 repo 的維護與對抗測試都以它為準。**macOS／Linux 版**是從 Windows 設計移植的**未原生驗證**版本——路徑正規化（realpath）分支在 Windows 開發機上（`process.platform !== 'win32'`）不會執行，因此那條關鍵路徑**從未在 mac/linux 實機跑過**。在你自己的 mac/linux 上原生跑過 `tests/`（見安裝節）之前，請把它們當**參考實作**，不要當「與 Windows 等價、可直接信賴」的版本。各平台的分階段紀錄與回歸測試臺規格在各自的 `FIX-PLAN.md`（上表連結）；案例數以各平台 `tests/gate-cases.json` 為準（三平台不同、且會隨修補變動）。
+>
+> **功能差距（2026-07-16）**：`codex-check` 的**能力面 baseline diff**（NO_BASELINE／`-UpdateBaseline`／四態盤點／快取版本鍵／依賴旗標探測）目前**僅 Windows 版實作**，mac/linux 的 `codex-check.sh` 尚未移植——移植規格與定案見 [`docs/handoff-capability-baseline-port.md`](docs/handoff-capability-baseline-port.md)。
 
 ---
 

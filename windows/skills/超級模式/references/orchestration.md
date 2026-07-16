@@ -48,8 +48,8 @@ SKILL.md 的 §2 / §3 / §3.5 / §5 的詳細範本與程序。用到才讀。
 1. **Codex CLI 可用** → 先確認有 20 分鐘內諮詢憑證（exec 受 gate 攔，沒憑證會被擋）。用 Write 工具把簡報寫進 scratchpad（gate 豁免路徑），用 PowerShell 工具 `scripts/codex-exec.ps1 -Dir <repo> -PromptFile <brief>`，**`run_in_background: true` 跑**（重任務常超過工具 10 分鐘上限）。逐字輸出存 `~/.claude/super-mode-logs/codex_exec_<ts>.txt`，最終回覆落地 `codex_exec_<ts>_last.txt`（`--output-last-message`，可用 `-OutFile` 改位置）。收回後 Claude 用 `git diff` 審查。
 2. **無 CLI** → 把簡報輸出給使用者，貼到 Codex 執行。
 
-### 派工前置 — 確認 Codex 最新版
-跑 `scripts/codex-check.ps1`：比對 `codex --version` 與 `npm view @openai/codex version`、印出 UP-TO-DATE / OUTDATED 判定，並做 read-only smoke test。**24 小時內查過會直接回快取結果**（存 `~/.claude/.codex-check-last`），`-Force` 強制重查。落後就更新（**先問使用者**，更新 global 工具屬系統變更）：`npm install -g @openai/codex@latest`（保持 `C:\npm` prefix，避開 MAX_PATH 坑）。壞了就 `npm install -g @openai/codex@<舊版>` 釘回去。
+### 派工前置 — 確認 Codex 版本與能力面
+跑 `scripts/codex-check.ps1`：比對 `codex --version` 與 `npm view @openai/codex version`、印出 UP-TO-DATE / BEHIND / AHEAD / CURRENT / UNKNOWN 判定、做 read-only smoke test，並把能力面（外掛/MCP/features/hooks/依賴旗標）與 `~/.claude/.codex-check-baseline` 做機器 diff、漂移時醒目警示。**24 小時內查過會直接回快取結果**（存 `~/.claude/.codex-check-last`；版本變更自動作廢），`-Force` 強制重查。**BEHIND＝中性情報、不是更新指令**：新版可能造成參數/外掛/行為漂移，要不要更新由使用者決定（更新 global 工具屬系統變更，**先問使用者**）：`npm install -g @openai/codex@latest`（保持 `C:\npm` prefix，避開 MAX_PATH 坑）。**更新後必重跑 `codex-check.ps1 -Force`**、檢視漂移警示，確認符合預期再以 `-UpdateBaseline` 接受（唯一更新途徑；等 smoke 通過才落檔，結果看輸出行 `UPDATE_BASELINE=OK / REFUSED / NOT_APPLIED`——被拒回 exit 2，但 smoke 失敗 passthrough 也可能是 2，勿只看 exit code）。壞了就 `npm install -g @openai/codex@<舊版>` 釘回去。
 
 ## §3.5 advice-gate 諮詢簡報範本
 
