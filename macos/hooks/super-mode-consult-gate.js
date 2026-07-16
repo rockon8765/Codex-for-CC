@@ -463,6 +463,7 @@ function isSecurityCriticalPath(canonFp, canonClaude) {
     p === c + "/settings.json" ||
     p === c + "/settings.local.json" ||
     p === c + "/.codex-check-last" ||
+    p === c + "/.codex-check-baseline" ||
     p.startsWith(c + "/hooks/")
   );
 }

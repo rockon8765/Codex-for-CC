@@ -49,8 +49,8 @@ SKILL.md 的 §2 / §3 / §3.5 / §5 的詳細範本與程序。用到才讀。
 1. **Codex CLI 可用** → 先確認有 20 分鐘內諮詢憑證（exec 受 gate 攔，沒憑證會被擋）。用 Write 工具把簡報寫進 scratchpad（gate 豁免路徑），用 Bash 工具跑 `scripts/codex-exec.sh -d <repo> -f <brief> -q`，**一律 `run_in_background: true`**（重任務常超過前景時限）。逐字稿存 `~/.claude/super-mode-logs/codex_exec_<ts>.txt`，最終回覆落地 `codex_exec_<ts>_last.txt`（`--output-last-message`，`-o` 可改位置；`-s <schema.json>` 可讓最終回覆符合固定 JSON schema、好機器驗收）。**收工後 Claude 只讀 `_last.txt` + `git diff` 審查**；逐字稿只在退回重做 / 除錯時抽段讀。
 2. **無 CLI** → 把簡報輸出給使用者，貼到 Codex 執行。
 
-### 派工前置 — 確認 Codex 最新版
-跑 `scripts/codex-check.sh`：比對 `codex --version` 與 `npm view @openai/codex version`、印出 UP-TO-DATE / OUTDATED 判定，並做 read-only smoke test。**24 小時內查過會直接回快取結果**（存 `~/.claude/.codex-check-last`；smoke 失敗會刪快取，壞掉的 codex 不會被舊快取報成 OK），`-f` 強制重查。落後就更新（**先問使用者**，更新 global 工具屬系統變更）：`npm install -g @openai/codex@latest`。壞了就 `npm install -g @openai/codex@<舊版>` 釘回去。
+### 派工前置 — 確認 Codex 版本與能力面
+跑 `scripts/codex-check.sh`：比對 `codex --version` 與 `npm view @openai/codex version`、印出 UP-TO-DATE / BEHIND / AHEAD / CURRENT / UNKNOWN 判定、做 read-only smoke test，並把能力面（外掛/MCP/features/hooks/依賴旗標）與 `~/.claude/.codex-check-baseline` 做機器 diff、漂移時醒目警示。**24 小時內查過會直接回快取結果**（存 `~/.claude/.codex-check-last`；smoke 失敗會刪快取，壞掉的 codex 不會被舊快取報成 OK；版本變更自動作廢），`-f` 強制重查。**BEHIND＝中性情報、不是更新指令**：新版可能造成參數/外掛/行為漂移，要不要更新由使用者決定（更新 global 工具屬系統變更，**先問使用者**）：`npm install -g @openai/codex@latest`。**更新後必重跑 `codex-check.sh -f`**、檢視漂移警示，確認符合預期再以 `--update-baseline` 接受（唯一更新途徑；等 smoke 通過才落檔，結果看輸出行 `UPDATE_BASELINE=OK / REFUSED / NOT_APPLIED`——被拒回 exit 2，但 smoke 失敗 passthrough 也可能是 2，勿只看 exit code）。壞了就 `npm install -g @openai/codex@<舊版>` 釘回去。
 
 ## §3.5 advice-gate 諮詢簡報範本
 
@@ -74,7 +74,7 @@ SKILL.md 的 §2 / §3 / §3.5 / §5 的詳細範本與程序。用到才讀。
 **硬性強制（consult-gate v2-mac）**：超級模式啟用時（`scripts/super-mode.sh on [--scope <專案根>]`），PreToolUse hook（`~/.claude/hooks/super-mode-consult-gate.js`）的規則：
 - **範圍**：帶 `--scope` 時只攔該路徑底下的**檔案工具 / shell**（檔案看 file_path、shell 看 cwd）；不帶則全域攔。**MCP 寫入類與外發內建工具沒有路徑可綁，無論 scope 一律受攔**（fail-closed）。
 - **攔截面**：Edit / Write / MultiEdit / NotebookEdit；**Bash**（唯讀白名單自動放行：git status/log/diff（含 `-C`/`--no-pager`）、ls / cat / rg / grep / `sed -n`、npm test / pytest / cargo test 等；命令替換 `$(...)`/反引號、背景 `&`、寫檔重導向一律不算唯讀；**其餘 default-deny**。唯讀 runner（pytest/npm test/node…）若指向暫存或 `~/.claude` 路徑仍要憑證——堵「先寫 conftest.py 到豁免區再 pytest 它」的繞過）；MCP 工具（寫入 / 外發字樣 create/update/delete/submit/send/click/type/trigger… 攔；**未知工具也 default-deny**，只有明確唯讀字樣或 benign 白名單放行）；外發 / 排程內建工具 RemoteTrigger / PushNotification / CronCreate / CronDelete。
-- **豁免**：scratchpad（`/private/tmp/claude-*` 與系統暫存，hook 已處理 `/tmp`↔`/private/tmp` 等價）與 `~/.claude` 底下的**檔案工具**寫入——但 `settings.json` / `settings.local.json` / `hooks/` / `.super-mode-*` 旗標憑證 / `.codex-check-last` 等安全關鍵檔**不豁免**（防自我提權），`conftest.py` / `pytest.ini` / `package.json` / `Makefile` / `*.sh` 等會被自動載入執行的檔名**也不豁免**；`codex-consult.sh` / `codex-check.sh` / `super-mode.sh` 腳本呼叫本身無條件放行（僅限錨定在指令開頭、後面沒串接 / 替換 / 破壞性字樣）。**注意：`codex-exec.sh`（workspace-write 執行者）不在無條件放行內，派工也要先有憑證。**
+- **豁免**：scratchpad（`/private/tmp/claude-*` 與系統暫存，hook 已處理 `/tmp`↔`/private/tmp` 等價）與 `~/.claude` 底下的**檔案工具**寫入——但 `settings.json` / `settings.local.json` / `hooks/` / `.super-mode-*` 旗標憑證 / `.codex-check-last` / `.codex-check-baseline` 等安全關鍵檔**不豁免**（防自我提權），`conftest.py` / `pytest.ini` / `package.json` / `Makefile` / `*.sh` 等會被自動載入執行的檔名**也不豁免**；`codex-consult.sh` / `codex-check.sh` / `super-mode.sh` 腳本呼叫本身無條件放行（僅限錨定在指令開頭、後面沒串接 / 替換 / 破壞性字樣）。**注意：`codex-exec.sh`（workspace-write 執行者）不在無條件放行內，派工也要先有憑證。**
 - **憑證**：`codex-consult.sh` 成功寫 `~/.claude/.super-mode-consult-ok`（JSON 含 `repo`＝諮詢綁定的專案，hook 比對後續動作路徑要落在該 repo 下；舊格式純時間戳只驗時間），有效 20 分鐘。**收尾動作（git commit / push / merge / rebase、publish、deploy、terraform apply、gh pr create/merge）放行後憑證降為只剩 3 分鐘**——同一條指令內 `git commit ... && git push` 不受影響，但下一個里程碑必須重新諮詢。
 - **防殘留**：旗標超過 8 小時視為上個 session 忘了關，hook 自動解除。**fail-open**：沒旗標或任何錯誤一律放行（一般模式不受影響）。退出時必跑 `super-mode.sh off`。
 

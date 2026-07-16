@@ -8,10 +8,55 @@ case "$1" in
     [ -n "${CODEX_STUB_VERSION_PREFIX:-}" ] && printf '%s\n' "$CODEX_STUB_VERSION_PREFIX"
     [ "$ver" = "NONE" ] || echo "codex-cli $ver"
     exit 0 ;;
-  plugin|mcp|features) exit 0 ;;
+  plugin)
+    # 能力面盤點 stub：CODEX_STUB_PLUGINS=a,b（值可帶 marketplace 限定詞 alpha@m1；SUT 保留完整識別）；
+    # CODEX_STUB_CAP_FAIL=<plugin|mcp|features> 令該段 exit 1（查詢失敗）；
+    # CODEX_STUB_LIST_STDERR=1 模擬升級後子命令印 stderr 噪音（SUT 須丟棄、不得炸成 FAILED）；
+    # CODEX_STUB_LIST_BOILERPLATE=1 鏡像真 codex 0.144.3 乾淨機器零項訊息（EMPTY、非 UNPARSEABLE）；
+    # CODEX_STUB_PLUGINS_GARBAGE=1 單一空白分隔=SUT 的 2+ 空白切不出兩欄 → 解析 0 筆但有輸出（UNPARSEABLE）。
+    [ -n "${CODEX_STUB_LIST_STDERR:-}" ] && echo "plugin list stderr noise" >&2
+    [ "${CODEX_STUB_CAP_FAIL:-}" = "plugin" ] && exit 1
+    if [ -n "${CODEX_STUB_LIST_BOILERPLATE:-}" ]; then echo "No marketplace plugins found."; exit 0; fi
+    if [ -n "${CODEX_STUB_PLUGINS_GARBAGE:-}" ]; then echo "weird new plugin format v2"; exit 0; fi
+    [ -n "${CODEX_STUB_PLUGINS:-}" ] || exit 0
+    printf '%s\n' "$CODEX_STUB_PLUGINS" | tr ',' '\n' | while IFS= read -r p; do
+      printf '%s    enabled\n' "$p"
+    done
+    exit 0 ;;
+  mcp)
+    # CODEX_STUB_MCP=srv:enabled,srv2:disabled（state 給非 enabled/disabled 字樣 → SUT 判 '?'）
+    [ -n "${CODEX_STUB_LIST_STDERR:-}" ] && echo "mcp list stderr noise" >&2
+    [ "${CODEX_STUB_CAP_FAIL:-}" = "mcp" ] && exit 1
+    if [ -n "${CODEX_STUB_LIST_BOILERPLATE:-}" ]; then echo "No MCP servers configured yet. Try codex mcp add my-tool."; exit 0; fi
+    [ -n "${CODEX_STUB_MCP:-}" ] || exit 0
+    printf '%s\n' "$CODEX_STUB_MCP" | tr ',' '\n' | while IFS= read -r m; do
+      printf '%s    %s\n' "${m%%:*}" "${m#*:}"
+    done
+    exit 0 ;;
+  features)
+    # CODEX_STUB_FEATURES=f1:true,f2:false（列格式 name  stage  state，鏡像真 codex）
+    [ -n "${CODEX_STUB_LIST_STDERR:-}" ] && echo "features list stderr noise" >&2
+    [ "${CODEX_STUB_CAP_FAIL:-}" = "features" ] && exit 1
+    [ -n "${CODEX_STUB_FEATURES:-}" ] || exit 0
+    printf '%s\n' "$CODEX_STUB_FEATURES" | tr ',' '\n' | while IFS= read -r f; do
+      printf '%s    stable    %s\n' "${f%%:*}" "${f#*:}"
+    done
+    exit 0 ;;
   exec)
     if [ "${2:-}" = "--help" ]; then
+      # 預設 help 含 skill 依賴旗標（鏡像真 codex）；CODEX_STUB_HELP_DROP_FLAG=<flag> 讓單一旗標消失；
+      # CODEX_STUB_HELP_NEARFLAG=1 以近似旗標 --sandbox-policy 取代 --sandbox（測旗標邊界比對不得誤中）；
+      # CODEX_STUB_HELP_STDERR=1 在 help 印一行 stderr（SUT 以 2>&1 合流、不得整段 FAILED）。
+      [ -n "${CODEX_STUB_HELP_STDERR:-}" ] && echo "exec help stderr noise" >&2
       echo "Usage: codex exec [OPTIONS] [PROMPT]"
+      if [ -n "${CODEX_STUB_HELP_NEARFLAG:-}" ]; then
+        echo "      --sandbox-policy <MODE>  near flag decoy"
+      elif [ "${CODEX_STUB_HELP_DROP_FLAG:-}" != "--sandbox" ]; then
+        echo "      --sandbox <MODE>  sandbox policy"
+      fi
+      [ "${CODEX_STUB_HELP_DROP_FLAG:-}" != "--ephemeral" ] && echo "      --ephemeral  run without persistent session state"
+      [ "${CODEX_STUB_HELP_DROP_FLAG:-}" != "--output-schema" ] && echo "      --output-schema <FILE>  JSON schema for final message"
+      [ "${CODEX_STUB_HELP_DROP_FLAG:-}" != "--skip-git-repo-check" ] && echo "      --skip-git-repo-check  do not error when outside a git repo"
       [ "$supports" = "1" ] && echo "  -o, --output-last-message <FILE>  Write last agent message to file"
       if [ -n "${CODEX_STUB_HELP_PAD:-}" ]; then exec awk -v n="$CODEX_STUB_HELP_PAD" 'BEGIN{ s="xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"; while (length(out) < n) out = out s "\n"; printf "%s", out }'; fi
       exit 0
@@ -32,10 +77,14 @@ case "$1" in
       printf '%s\n' "$CODEX_STUB_LASTMSG" > "$lastmsg_file"
     fi
     case "${CODEX_STUB_MODE:-ok}" in
-      ok)        printf 'user\nReply with exactly: CODEX_OK\ncodex\nCODEX_OK\ntokens used\n123\n' ;;
-      ansi)      printf 'user\nReply with exactly: CODEX_OK\n\033[1;32mcodex\033[0m\n\033[32mCODEX_OK\033[0m\ntokens used\n123\n' ;;
-      echo-only) printf 'user\nReply with exactly: CODEX_OK\ntokens used\n123\n' ;;
+      ok)          printf 'user\nReply with exactly: CODEX_OK\ncodex\nCODEX_OK\ntokens used\n123\n' ;;
+      ansi)        printf 'user\nReply with exactly: CODEX_OK\n\033[1;32mcodex\033[0m\n\033[32mCODEX_OK\033[0m\ntokens used\n123\n' ;;
+      echo-only)   printf 'user\nReply with exactly: CODEX_OK\ntokens used\n123\n' ;;
+      two-markers) printf 'user\nReply with exactly: CODEX_OK\ncodex\nCODEX_OK\ncodex\nsome trailing banner\n' ;;
     esac
+    # CODEX_STUB_EXEC_STDERR=1：transcript 之「後」才印唯一 stderr token——SUT 有內層 2>&1 時 token 會
+    # 跟著 transcript 依序 replay；拿掉合流則 token 先漏到外層、順序反轉（測試臺以順序斷言釘死佈線）。
+    [ -n "${CODEX_STUB_EXEC_STDERR:-}" ] && echo "SMOKE_STDERR_TOKEN" >&2
     exit 0 ;;
   *) exit 0 ;;
 esac

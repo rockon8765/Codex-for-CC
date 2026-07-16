@@ -1,5 +1,21 @@
 # Handoff：能力面 baseline diff 移植（macOS / Linux）
 
+> **執行紀錄（2026-07-16，macOS）**：macOS 版已完成移植——`macos/.../scripts/codex-check.sh`（`-u/--update-baseline`）、
+> 19 個 `t_b_*` 案全數鏡像（合成測試臺 47 案 118 斷言全綠，t_b_no_drift 內加測 BOM+CRLF 容忍）、
+> `t_h4_newformat_cache_hit` 補 2 斷言、hook `.codex-check-baseline` 入安全關鍵檔（gate 98/98）、
+> SKILL/orchestration/README 同步。macOS 專屬修補（Workflow 三鏡頭對抗審查 3 發現/2 confirmed 全修
+> ＋Codex 反方檢核一輪 4 項採納）：
+> ① 大 help／大 reply（>64KB）下 `printf | grep -q` 的 SIGPIPE 在 pipefail 之下誤判比對結果——help 探測、
+> 旗標邊界比對、legacy sentinel 三處全改 case substring／`grep -c`（PS 無此失敗模式）；② legacy sentinel
+> 取「第一個 codex marker 之後」與 PS `parts[-1]`（最後一個）語義分歧——改鏡像 PS、`t_fake_pass_rejected`
+> 補雙 marker 斷言；③ diff 引擎（comm）失敗不得靜默成「無漂移」——顯式驗 rc、失敗歸 UNKNOWN 段；
+> ④ 集合一律 `LC_ALL=C sort -u`（set 語義去重，堵重複項造成的 multiset 假漂移＋C collation 固定）；
+> ⑤ features items 改由 raw true 列收集（any-true membership，鏡像 PS；重複列時兩平台 baseline 才一致）；
+> ⑥ 補 `t_smoke_stderr_noise_no_crash` POSIX 版——以「stderr token 必須出現在 transcript 後」的順序斷言
+> 釘死 smoke 內層 `2>&1` 佈線（mutation 驗證：拿掉合流即轉紅）。
+> refuted 1 條（mcp state 整行掃描怪癖＝與 Windows 同行為，屬跨平台既存項、另案處理）。
+> **Linux 版仍未移植**（連 0.143 的能力面盤點段都未移植），以下規格對 linux 移植仍然有效。
+
 **狀態**：Windows 已實作；合成測試臺全綠（codex-check 47 案＋gate-cases 90/90，數字以 repo 測試檔為準），
 並經 Workflow 三鏡頭對抗審查（17 發現/14 confirmed 全數修復或裁決）＋一次真 codex live `-Force` E2E。
 **Windows 原生 7 項 promote gate 已跑、全綠（2026-07-16，於 2737c4e）**，照
