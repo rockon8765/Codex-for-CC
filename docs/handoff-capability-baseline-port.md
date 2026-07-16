@@ -2,8 +2,16 @@
 
 **狀態**：Windows 已實作；合成測試臺全綠（codex-check 47 案＋gate-cases 90/90，數字以 repo 測試檔為準），
 並經 Workflow 三鏡頭對抗審查（17 發現/14 confirmed 全數修復或裁決）＋一次真 codex live `-Force` E2E。
-**Windows 原生 7 項 promote gate 尚未跑**（分支名 `-windows-pending-native`；promote 前須照
-`handoff-codex-check-windows-native-gate.md` 慣例補跑）。mac/linux 的 `codex-check.sh` **尚未**移植本功能——
+**Windows 原生 7 項 promote gate 已跑、全綠（2026-07-16，於 2737c4e）**，照
+`handoff-codex-check-windows-native-gate.md` 慣例逐項執行：
+① PS 5.1 parse（engine 5.1.26100.8875）兩檔 0 error；② BOM 兩檔 EF BB BF；③ 合成測試臺 47 案
+TOTAL 188 FAIL 0（本 session 共三輪全綠）；④ 跑畢 Get-Job 殘留 0、ping.exe 孤兒 0；⑤ 真 codex live
+`-Force` ×2 exit 0（精確 sentinel；快取行 `format=2 installed=0.144.3 latest=0.144.5 verdict=BEHIND(中性
+措辭) smoke=OK at 2026-07-16T17:16:53+0800`，InvariantCulture 時戳；12 外掛 name@marketplace 全數正常
+解析）；⑥ live 無參數重跑＝盤點與 NO_BASELINE 照印於命中前→「0h 前查過，跳過」→exit 0；⑦ 對 main
+的 verdict/訊息字串 diff 僅刻意的 BEHIND 中性化一處（UP-TO-DATE/AHEAD/CURRENT/UNKNOWN 零改動），對
+bash 版的 BEHIND 語義分歧屬已文件化的 Windows 領先項。
+**promote（merge main→push→live 部署）待使用者同意後執行。**mac/linux 的 `codex-check.sh` **尚未**移植本功能——
 在移植完成前，三平台 codex-check 不宣稱語義等價（Windows 領先：能力面 baseline diff、四態盤點、
 快取版本鍵、依賴旗標探測）。
 
