@@ -55,7 +55,10 @@ git fetch origin feat/opus5-alignment-builtin-gate-pending-native
 git worktree add --detach /tmp/opus5-verify <FINAL_HANDOFF_SHA>
 cd /tmp/opus5-verify
 git rev-parse HEAD          # 必須等於 <FINAL_HANDOFF_SHA>
-git rev-parse HEAD^         # 必須等於 b103184757b2e320f60a3bef742183fca5c16053（Mac 端 baseline 移植那個 commit）
+
+# 確認這棵樹確實建立在你先前推的 macOS baseline 移植 commit 之上（不依賴 commit 數量）
+git merge-base --is-ancestor b103184757b2e320f60a3bef742183fca5c16053 HEAD \
+  && echo "rebased on b103184 OK" || echo "FAIL: 不在 b103184 之上"
 ```
 
 用 `--detach` + 完整 SHA 是刻意的：分支名可能被後續 push 移動，detached 才能釘死「驗的就是要 merge 的 bytes」。
@@ -137,7 +140,7 @@ bash run-e2e.sh            # 若這支存在；stdin 端到端
 
 把**原始輸出**貼回來（不要只寫「全過」）：
 
-1. `git rev-parse HEAD` 與 `HEAD^` 的值
+1. `git rev-parse HEAD` 的值，以及 `rebased on b103184 OK` 那行
 2. 6 筆 blob 的實際輸出
 3. `platform=darwin OK, tmpdir=…` 那行
 4. `node run-gate-tests.js` 的最後一行（含數字）
