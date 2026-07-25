@@ -106,7 +106,7 @@ windows/                         # PowerShell 版（已稽核、已部署）
   skills/超級模式/
     SKILL.md  FIX-PLAN.md  references/orchestration.md  references/review-output.schema.json
     scripts/  super-mode.ps1  codex-consult.ps1  codex-exec.ps1  codex-check.ps1
-    tests/    run-gate-tests.js  run-gate-tests.ps1  gate-cases.json
+    tests/    run-gate-tests.js  run-gate-tests.ps1  matcher-contract.test.js  gate-cases.json
 
 macos/                           # bash 版（自 Windows 設計移植、未原生驗證，見上方狀態矩陣）
   settings.snippet.json
@@ -115,7 +115,7 @@ macos/                           # bash 版（自 Windows 設計移植、未原�
   skills/超級模式/
     SKILL.md  FIX-PLAN.md  references/orchestration.md  references/review-output.schema.json
     scripts/  super-mode.sh  codex-consult.sh  codex-exec.sh  codex-check.sh
-    tests/    run-gate-tests.js  run-e2e.sh  gate-cases.json
+    tests/    run-gate-tests.js  run-e2e.sh  matcher-contract.test.js  gate-cases.json
 
 linux/                           # bash 版（自 macOS 機械式移植、GNU userland）
   settings.snippet.json
@@ -124,7 +124,7 @@ linux/                           # bash 版（自 macOS 機械式移植、GNU us
   skills/超級模式/
     SKILL.md  FIX-PLAN.md  references/orchestration.md  references/review-output.schema.json
     scripts/  super-mode.sh  codex-consult.sh  codex-exec.sh  codex-check.sh
-    tests/    run-gate-tests.js  run-e2e.sh  gate-cases.json
+    tests/    run-gate-tests.js  run-e2e.sh  matcher-contract.test.js  gate-cases.json
 ```
 
 ## 運作方式（一個里程碑）

@@ -307,7 +307,9 @@
   {"name":"N5 regression: benign-name + write action (read_widget_update) denies","flagContent":"","tokenAgeMs":60000,"input":{"tool_name":"mcp__x__read_widget_update","tool_input":{}},"expect":"deny"},
 
   {"name":"T5 builtin: Artifact without token denies (發佈=外發)","flagContent":"","tokenAgeMs":null,"input":{"tool_name":"Artifact","tool_input":{"file_path":"/p/page.html"}},"expect":"deny"},
-  {"name":"T5 builtin: Artifact with fresh token allows","flagContent":"","tokenAgeMs":60000,"tokenContent":"{\"repo\":\"/home/user/proj\",\"ts\":\"x\"}","input":{"tool_name":"Artifact","tool_input":{"file_path":"/p/page.html"}},"expect":"allow"},
+  {"name":"T5 builtin: Artifact 有新憑證 allows 且**消耗憑證**（publish 語義，比照 git push）","flagContent":"","tokenAgeMs":60000,"tokenContent":"{\"repo\":\"/home/user/proj\",\"ts\":\"x\"}","input":{"tool_name":"Artifact","tool_input":{"file_path":"/home/user/proj/page.html"}},"expect":"allow","expectTokenDemoted":true},
+  {"name":"T5 builtin: ScheduleWakeup 有新憑證 allows 但**不消耗**憑證（排程≈Cron*）","flagContent":"","tokenAgeMs":60000,"tokenContent":"{\"repo\":\"/home/user/proj\",\"ts\":\"x\"}","input":{"tool_name":"ScheduleWakeup","tool_input":{"delaySeconds":600}},"expect":"allow","expectTokenDemoted":false},
+  {"name":"T5 builtin: pathless 語義——repo A 的憑證會放行 repo 外的 Artifact（刻意取捨，非漏洞）","flagContent":"","tokenAgeMs":60000,"tokenContent":"{\"repo\":\"/home/user/proj\",\"ts\":\"x\"}","input":{"tool_name":"Artifact","tool_input":{"file_path":"/elsewhere/page.html"}},"expect":"allow"},
   {"name":"T5 builtin: ScheduleWakeup without token denies","flagContent":"","tokenAgeMs":null,"input":{"tool_name":"ScheduleWakeup","tool_input":{"delaySeconds":600}},"expect":"deny"},
   {"name":"T5 builtin: EnterWorktree without token denies","flagContent":"","tokenAgeMs":null,"input":{"tool_name":"EnterWorktree","tool_input":{"name":"wt1"}},"expect":"deny"},
   {"name":"T5 builtin: ExitWorktree without token denies","flagContent":"","tokenAgeMs":null,"input":{"tool_name":"ExitWorktree","tool_input":{"action":"remove"}},"expect":"deny"},

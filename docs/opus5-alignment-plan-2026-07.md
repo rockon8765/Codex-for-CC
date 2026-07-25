@@ -263,8 +263,40 @@ WSL/UNC 註記）。
 裝到 live 會直接找不到檔而失效。已加 fallback：repo snippet → `~/.claude/settings.json` →
 `settings.local.json`，並優先挑「真的註冊了本 hook」的那一份。四份副本（三平台 + live）md5 一致。
 
+## 7.2 第二輪：macOS 原生驗證 + Codex BLOCK 後的修補（2026-07-26）
+
+**macOS 原生驗證 PASS**（Mac 端執行，我核對其原始輸出）：HEAD `16737a8`、`merge-base --is-ancestor b103184` OK、
+6 筆 blob 逐字相符、`platform=darwin`（node v26.4.0 原生）、gate-cases **114/114**、matcher-contract exit 0、
+並自行解析確認載入的 hook 在 worktree 內。未碰 `~/.claude`、未 push。
+
+**Codex 諮詢裁決 BLOCK**（逐字稿 `codex_consult_20260726_012606_46069e.txt`），四項發現我全部親自查證屬實並採納：
+
+| # | 發現 | 處置 |
+|---|---|---|
+| A2 | `MUTATING_BUILTIN` 分支只設 `gated`，**`Artifact`（publish）不會把憑證降到 3 分鐘**，與 SKILL 明文承諾不一致；且無 `actionPath` | 新增 `CONSUMING_BUILTIN = new Set(["Artifact"])`；`ScheduleWakeup`≈Cron*、`Enter·ExitWorktree`≈rm 維持不消耗 |
+| A2b | 我的測試把「repo A 憑證放行 repo 外 Artifact」**當成期望行為釘死** | 採 pathless 語義（與 MCP pathless-allow 一致）並**明文寫進 hook 註解與 orchestration.md**；測試改名讓語義自我說明 |
+| B | 我提的 `run-e2e.sh` 修法**錯了**：`../../../hooks` 已同時涵蓋 repo 與部署佈局，我還想加回 `../hooks`（兩種佈局都不存在，且會再引入 shadow hook 風險） | 只留 `../../../hooks`，找不到直接 FAIL、不 fallback 到 `$HOME`；輸出 `GATE_UNDER_TEST` + `GATE_BLOB`；另留 `SUPER_MODE_GATE_OVERRIDE` 明示逃生門 |
+| — | **`AI-INSTALL.md` 的安裝驗證沒跑 matcher-contract** —— 使用者漏合併 matcher 時，兩支直接呼叫 `decide()` 的測試照樣全綠，但 hook 根本不會被叫起（假綠） | AI-INSTALL 的**安裝前**與**安裝後**驗證、README 安裝段全部加入，並加註它是步驟 2 的驗收而非可選項 |
+
+**`run-e2e.sh` 既有 bug 的影響範圍**：該腳本自引入起就是 `$HOME/.claude` 優先 →
+**過去任何在裝過 skill 的機器上、從 repo checkout 跑出的「e2e 全綠」，驗的都是安裝版而非待驗證 bytes**。
+`run-gate-tests.js` 於 `c58e411`(2026-07-07) 後已是 repo-first，故 gate-cases 的歷史宣稱不受此影響。
+
+**驗證（第二輪）**
+- gate-cases：Windows **108/108**、macOS **116/116**、Linux **116/116**（各 +2 案）。
+- 新增 `expectTokenDemoted` 測試欄位；**變異測試**確認非空：反轉期望值後正確 FAIL（`age=1020s` ＝ 恰好 20−3 分鐘，證明 `demoteToken()` 真的執行）。
+- `run-e2e.sh` 修補後在 Git Bash 實跑：`GATE_UNDER_TEST` 指向 repo 內 hook、`GATE_BLOB` 與 `git hash-object` 逐字相符。
+  該環境下 4 筆 posix 路徑案 FAIL —— 以 `SUPER_MODE_GATE_OVERRIDE` 拿**改動前**的 hook 跑同一腳本，
+  **失敗項完全相同**，證實是 win32 node 跑 linux hook 的既有平台不匹配，非本次 regression。
+- Windows live 已重新部署（備份 `bak-20260726-015137`，6 檔 SHA 全符，live 108/108 + matcher-contract + 8.3 全綠）。
+
 **尚未做（需批准）**
-1. promote 進 main：Windows 為原生驗證；mac/linux 僅在 Windows 上以 node 跑過邏輯回歸，**未經真機驗證**。
+1. **Mac 最小補驗**：核對新 final HEAD、證明 `16737a8..final` 只動預期檔、原 6 筆 blob 未變、
+   `bash -n run-e2e.sh`、從 worktree 跑修補後的 e2e 並確認 `GATE_UNDER_TEST` 指向 worktree。
+   **hook 已變更（A2 修補）→ 必須重跑 116/116**，不能只沿用上一輪的 114/114。
+2. **Linux 原生驗證**：Codex 明確反駁「linux 與 mac 同類」——Linux 的 case-preserving 正是要真機驗的差異，
+   且本次 linux delta 目前只有 Windows-hosted node 背書（C2/C3 那次至少跑過 Debian 容器）。
+3. promote 進 main（三平台一次到位；不做拆平台 promote，以免三平台鏡像變成刻意漂移）。
 
 ## 8. 風險與未決
 

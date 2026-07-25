@@ -86,6 +86,23 @@ for (const tc of cases) {
         });
       }
     }
+
+    // 憑證消耗檢查：收尾/發佈動作放行後 demoteToken() 會把 token mtime 推到「只剩 GRACE_MS(3 分鐘)」，
+    // 即 age ≈ 17 分鐘。用 15 分鐘當門檻分辨「有無被消耗」。
+    if (tc.expectTokenDemoted !== undefined && got === tc.expect) {
+      const tokenPath = path.join(fakeBaseDir, ".super-mode-consult-ok");
+      let ageMs = null;
+      try { ageMs = Date.now() - fs.statSync(tokenPath).mtimeMs; } catch (e) {}
+      const demoted = ageMs !== null && ageMs > 15 * 60 * 1000;
+      if (demoted !== Boolean(tc.expectTokenDemoted)) {
+        failures.push({
+          name: tc.name,
+          expect: "tokenDemoted=" + Boolean(tc.expectTokenDemoted),
+          got: "tokenDemoted=" + demoted + (ageMs === null ? " (無憑證檔)" : " (age=" + Math.round(ageMs / 1000) + "s)"),
+          reason: "憑證消耗狀態不符"
+        });
+      }
+    }
   } catch (e) {
     failures.push({ name: tc.name, expect: tc.expect, got: "error", reason: e.stack || String(e) });
   } finally {

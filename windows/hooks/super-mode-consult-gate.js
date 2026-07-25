@@ -48,6 +48,10 @@ const MUTATING_BUILTIN = [
   "EnterWorktree", // 建 git worktree（寫檔）
   "ExitWorktree", // 可移除 worktree（刪檔）
 ];
+// 具「發佈/收尾」語義的 builtin：放行後**消耗憑證**（降到 3 分鐘），與 CONSUMING 的 shell 指令
+// （git push / npm publish / deploy）等價 —— SKILL §3.5 對 publish 的承諾必須在這裡兌現。
+// 排程（ScheduleWakeup ≈ Cron*）與 worktree 進出（≈ rm：破壞性但不是收尾）**不**消耗憑證。
+const CONSUMING_BUILTIN = new Set(["Artifact"]);
 
 // 只有唯讀的諮詢/查版/開關腳本可無條件放行（否則死鎖）。codex-exec 是 workspace-write
 // 執行者，故意排除 → 派工也要先有憑證（落到 decide 的 default-deny）。錨定在指令開頭、
@@ -280,8 +284,13 @@ function decide(input, testOpts) {
       category = "非唯讀指令";
     }
   } else if (MUTATING_BUILTIN.includes(tool)) {
+    // **pathless（刻意）**：這些工具沒有可靠的路徑可綁 repo —— Artifact 的 file_path 常在 scratchpad、
+    // ScheduleWakeup 根本沒有路徑。故 actionPath 留空 = 憑證只做**時間綁定、不做 repo 綁定**，
+    // 與 MCP 的 pathless-allow 同一套語義。別誤以為 repo A 的憑證擋得住 repo B 的 Artifact——擋不住，
+    // 這是取捨不是漏洞；要 repo 綁定得先有可信路徑欄位。
     gated = true;
-    category = "外發/排程內建工具";
+    consuming = CONSUMING_BUILTIN.has(tool);
+    category = consuming ? "外發內建工具(發佈，會消耗憑證)" : "外發/排程內建工具";
   } else if (tool.startsWith("mcp__")) {
     // 唯讀/良性 MCP 維持放行；寫入、已知副作用(N5)、未知工具必須走 repo-bound policy。
     const mcpIsWrite = MCP_WRITE_RE.test(tool);

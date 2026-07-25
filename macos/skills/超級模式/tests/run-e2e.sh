@@ -3,8 +3,18 @@
 # allow = exit 0 且無輸出；deny = exit 2 且 stderr 含「超級模式」。
 # 假 repo 路徑刻意不放 /tmp 或 $TMPDIR（會落入暫存豁免而測不到 gating）。
 set -uo pipefail
-GATE="$HOME/.claude/hooks/super-mode-consult-gate.js"
-[ -f "$GATE" ] || GATE="$(cd "$(dirname "$0")/.." && pwd)/hooks/super-mode-consult-gate.js"
+# SUT 解析：tests/../../../hooks 同時涵蓋 repo 佈局(<平台>/hooks) 與部署佈局(~/.claude/hooks)，
+# 一個「同樹」候選就夠。**刻意不 fallback 到 $HOME/.claude** —— 在裝過 skill 的機器上，那會讓本腳本
+# 驗到安裝版而非待驗證的 bytes（假綠：舊版全過、你以為驗的是新版）。找不到就 FAIL，不靜默改驗別份。
+GATE="${SUPER_MODE_GATE_OVERRIDE:-$(cd "$(dirname "$0")/../../.." && pwd)/hooks/super-mode-consult-gate.js}"
+if [ ! -f "$GATE" ]; then
+  echo "FAIL: 找不到待測 hook: $GATE" >&2
+  echo "      需要時可設 SUPER_MODE_GATE_OVERRIDE=<hook 絕對路徑> 明示覆寫。" >&2
+  exit 1
+fi
+# 讓輸出自帶 SUT 身分，事後可核對「驗的就是要 merge 的 bytes」
+echo "GATE_UNDER_TEST=$GATE"
+command -v git >/dev/null 2>&1 && echo "GATE_BLOB=$(git hash-object "$GATE" 2>/dev/null || echo unknown)"
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 mkdir -p "$TMP/.claude"
 FLAG="$TMP/.claude/.super-mode-active"

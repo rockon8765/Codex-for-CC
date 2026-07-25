@@ -19,11 +19,13 @@
 
 macOS / Linux（Linux 把 `macos/` 換成 `linux/`）:
 ```bash
-node "macos/skills/超級模式/tests/run-gate-tests.js"   # 這裡就 FAIL → repo 版本本身有問題，別安裝，回報使用者
+node "macos/skills/超級模式/tests/run-gate-tests.js"        # 這裡就 FAIL → repo 版本本身有問題，別安裝，回報使用者
+node "macos/skills/超級模式/tests/matcher-contract.test.js" # hook 的工具清單 vs settings matcher 是否一致
 ```
 Windows:
 ```powershell
-node ".\windows\skills\超級模式\tests\run-gate-tests.js"   # 這裡就 FAIL → 別安裝
+node ".\windows\skills\超級模式\tests\run-gate-tests.js"        # 這裡就 FAIL → 別安裝
+node ".\windows\skills\超級模式\tests\matcher-contract.test.js" # hook 的工具清單 vs settings matcher 是否一致
 ```
 
 **1b. 備份既有 live（若存在）——記住印出的時間戳 `ts`，回滾要用**
@@ -71,14 +73,21 @@ hook 在啟用前是 fail-open 且停用的——安裝它不影響一般 sessio
 
 **macOS / Linux**
 ```bash
-node ~/.claude/skills/超級模式/tests/run-gate-tests.js   # 應全數 PASS
-bash ~/.claude/skills/超級模式/tests/run-e2e.sh          # 應全數 passed
+node ~/.claude/skills/超級模式/tests/run-gate-tests.js        # 應全數 PASS
+node ~/.claude/skills/超級模式/tests/matcher-contract.test.js # ★ 必跑，見下方說明
+bash ~/.claude/skills/超級模式/tests/run-e2e.sh               # 應全數 passed（會印 GATE_UNDER_TEST 供核對）
 ```
 
 **Windows**
 ```powershell
-node "$env:USERPROFILE\.claude\skills\超級模式\tests\run-gate-tests.js"   # 應全數 PASS
+node "$env:USERPROFILE\.claude\skills\超級模式\tests\run-gate-tests.js"        # 應全數 PASS
+node "$env:USERPROFILE\.claude\skills\超級模式\tests\matcher-contract.test.js" # ★ 必跑，見下方說明
 ```
+
+> ★ **`matcher-contract` 是步驟 2 的驗收，不是可選項。** 另外兩支測試都是**直接呼叫** `decide()`，
+> 就算你把 `matcher` 合併錯或漏合併，它們照樣全綠 —— 但真實情況是 hook **根本不會被叫起**，
+> 新工具完全不受攔（假綠）。這支測試專門比對 hook 的工具清單與你剛合併進 settings 的 `matcher`，
+> 是唯一能抓到「裝了 hook 但沒接上」的關卡。FAIL 就回去檢查步驟 2 的合併結果。
 
 **任何 FAIL → 先回滾、再回報使用者、停止**（不要留一個壞掉的 live hook）：
 
