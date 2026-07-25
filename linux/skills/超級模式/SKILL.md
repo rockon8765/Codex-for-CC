@@ -23,6 +23,8 @@ description: 重型工程協作工作流的「明確開關」——spec-first �
 - 又大又要嚴謹 → 兩個都開（見 §5：子代理只做唯讀分析、只有主線能派 Codex）。
 - 小事 / 問答 → 兩個都別開。
 
+> **成本註記**：UltraCode 相對「不開」仍然更花 Claude（子代理都是 Claude），這點不變。但**單價隨 session 模型而定**、不同模型可能差一倍以上——換模型時別假設「新的＝更貴」，要查當時的牌價再判斷。
+
 ## 1. Spec-first — 沒有 spec 不准寫實作
 1. 先找現有 spec：`docs/**/specs/*.md`、`*-design.md`、`*-plan.md`，找到就當真相來源。
 2. 沒有就用 `planner` / brainstorm 產一份：目標與非目標、任務拆解（可獨立交付步驟 + 依賴 DAG）、每步驗收條件、風險與未決。
@@ -48,7 +50,7 @@ description: 重型工程協作工作流的「明確開關」——spec-first �
 - **不可逆動作前一律先問**；不確定是不是不可逆 → 先問。諮詢回覆以首行裁決（格式 ^(ALLOW|BLOCK): 開頭）；BLOCK 就不做並回報使用者；首行不合格式 → 視為 BLOCK，重問一次取得合法首行後才可執行。
 - 諮詢簡報一次**批次列出本里程碑所有待決問題**（方案取捨、風險、審查重點），Codex 一次回答。簡報（現況數據＋候選方案＋你的初判，請它挑戰你的假設）**用 Write 工具寫進 scratchpad**（gate 豁免路徑；**別用 shell 寫**——shell 寫檔不在豁免內會被擋成繞圈），再用 Bash 工具跑 `scripts/codex-consult.sh -d <repo> -f <brief>`（timeout 360000ms）。
 - **Claude 擁有最終決定權**：對照、調和、必要時反駁，再決定；有分歧向使用者說明。諮詢逐字稿自動存 `~/.claude/super-mode-logs/`。
-- **硬性強制**：consult-gate hook（`~/.claude/hooks/super-mode-consult-gate.js`，經 `settings.local.json` 註冊）在超級模式啟用時攔 Edit / Write / MultiEdit / NotebookEdit / **Bash** / MCP 寫入類 / 外發內建工具（RemoteTrigger / PushNotification / Cron*）。唯讀白名單（git status/diff、ls、cat、rg、測試 / lint）自動放行，**其餘一律 default-deny** 要 20 分鐘內諮詢憑證；未知 MCP 工具也 default-deny；`codex-exec.sh` 派工同樣要憑證（只有唯讀的 codex-consult / codex-check 與 super-mode 開關無條件放行）。commit / push / merge / publish / deploy 放行後憑證**降為只剩 3 分鐘**（同一條指令內 commit+push 不受影響），逼下一個里程碑重新諮詢。scratchpad 與 `~/.claude`（除 settings / hooks / 旗標憑證等安全關鍵檔，及 `conftest.py`、`package.json`、`*.sh` 等會被自動執行的檔名）寫入豁免；旗標超過 8 小時自動視為殘留解除。詳見 `references/orchestration.md`。
+- **硬性強制**：consult-gate hook（`~/.claude/hooks/super-mode-consult-gate.js`，經 `settings.local.json` 註冊）在超級模式啟用時攔 Edit / Write / MultiEdit / NotebookEdit / **Bash / Monitor** / MCP 寫入類 / 外發·排程·worktree 內建工具（RemoteTrigger / PushNotification / Cron* / Artifact / ScheduleWakeup / Enter·ExitWorktree）。**`Monitor` 有 command 就走 Bash 那套唯讀分類器；純 WebSocket（沒有 command）一律要憑證**。唯讀白名單（git status/diff、ls、cat、rg、測試 / lint）自動放行，**其餘一律 default-deny** 要 20 分鐘內諮詢憑證；未知 MCP 工具也 default-deny；`codex-exec.sh` 派工同樣要憑證（只有唯讀的 codex-consult / codex-check 與 super-mode 開關無條件放行）。commit / push / merge / publish / deploy 放行後憑證**降為只剩 3 分鐘**（同一條指令內 commit+push 不受影響），逼下一個里程碑重新諮詢。scratchpad 與 `~/.claude`（除 settings / hooks / 旗標憑證等安全關鍵檔，及 `conftest.py`、`package.json`、`*.sh` 等會被自動執行的檔名）寫入豁免；旗標超過 8 小時自動視為殘留解除。詳見 `references/orchestration.md`。
 - **非超級模式的日常討論**：走全域常駐規則（`~/.claude/CLAUDE.md`「Codex 討論夥伴」）——決策型輸出交付前先用 `codex-consult.sh -d <repo> -n -f <brief>` 與 Codex 討論（`-n/--no-credential`：不 mint 憑證，日常討論不會替並行的超級模式 session 解鎖動作）。超級模式啟用時以本節節奏優先、照常 mint 憑證，勿雙重諮詢。
 
 ## 4. 里程碑回寫 md
@@ -58,6 +60,12 @@ description: 重型工程協作工作流的「明確開關」——spec-first �
 ultracode 開啟時：理解 / 設計 / 審查階段用 Workflow 多代理（唯讀分析），派工仍走 `codex exec`。對照分工見 `references/orchestration.md`。
 **鐵則：每步只有一個 worker pool 寫檔**（預設 Codex 寫程式、Claude 的 Workflow agents 只做不寫檔的研究 / 規劃 / 審查；要平行跑多個 `codex exec` 須各自在 worktree 隔離）。
 **鐵則：Workflow / subagent 一律禁止呼叫 `codex-consult.sh` / `codex-exec.sh`。** consult-gate 也會在子代理內觸發；子代理被擋時**把被擋的動作與理由回報 orchestrator（主 Claude）**，由主線統一諮詢與派工——否則 N 個平行子代理各自諮詢會燒 Codex 額度、且任一子代理的諮詢會 mint 全機憑證、commit 會降級全體憑證。審查階段子代理若要跑 build / verify（如 `npm run build`），交給主線在有憑證時跑。
+> 新一代模型（Opus 5 起）比前代**更傾向主動派子代理**。fan-out 只用在**真正獨立**的工作分支（多檔平行調查、彼此無依賴的研究線）；能在主線幾個工具呼叫內做完的事別外包——N 個平行子代理各自撞 gate、各自回報，只會拖慢主線。
+
+**模型與 effort（本機姿態：靜默繼承、不指定）**
+- Workflow / Agent 呼叫**不要指定 `model`，也不要指定 `effort`**——兩者省略時都跟隨 session 值。session 的模型與 effort 由使用者依任務自行設定；skill 自行分層＝在派工時覆蓋掉使用者當下的判斷。
+- **別自作主張降階。** 子代理用哪個模型是**使用者的決定、不是 skill 的**——預設一律繼承。要降階必須有具體理由，不是「唯讀階段就降一階省額度」的反射動作（**唯讀 ≠ 低風險**：安全／架構審查降階會提高漏判）。本機姿態：Sonnet 可接受、**Haiku 不可**。
+- 子代理的工具權限由 `agentType` 決定（唯讀階段用 `Explore` / `Plan` 這類唯讀 agent type）；call-time **沒有** `tools` allowlist / `permissionMode` / `maxTurns` 這些參數，別憑空發明。
 
 ## 收尾
 一輪結束回報：完成了哪些步驟 / 改了哪些檔、md 規格升到哪版、還有哪些未決 / 下一步、**是否該退出超級模式**（任務收斂則建議退出）。退出時**必跑** `scripts/super-mode.sh off`（清旗標與憑證、順手清 14 天前舊 log；忘了跑會殘留擋到之後的 session，hook 的 8 小時自動解除只是最後保險）。

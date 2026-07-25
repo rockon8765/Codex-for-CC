@@ -289,5 +289,23 @@
   {"name":"N5 no-regression: mark_chapter benign still allows","flagContent":"","tokenAgeMs":null,"input":{"tool_name":"mcp__ccd__mark_chapter","tool_input":{}},"expect":"allow"},
   {"name":"N5 no-regression: get_thing plain read still allows","flagContent":"","tokenAgeMs":null,"input":{"tool_name":"mcp__x__get_thing","tool_input":{}},"expect":"allow"},
   {"name":"N5 regression: benign-name + write action (mark_chapter_delete) denies","flagContent":"","tokenAgeMs":60000,"input":{"tool_name":"mcp__x__mark_chapter_delete","tool_input":{}},"expect":"deny"},
-  {"name":"N5 regression: benign-name + write action (read_widget_update) denies","flagContent":"","tokenAgeMs":60000,"input":{"tool_name":"mcp__x__read_widget_update","tool_input":{}},"expect":"deny"}
+  {"name":"N5 regression: benign-name + write action (read_widget_update) denies","flagContent":"","tokenAgeMs":60000,"input":{"tool_name":"mcp__x__read_widget_update","tool_input":{}},"expect":"deny"},
+
+  {"name":"T5 builtin: Artifact without token denies (發佈=外發)","flagContent":"","tokenAgeMs":null,"input":{"tool_name":"Artifact","tool_input":{"file_path":"C:\\p\\page.html"}},"expect":"deny"},
+  {"name":"T5 builtin: Artifact with fresh token allows","flagContent":"","tokenAgeMs":60000,"tokenContent":"{\"repo\":\"C:\\\\proj\",\"ts\":\"x\"}","input":{"tool_name":"Artifact","tool_input":{"file_path":"C:\\p\\page.html"}},"expect":"allow"},
+  {"name":"T5 builtin: ScheduleWakeup without token denies","flagContent":"","tokenAgeMs":null,"input":{"tool_name":"ScheduleWakeup","tool_input":{"delaySeconds":600}},"expect":"deny"},
+  {"name":"T5 builtin: EnterWorktree without token denies","flagContent":"","tokenAgeMs":null,"input":{"tool_name":"EnterWorktree","tool_input":{"name":"wt1"}},"expect":"deny"},
+  {"name":"T5 builtin: ExitWorktree without token denies","flagContent":"","tokenAgeMs":null,"input":{"tool_name":"ExitWorktree","tool_input":{"action":"remove"}},"expect":"deny"},
+  {"name":"T5 builtin regression: RemoteTrigger without token denies (先前零覆蓋)","flagContent":"","tokenAgeMs":null,"input":{"tool_name":"RemoteTrigger","tool_input":{}},"expect":"deny"},
+  {"name":"T5 builtin regression: CronCreate without token denies (先前零覆蓋)","flagContent":"","tokenAgeMs":null,"input":{"tool_name":"CronCreate","tool_input":{}},"expect":"deny"},
+  {"name":"T5 builtin: 未納管 builtin (TaskCreate) 仍放行 (刻意不攔，非遺漏)","flagContent":"","tokenAgeMs":null,"input":{"tool_name":"TaskCreate","tool_input":{}},"expect":"allow"},
+
+  {"name":"T5 Monitor: 唯讀 tail|grep allows","flagContent":"","tokenAgeMs":null,"input":{"tool_name":"Monitor","tool_input":{"command":"tail -f app.log | grep --line-buffered ERROR"}},"expect":"allow"},
+  {"name":"T5 Monitor: 非唯讀指令 denies","flagContent":"","tokenAgeMs":null,"input":{"tool_name":"Monitor","tool_input":{"command":"npm run deploy"}},"expect":"deny"},
+  {"name":"T5 Monitor: 破壞性指令 denies","flagContent":"","tokenAgeMs":null,"input":{"tool_name":"Monitor","tool_input":{"command":"rm -rf build"}},"expect":"deny"},
+  {"name":"T5 Monitor: 破壞性指令 + 新憑證 allows","flagContent":"","tokenAgeMs":60000,"tokenContent":"{\"repo\":\"C:\\\\proj\",\"ts\":\"x\"}","input":{"tool_name":"Monitor","tool_input":{"command":"rm -rf build"}},"expect":"allow"},
+  {"name":"T5 Monitor: ws-only(無 command) denies — isReadOnlyCommand('') 回 true 的 fail-open 陷阱","flagContent":"","tokenAgeMs":null,"input":{"tool_name":"Monitor","tool_input":{"ws":{"url":"wss://example.com/stream"}}},"expect":"deny"},
+  {"name":"T5 Monitor: 空 tool_input denies","flagContent":"","tokenAgeMs":null,"input":{"tool_name":"Monitor","tool_input":{}},"expect":"deny"},
+  {"name":"T5 Monitor: 唯讀 runner 指向 scratchpad denies (與 Bash 分支同判準)","flagContent":"","tokenAgeMs":null,"input":{"tool_name":"Monitor","tool_input":{"command":"pytest \"__TMP__\\claude\\scratchpad\""}},"expect":"deny"},
+  {"name":"T5 Monitor: 命令替換 denies","flagContent":"","tokenAgeMs":null,"input":{"tool_name":"Monitor","tool_input":{"command":"tail -f $(cat target.txt)"}},"expect":"deny"}
 ]

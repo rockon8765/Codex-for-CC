@@ -73,7 +73,7 @@ SKILL.md 的 §2 / §3 / §3.5 / §5 的詳細範本與程序。用到才讀。
 
 **硬性強制（consult-gate v2-mac）**：超級模式啟用時（`scripts/super-mode.sh on [--scope <專案根>]`），PreToolUse hook（`~/.claude/hooks/super-mode-consult-gate.js`）的規則：
 - **範圍**：帶 `--scope` 時只攔該路徑底下的**檔案工具 / shell**（檔案看 file_path、shell 看 cwd）；不帶則全域攔。**MCP 寫入類與外發內建工具沒有路徑可綁，無論 scope 一律受攔**（fail-closed）。
-- **攔截面**：Edit / Write / MultiEdit / NotebookEdit；**Bash**（唯讀白名單自動放行：git status/log/diff（含 `-C`/`--no-pager`）、ls / cat / rg / grep / `sed -n`、npm test / pytest / cargo test 等；命令替換 `$(...)`/反引號、背景 `&`、寫檔重導向一律不算唯讀；**其餘 default-deny**。唯讀 runner（pytest/npm test/node…）若指向暫存或 `~/.claude` 路徑仍要憑證——堵「先寫 conftest.py 到豁免區再 pytest 它」的繞過）；MCP 工具（寫入 / 外發字樣 create/update/delete/submit/send/click/type/trigger… 攔；**未知工具也 default-deny**，只有明確唯讀字樣或 benign 白名單放行）；外發 / 排程內建工具 RemoteTrigger / PushNotification / CronCreate / CronDelete。
+- **攔截面**：Edit / Write / MultiEdit / NotebookEdit；**Bash**（唯讀白名單自動放行：git status/log/diff（含 `-C`/`--no-pager`）、ls / cat / rg / grep / `sed -n`、npm test / pytest / cargo test 等；命令替換 `$(...)`/反引號、背景 `&`、寫檔重導向一律不算唯讀；**其餘 default-deny**。唯讀 runner（pytest/npm test/node…）若指向暫存或 `~/.claude` 路徑仍要憑證——堵「先寫 conftest.py 到豁免區再 pytest 它」的繞過）；MCP 工具（寫入 / 外發字樣 create/update/delete/submit/send/click/type/trigger… 攔；**未知工具也 default-deny**，只有明確唯讀字樣或 benign 白名單放行）；外發 / 排程 / worktree 內建工具 RemoteTrigger / PushNotification / CronCreate / CronDelete / Artifact / ScheduleWakeup / EnterWorktree / ExitWorktree；**Monitor**（有 `command` → 走上面同一套 Bash 唯讀分類器；沒有 `command`（純 WebSocket）→ 一律要憑證，因為 `isReadOnlyCommand("")` 會回 true，讓空字串走分類器等於 fail-open）。**這些工具名必須同時出現在 settings 的 PreToolUse matcher，否則 hook 根本不會被叫起** —— `tests/matcher-contract.test.js` 會把兩邊釘在一起。
 - **豁免**：scratchpad（`/private/tmp/claude-*` 與系統暫存，hook 已處理 `/tmp`↔`/private/tmp` 等價）與 `~/.claude` 底下的**檔案工具**寫入——但 `settings.json` / `settings.local.json` / `hooks/` / `.super-mode-*` 旗標憑證 / `.codex-check-last` / `.codex-check-baseline` 等安全關鍵檔**不豁免**（防自我提權），`conftest.py` / `pytest.ini` / `package.json` / `Makefile` / `*.sh` 等會被自動載入執行的檔名**也不豁免**；`codex-consult.sh` / `codex-check.sh` / `super-mode.sh` 腳本呼叫本身無條件放行（僅限錨定在指令開頭、後面沒串接 / 替換 / 破壞性字樣）。**注意：`codex-exec.sh`（workspace-write 執行者）不在無條件放行內，派工也要先有憑證。**
 - **憑證**：`codex-consult.sh` 成功寫 `~/.claude/.super-mode-consult-ok`（JSON 含 `repo`＝諮詢綁定的專案，hook 比對後續動作路徑要落在該 repo 下；舊格式純時間戳只驗時間），有效 20 分鐘。**收尾動作（git commit / push / merge / rebase、publish、deploy、terraform apply、gh pr create/merge）放行後憑證降為只剩 3 分鐘**——同一條指令內 `git commit ... && git push` 不受影響，但下一個里程碑必須重新諮詢。
 - **防殘留**：旗標超過 8 小時視為上個 session 忘了關，hook 自動解除。**fail-open**：沒旗標或任何錯誤一律放行（一般模式不受影響）。退出時必跑 `super-mode.sh off`。
@@ -88,14 +88,14 @@ SKILL.md 的 §2 / §3 / §3.5 / §5 的詳細範本與程序。用到才讀。
 {
   "hooks": {
     "PreToolUse": [
-      { "matcher": "Edit|Write|MultiEdit|NotebookEdit|Bash|PowerShell|RemoteTrigger|PushNotification|CronCreate|CronDelete|mcp__.*",
+      { "matcher": "Edit|Write|MultiEdit|NotebookEdit|Bash|PowerShell|Monitor|RemoteTrigger|PushNotification|CronCreate|CronDelete|Artifact|ScheduleWakeup|EnterWorktree|ExitWorktree|mcp__.*",
         "hooks": [ { "type": "command", "command": "node /Users/user/.claude/hooks/super-mode-consult-gate.js" } ] }
     ]
   }
 }
 ```
 然後每次工作用 `super-mode.sh on --scope <dir>` 開、`super-mode.sh off` 關。
-**測試**：`node ~/.claude/skills/超級模式/tests/run-gate-tests.js`（案例回歸）＋ `bash ~/.claude/skills/超級模式/tests/run-e2e.sh`（stdin 端到端）。改 hook 前先在 `tests/gate-cases.json` 加會 fail 的新案例，改完全綠才算數。
+**測試**：`node ~/.claude/skills/超級模式/tests/run-gate-tests.js`（案例回歸）＋ `node ~/.claude/skills/超級模式/tests/matcher-contract.test.js`（hook 清單 vs settings matcher 一致性）＋ `bash ~/.claude/skills/超級模式/tests/run-e2e.sh`（stdin 端到端）。改 hook 前先在 `tests/gate-cases.json` 加會 fail 的新案例，改完全綠才算數。
 
 ## §5 Ultracode 疊用分工
 
@@ -110,3 +110,5 @@ SKILL.md 的 §2 / §3 / §3.5 / §5 的詳細範本與程序。用到才讀。
 **鐵則：Workflow / subagent 一律禁止呼叫 `codex-consult.sh` / `codex-exec.sh`。** 子代理被 consult-gate 擋下時，回報 orchestrator（主 Claude）由主線統一諮詢 / 派工，別讓每個子代理各自諮詢（會燒額度、mint 全機憑證、commit 降級全體）。審查子代理要跑的 build / verify 指令（如 `npm run build`、`go build`）也交由主線在有憑證時跑。
 **審查產出 findings 後先呈報使用者選擇要修哪些，勿自動批次修。**
 審查型派工帶 `-s references/review-output.schema.json`（路徑相對 skill 根目錄，跨目錄派工改傳絕對路徑），收工用 JSON 解析驗收 findings；驗證失敗 fallback 讀全文。
+
+**模型與 effort（本機姿態）**：Workflow / Agent 呼叫**不指定 `model`、也不指定 `effort`**，兩者省略即跟隨 session 值——session 的模型與 effort 是使用者依任務自己調的旋鈕，skill 分層等於覆蓋掉使用者當下的判斷。**別自作主張降階**——子代理用哪個模型是使用者的決定、不是 skill 的，預設一律繼承；降階要有具體理由而非省額度的反射動作（**唯讀 ≠ 低風險**：安全／架構審查降階會提高漏判）。本機姿態：Sonnet 可接受、**Haiku 不可**。工具權限用 `agentType` 控（唯讀階段選 `Explore` / `Plan`）；call-time 沒有 `tools` allowlist / `permissionMode` / `maxTurns` 參數。新一代模型（Opus 5 起）更傾向主動派子代理，fan-out 只用在真正獨立的工作分支。

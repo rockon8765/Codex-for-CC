@@ -33,8 +33,21 @@ const GRACE_MS = 3 * 60 * 1000; // 收尾動作後保留的餘裕
 const FLAG_STALE_MS = 8 * 60 * 60 * 1000; // 旗標殘留自動解除門檻
 
 const MUTATING_FILE_TOOLS = ["Edit", "Write", "MultiEdit", "NotebookEdit"];
-// 會外發/排程/觸發遠端的內建工具（非 shell、非 MCP）→ 也要憑證。需同步 settings.json matcher。
-const MUTATING_BUILTIN = ["RemoteTrigger", "PushNotification", "CronCreate", "CronDelete"];
+// 會外發/排程/觸發遠端/改工作區的內建工具（非 shell、非 MCP）→ 也要憑證。
+// ⚠ 這份清單只有在 settings.json 的 PreToolUse matcher 也列到該工具名時才會生效
+//   （matcher 不匹配 = hook 根本不會被叫起）→ 增修時必須同步 settings.snippet.json，
+//   並靠 tests 的 matcher-contract 案例把兩邊釘在一起。
+// Monitor 不放這裡：它可跑唯讀監看，無條件攔會把合法用途也擋死 → 見下方獨立分支。
+const MUTATING_BUILTIN = [
+  "RemoteTrigger",
+  "PushNotification",
+  "CronCreate",
+  "CronDelete",
+  "Artifact", // 發佈網頁（外發）
+  "ScheduleWakeup", // 排程，與 Cron* 同類
+  "EnterWorktree", // 建 git worktree（寫檔）
+  "ExitWorktree", // 可移除 worktree（刪檔）
+];
 
 // 只有唯讀的諮詢/查版/開關腳本可無條件放行（否則死鎖）。codex-exec 是 workspace-write
 // 執行者，故意排除 → 派工也要先有憑證（落到 decide 的 default-deny）。錨定在指令開頭、
@@ -211,6 +224,29 @@ function decide(input, testOpts) {
       gated = true;
       category = "檔案寫入";
     }
+  } else if (tool === "Monitor") {
+    // Monitor 可跑任意 shell 命令(command)或開 WebSocket(ws)，完全不經 Bash 那條路。
+    //  - 有 command → 沿用與 Bash 相同的分類器(同一份判準，避免兩套規則漂移)。
+    //  - 無 command(ws 監看) → 對外連線、且沒有指令可分類 → 直接要憑證。
+    //    這一條不能省：isReadOnlyCommand("") 回 true，讓空字串走分類器等於 fail-open。
+    const cmd = String(ti.command || "");
+    actionPath = String(input.cwd || "");
+    if (!cmd) {
+      gated = true;
+      category = ti && ti.ws ? "Monitor(WebSocket 外發)" : "Monitor(無 command 可分類)";
+    } else if (DESTRUCTIVE.some((re) => re.test(cmd))) {
+      gated = true;
+      consuming = CONSUMING.some((re) => re.test(cmd));
+      category = consuming ? "Monitor(收尾動作，會消耗憑證)" : "Monitor(破壞性指令)";
+    } else if (!isReadOnlyCommand(cmd)) {
+      gated = true; // default-deny，與 Bash 分支同一條線
+      category = "Monitor(非唯讀指令)";
+    } else if (isRunnerTouchingSensitive(cmd, claude)) {
+      gated = true;
+      category = "Monitor(runner 涉及暫存/設定路徑)";
+    } else {
+      return { allow: true }; // 純唯讀監看(tail -f log、poll 狀態)不該被擋
+    }
   } else if (tool === "Bash" || tool === "PowerShell") {
     const cwd = String(input.cwd || "");
     const cmd = String(ti.command || "");
@@ -234,10 +270,7 @@ function decide(input, testOpts) {
       consuming = CONSUMING.some((re) => re.test(cmd));
       category = consuming ? "收尾動作(會消耗憑證)" : "破壞性指令";
     } else if (isReadOnlyCommand(cmd)) {
-      const RUNNER_RE = /(^|[;&|]\s*)\S*(pytest|npm|pnpm|yarn|cargo|go|dotnet|eslint|ruff|prettier|tsc|node|python3?)(\.exe)?\b/i;
-      const low = cmd.replace(/\//g, "\\").toLowerCase();
-      const tmpN = norm(os.tmpdir()), claudeN = norm(claude);
-      if (RUNNER_RE.test(cmd) && (low.includes(tmpN) || low.includes(claudeN))) {
+      if (isRunnerTouchingSensitive(cmd, claude)) {
         gated = true; category = "runner 涉及暫存/設定路徑";
       } else {
         return { allow: true };
@@ -594,6 +627,18 @@ function isReadOnlyCommand(cmd) {
     if (!t) return true;
     return READONLY_SEG.some((re) => re.test(t));
   });
+  // ⚠ 注意：isReadOnlyCommand("") === true（空字串沒有任何 segment 可否決）。
+  //   任何「可能沒有 command 欄位」的工具都不可以直接把空字串餵進來判定，否則等於 fail-open。
+}
+
+// 唯讀 runner(pytest/npm/node…)若指向暫存或 ~/.claude 路徑，仍要憑證：堵「先把 conftest.py /
+// package.json 寫進豁免區，再用唯讀 runner 執行它」的繞過。Bash/PowerShell 與 Monitor 共用同一
+// 份判準，避免兩套規則漂移。
+function isRunnerTouchingSensitive(cmd, claudeDir) {
+  const RUNNER_RE = /(^|[;&|]\s*)\S*(pytest|npm|pnpm|yarn|cargo|go|dotnet|eslint|ruff|prettier|tsc|node|python3?)(\.exe)?\b/i;
+  if (!RUNNER_RE.test(cmd)) return false;
+  const low = String(cmd).replace(/\//g, "\\").toLowerCase();
+  return low.includes(norm(os.tmpdir())) || low.includes(norm(claudeDir));
 }
 
 function demoteToken(token) {

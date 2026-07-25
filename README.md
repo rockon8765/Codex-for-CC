@@ -46,6 +46,7 @@
 - 它派出去的子代理**永遠是 Claude 模型** — 絕不是 Codex。
 - 它們的 token **全額計入你的 Claude 額度**（沒有折扣；你可以把個別 agent 指定成 Haiku 來降成本，但它們仍然是 Claude）。
 - 所以 UltraCode 本身**不會省 Claude 用量 — 反而更花**（更多 Claude agent = 更多 Claude token）。它的用途是*品質*（多角度、對抗式審查），不是省錢。
+- **「更花」是相對於「不開 UltraCode」，不是「換新模型就更貴」。** 同一組 fan-out 的實際花費隨 session 模型而定，不同模型的單價可能差一倍以上，而且**新模型未必比舊模型貴**。要估成本請查當時的牌價，別靠直覺推。
 
 **2. 這個 skill 的 Codex offload — 省 Claude 用量真正的來源**
 - Codex **不是一種子代理類型** — UltraCode 無法派出「Codex agent」。
