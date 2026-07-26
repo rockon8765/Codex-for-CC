@@ -1,7 +1,9 @@
 # 超級模式 — Opus 5 對齊規劃書（2026-07-25）
 
-> **狀態**：P0／P1 **已執行完成**（2026-07-26）。三平台測試全綠、**Windows live 已部署並驗證**；
-> mac/linux 待真機驗證後才 promote 進 main。規劃撰寫時 repo HEAD = `e32126e`；執行紀錄見 §7.1。
+> **狀態**：P0／P1 **已執行完成**（2026-07-26）。三平台測試全綠、**Windows live 已部署並驗證**。
+> **macOS 原生驗證已完成；Linux 仍未原生驗證**——第三輪按 §7.3 的協定 promote 進 main，
+> `linux/` 屬 **provisional**（進 main 是為了三平台鏡像不刻意漂移，不是宣稱它已驗證）。
+> 規劃撰寫時 repo HEAD = `e32126e`；執行紀錄見 §7.1／§7.2／§7.3。
 > **真相源**：本檔。與 `super-mode-hardening-plan-2026-07.md`（姿態 A／gate 非安全邊界）不衝突，
 > 本檔只處理「session 模型由 Fable 5 換成 Opus 5 之後，skill 該不該改、改什麼」。
 
@@ -223,8 +225,10 @@ WSL/UNC 註記）。
 | T3 §5 委派行為註記 | 文件 | ✅ 三平台完成 | 否 |
 | T4 Windows description 同步 | 文件 | ✅ 完成 | 否 |
 | T5 gate 內建工具面補齊 | code | ✅ repo 完成、三平台測試全綠、**Windows live 已部署驗證** | ✅ 使用者已同意 settings.json + 部署 |
-| promote 進 main | 交付 | ✅ 三平台一次到位（`linux/` 為 **provisional**，見 §7.2/§7.3） | ✅ 使用者已同意 |
-| Linux 原生驗證 | 驗證 | ☐ **未做**——README 的未驗證聲明在此之前不得移除 | — |
+| macOS 原生驗證 | 驗證 | ✅ 完成（116/116 + matcher-contract + e2e 11/11 + 憑證 mtime 探針） | — |
+| promote 進 main | 交付 | ▶ 第三輪依 §7.3 協定執行（三平台一次到位；`linux/` 為 **provisional**） | ✅ 使用者已同意 |
+| Linux 原生驗證 | 驗證 | ☐ **未做**——README／AI-INSTALL 的未驗證聲明在此之前不得移除 | — |
+| runtime matcher smoke | 驗證 | ☐ **未做**——promote 後的立即驗證條件（需新 session，見 §7.3） | — |
 | B1/B2/B3 | backlog | ☐ 未排程 | — |
 
 ## 7.1 執行紀錄（2026-07-25/26）
@@ -298,36 +302,72 @@ WSL/UNC 註記）。
 |---|---|
 | `windows/` | **已原生驗證**：gate-cases 108/108、`matcher-contract` PASS、8.3 PASS、live 部署後複驗全綠 |
 | `macos/` | **已原生驗證**：Mac 端（darwin arm64、原生 node）gate-cases 116/116、`matcher-contract` exit 0、`run-e2e.sh` 11/11 且 `GATE_UNDER_TEST` 確認指向 worktree；另做憑證 mtime 探針證實 `Artifact` 真的把憑證降到 3 分鐘（60s→1020s）、`ScheduleWakeup` 不消耗 |
-| `linux/` | **未經原生驗證**——本次 delta 的 linux 改動**只在 Windows 開發機上以 node 跑過邏輯回歸（116/116）**，從未在任何 Linux 機器上執行過 |
+| `linux/` | **未經原生驗證**——本次 delta 的 linux 改動**只在 Windows 開發機上以 node 跑過跨宿主邏輯回歸（第三輪後為 118/118）**，從未在任何 Linux 機器上執行過 |
 
-**linux 的風險不可用「與 mac 同類」代換**（Codex 對抗審查的明確要求，我採納）：linux hook 的 runner 判定是**刻意 case-preserving**（對齊 `norm()` 在 Linux 的 case-sensitive 行為），mac/Windows 才是 `toLowerCase()`——這是三平台**語義真的分岔**的那一處，正好是本次抽 `isRunnerTouchingSensitive()` helper 時碰到的地方（見 §7.1「翻掉規劃假設」第 2 點）。它只有真機跑得出來。再者，本次 linux delta 連容器都沒進過：對照 codex-check C2/C3 那次至少跑過 Debian 容器，這次背書強度**更低**。故 `linux/` 這批屬 **provisional promote**——進 main 是為了讓三平台鏡像不刻意漂移，**不是**宣稱它已驗證。README 狀態矩陣已同步寫明。
+**linux 的風險不可用「與 mac 同類」代換**（Codex 對抗審查的明確要求，我採納）：linux hook 的 runner 判定是**刻意 case-preserving**（對齊 `norm()` 在 Linux 的 case-sensitive 行為），mac/Windows 才是 `toLowerCase()`——這是三平台**語義真的分岔**的那一處，正好是本次抽 `isRunnerTouchingSensitive()` helper 時碰到的地方（見 §7.1「翻掉規劃假設」第 2 點）。跨宿主回歸只能證明「現有案例的判定結果」，**不涵蓋** Linux 檔案系統、`os.tmpdir()`／realpath 解析與 runtime 整合。再者，本次 linux delta 連容器都沒進過：對照 codex-check C2/C3 那次至少跑過 Debian 容器，這次背書強度**更低**。故 `linux/` 這批屬 **provisional promote**——進 main 是為了讓三平台鏡像不刻意漂移，**不是**宣稱它已驗證。README 狀態矩陣與 `docs/AI-INSTALL.md` 已同步寫明。
 
-**尚未做（需批准）**
-1. **Mac 最小補驗**：核對新 final HEAD、證明 `16737a8..final` 只動預期檔、原 6 筆 blob 未變、
-   `bash -n run-e2e.sh`、從 worktree 跑修補後的 e2e 並確認 `GATE_UNDER_TEST` 指向 worktree。
-   **hook 已變更（A2 修補）→ 必須重跑 116/116**，不能只沿用上一輪的 114/114。
-2. **Linux 原生驗證**：Codex 明確反駁「linux 與 mac 同類」——Linux 的 case-preserving 正是要真機驗的差異，
-   且本次 linux delta 目前只有 Windows-hosted node 背書（C2/C3 那次至少跑過 Debian 容器）。
-3. promote 進 main（三平台一次到位；不做拆平台 promote，以免三平台鏡像變成刻意漂移）。
+**（第二輪當時）尚未做**——第三輪的處置見 §7.3
+1. ~~**Mac 最小補驗**~~ → **已完成**（2026-07-26）：Mac 端重跑 116/116、`matcher-contract` exit 0、
+   `run-e2e.sh` 11/11、`GATE_UNDER_TEST` 指向 worktree，另做憑證 mtime 探針（60s→1020s）。
+2. **Linux 原生驗證** → **仍未做**（見 §7.3「promote 後仍未做」）。
+3. promote 進 main → **第三輪執行**（三平台一次到位；不做拆平台 promote，以免三平台鏡像變成刻意漂移）。
 
 ## 7.3 第三輪：Linux 誠實聲明 + promote 進 main（2026-07-26）
 
 **promote 前的查證（不採信交接文字，逐項實查）**
 - `git fetch origin --prune` 後 `git ls-remote origin`：`origin/main` = `b103184`（**與上一輪交接所載相同、未被他人推進**）。
 - `git merge-base --is-ancestor origin/main HEAD` exit 0 → 驗證分支是 `origin/main` 的直系後代，**可 ff-merge、無需 rebase**、無衝突。
-- 工作區乾淨；`origin/main..HEAD` 為 4 個 commit（09340e3 / d771fc5 / 16737a8 / 95f5018）。
+- 工作區乾淨；`origin/main..HEAD` 為 **6** 個 commit（09340e3 / d771fc5 / 16737a8 / 95f5018 ＋ 本輪兩個 docs/test commit）。
 
-**promote gate（三平台回歸，promote 當下重跑）**：`run-gate-tests.js` Windows **108/108**、macOS **116/116**、Linux **116/116**；`matcher-contract.test.js` 三平台皆 PASS（15 工具名 + `mcp__.*`）。
+**Codex 對抗諮詢：PROCEED-WITH-CHANGES**（逐字稿 `codex_consult_20260726_210750_722bde.txt`）。
+它**支持**三平台一起 promote＋linux provisional，但擋下「原樣進 main」，八項條件我逐項查證後的處置：
 
-**本輪新增的文件改動**
-- `README.md` 狀態矩陣新增「本次 delta 的驗證分布」段：明寫 Windows/macOS 已原生驗證、**`linux/` 未經原生驗證（僅 Windows 上的 node 邏輯回歸）**，並點名 case-preserving 是要真機驗的差異。
-- 本規劃書 §7.2 新增「平台驗證分布」表與 provisional promote 的界定。
-- **順手修掉 §7.2 的一項不實記載**：§7.2 表格末列寫「AI-INSTALL 的安裝前與安裝後驗證、**README 安裝段**全部加入 `matcher-contract`」，但實查 `README.md` 安裝段**當時並未加入**（只有 `docs/AI-INSTALL.md` 加了）。本輪已補齊三平台安裝段（Windows 段原本連驗證指令都沒有，一併補上），使該記載成立。
+| # | Codex 指控 | 我的查證 | 處置 |
+|---|---|---|---|
+| 1 | README 第 24／35／113 行與新段落**自相矛盾**（一邊說 mac/linux 從未原生跑過、一邊說 macOS 已原生驗證） | **屬實**。且我原先引以為據的歷史也要校正：`351061a` 記載的是「Linux 原生已過、**macOS 待跑**」，`668b6e2` 只是 codex-check 的 BSD/GNU 驗證 | 三處全改。新措辭只宣稱「mac/linux 都曾對**特定 revision／功能**做過原生驗證，涵蓋範圍與時間點不同，**不能由歷史 PASS 推定目前 tip 三平台等價**」 |
+| 2 | canonical 安裝入口 `AI-INSTALL.md` **沒有** Linux provisional 警告，AI 安裝者可能根本不讀 README | **屬實** | `AI-INSTALL.md` §0 平台偵測後加警告（含「FAIL 就停止／回滾、不得自行判斷是平台差異」） |
+| 3 | linux case-preserving 分岔**沒有直接的區辨性回歸案例**，被機械同步成 mac 的 `toLowerCase()` 也可能全綠 | **屬實，且我用變異測試證實**：把 linux helper 換成 mac 寫法後，原 116 案雖失敗 3 案，但那 3 案靠 `__TMP__`→`os.tmpdir()`，**在 Windows 主機上才含大寫**；真 Linux 上 `os.tmpdir()`＝`/tmp` 全小寫，同一變異就抓不到 | linux 加 **2 筆跨宿主可區辨案例**（`pytest /TMP/...` → allow，Bash 與 Monitor 兩個呼叫點各一）。變異下兩案皆 FAIL、且不依賴主機 tmpdir → 非空。linux 116 → **118** |
+| 4 | 尚無證據證明 Claude Code runtime 真的以新工具名觸發 matcher；`matcher-contract` 只證明 repo 內兩份字串一致 | **部分屬實**：該測試確實會挑出「註冊了本 hook」的 entry，但**不**驗 `command` 路徑存在、**不**證明 runtime 載入該份 settings | 不誇大能力：README／`AI-INSTALL.md` 都加「它的界線」段；**runtime smoke 本輪未做**，明文列為 promote 後的立即驗證條件（見下方） |
+| 5 | 應對最終 bytes 重跑 gate 並記錄確切 tip SHA | 接受 | 見下方「promote gate」 |
+| 6 | push 前再 fetch；push 被拒就停止；push 後判準應是遠端 main **等於或包含** tip | 接受（非 force push 遇分歧本來就會被拒，這是安全的） | 見下方「promote 方式」 |
+| 7 | 遠端驗證分支不應在核對後立刻刪 | 使用者已明確指示「核對無誤才刪」；我把 Codex 的反對意見呈報使用者後依其裁示 | 見下方 |
+| 8 | 回滾範圍要預先寫清楚——只 revert 文件 tip 會**移除警告卻留下有問題的 hook** | **屬實，這是真的會發生的壞狀態** | 見下方「回滾範圍」 |
 
-**promote 方式**：ff-merge（`main` 直接前移到本分支 tip，不產生 merge commit），故 promote 後的 `main` 即本檔所在的 commit。推送後以 `git ls-remote origin` 核對遠端 `main` 確實等於該 SHA，確認無誤才刪除遠端驗證分支。
+未採納／降級的部分：Codex 建議把 `run-e2e.sh` 的 mode 統一（macOS `100644` vs Linux `100755`）——
+現行文件一律用 `bash run-e2e.sh`，不影響執行，**本輪不動**（避免在 promote 當下引入無關的 mode 變更）。
 
-**promote 後仍未做（不在本輪範圍）**
-- **Linux 原生驗證**：要做時另備 handoff（格式參考 [`docs/HANDOFF-opus5-builtin-gate-macos.md`](HANDOFF-opus5-builtin-gate-macos.md)）。在那之前 README 的未驗證聲明**不得移除**。
+**promote gate（對最終 bytes 重跑）**：`run-gate-tests.js` Windows **108/108**、macOS **116/116**、Linux **118/118**；
+`matcher-contract.test.js` 三平台皆 PASS（15 工具名 + `mcp__.*`）；Windows `class-b-8dot3.test.js` PASS；
+三平台 `node --check` OK；三份 `matcher-contract.test.js` md5 一致；三平台 `settings.snippet.json` 的 matcher 字串一致。
+**macOS 的 hook blob 本輪未變**（只動 linux 的 gate-cases 與文件），故 mac 原生驗證的 SUT 仍然有效，
+不需要、也不假裝重跑 mac runtime 驗證。
+
+**本輪改動**
+- `README.md`：新增「本次 delta 的驗證分布」（Windows／macOS／Linux 分列，不合併數字）；修正第 24／35／113 行的過時與矛盾；三平台安裝段補 `matcher-contract` 並改用 `"$HOME/..."` 引號形式；新增「matcher-contract 的界線」說明。
+- `docs/AI-INSTALL.md`：Linux provisional 警告；`matcher-contract` 能力界線＋指出唯一的端到端確認方式是新 session 實際觸發。
+- `docs/HANDOFF-opus5-builtin-gate-macos.md`：加「✅ 已完成／封存、不要再照跑」標頭（原本仍寫 macOS 未驗證、期望 114/114，是**可執行的過時操作文件**）。
+- `linux/skills/超級模式/tests/gate-cases.json`：+2 筆 case-preserving 區辨案例（**只動 linux，win/mac 案例數不變**）。
+- 本規劃書：§7 表格、§7.2、§7.3 的狀態全部改成與事實一致（原本 §7 已預先把 promote 打勾、§7.2 卻仍列為尚未做）。
+- **順手修掉一項不實記載**：`95f5018` 的 commit 訊息與 §7.2 都寫「**README** 安裝段已補 `matcher-contract`」，
+  實查當時 README 安裝段**並未加入**（只有 `AI-INSTALL.md` 加了）。本輪補齊三平台安裝段，使該記載成立。
+
+**promote 方式**：`git push` 前**再 fetch 一次**；ff-merge（`main` 直接前移到本分支 tip，不產生 merge commit）。
+**非 force push 若因分歧被拒 → 停止、重新驗證，不得自動 rebase 後再推。**
+push 後以 `git ls-remote origin` 核對：**遠端 `main` 等於本次 tip**（最佳）；
+若不相等，須確認**本次 tip 是遠端 `main` 的 ancestor**（表示有協作者接續推進，promote 仍成功）；
+若遠端 `main` **不包含**本次 tip，才算異常。
+
+**回滾範圍（預先寫死，別臨場判斷）**：若 Linux 原生驗證後發現 runtime 問題，
+**不可只 `git revert` 文件 tip**——那會移除誠實警告、卻留下有問題的 hook（更壞的狀態）。
+正確做法是 revert **整個 runtime delta**（`09340e3` 與 `95f5018` 的 hook／snippet 改動），
+或精確 revert runtime commit **並同步修正文件**。一律用 revert，不 force push。
+
+**promote 後仍未做**
+- **Linux 原生驗證**：要做時另備 handoff（格式參考 [`docs/HANDOFF-opus5-builtin-gate-macos.md`](HANDOFF-opus5-builtin-gate-macos.md)，
+  期望值改用 118 案）。在那之前 README 與 `AI-INSTALL.md` 的未驗證聲明**不得移除**。
+- **runtime matcher smoke（Codex 條件 4，明文承認未做）**：`matcher-contract` 是靜態比對。
+  下個 session（hook 設定變更需新 session 才生效）應在超級模式啟用、無憑證狀態下實際觸發一個新 builtin
+  （如 `Artifact`）與 `Monitor`，確認在副作用發生前 deny。**這是 promote 後的立即驗證條件，不是可選項。**
 - **macOS live 部署**：由 Mac 端自行照 [`docs/AI-INSTALL.md`](AI-INSTALL.md) 執行（Windows live 已於 §7.2 部署完成）。
 
 ## 8. 風險與未決

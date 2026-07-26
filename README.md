@@ -21,7 +21,7 @@
 
 ## 三個平台版本
 
-這個 repo 為**三個平台提供同一個 skill**，**設計上等價** — 同一套發現、同一組不變量（I1–I8，外加 `.sh` 平台（macOS/Linux）的 I9）、同一組驗收條件 — 但*實作機制*依平台翻譯（PowerShell vs bash、BOM 處理、stdin 佈線、路徑規則、BSD vs GNU userland）。**注意「設計等價」不等於「已驗證等價」**：只有 Windows 版在其目標平台上原生跑過完整測試；macOS/Linux 版的路徑正規化（realpath）分支在非原生平台上無法執行驗證。詳見下方現況。挑你機器對應的那個：
+這個 repo 為**三個平台提供同一個 skill**，**設計上等價** — 同一套發現、同一組不變量（I1–I8，外加 `.sh` 平台（macOS/Linux）的 I9）、同一組驗收條件 — 但*實作機制*依平台翻譯（PowerShell vs bash、BOM 處理、stdin 佈線、路徑規則、BSD vs GNU userland）。**注意「設計等價」不等於「已驗證等價」**：三平台的原生驗證各有其涵蓋範圍與時間點，Windows 版覆蓋最廣、也是維護基準。詳見下方現況與「本次 delta 的驗證分布」。挑你機器對應的那個：
 
 | | [`windows/`](windows/) | [`macos/`](macos/) | [`linux/`](linux/) |
 |---|---|---|---|
@@ -32,9 +32,13 @@
 | 接 hook 的設定檔 | `settings.json` | `settings.local.json` | `settings.local.json` |
 | 修復紀錄 | [`windows/skills/超級模式/FIX-PLAN.md`](windows/skills/超級模式/FIX-PLAN.md) | [`macos/skills/超級模式/FIX-PLAN.md`](macos/skills/超級模式/FIX-PLAN.md) | [`linux/skills/超級模式/FIX-PLAN.md`](linux/skills/超級模式/FIX-PLAN.md) |
 
-> **現況（據實）。** **Windows 版**是目前唯一在其目標平台上原生稽核＋跑過完整回歸測試的版本；本 repo 的維護與對抗測試都以它為準。**macOS／Linux 版**是從 Windows 設計移植的**未原生驗證**版本——路徑正規化（realpath）分支在 Windows 開發機上（`process.platform !== 'win32'`）不會執行，因此那條關鍵路徑**從未在 mac/linux 實機跑過**。在你自己的 mac/linux 上原生跑過 `tests/`（見安裝節）之前，請把它們當**參考實作**，不要當「與 Windows 等價、可直接信賴」的版本。各平台的分階段紀錄與回歸測試臺規格在各自的 `FIX-PLAN.md`（上表連結）；案例數以各平台 `tests/gate-cases.json` 為準（三平台不同、且會隨修補變動）。
+> **現況（據實）。** **Windows 版**是本 repo 的維護基準，原生稽核與對抗測試的覆蓋最廣。**macOS 與 Linux 版都曾對特定 revision／功能做過原生驗證**（例如 P0.1 realpath 縱深硬化 `351061a` 記載 Linux 在 WSL2/ext4/glibc 上原生跑過 gate-cases 98/98 ＋ 9 個 symlink 探針），**但各次的涵蓋範圍與時間點都不同——不能由歷史上某次 PASS 推定目前 tip 已達成三平台等價驗證**。要判斷「現在這批改動可不可信」，請以下方**「本次 delta 的驗證分布」**為準。各平台的分階段紀錄與回歸測試臺規格在各自的 `FIX-PLAN.md`（上表連結）；案例數以各平台 `tests/gate-cases.json` 為準（三平台不同、且會隨修補變動）。
 >
-> **本次 delta 的驗證分布（2026-07-26，Opus 5 對齊 ＋ gate 內建工具面補齊）。** Windows 與 macOS 版的這批改動都已在**其目標平台上原生**跑過（gate-cases 各 108/108 與 116/116、`matcher-contract` 皆 PASS；macOS 另原生跑 `run-e2e.sh` 並核對受測的確實是 worktree 內的 hook）。**但 `linux/` 樹未經原生驗證**——這次 linux 的改動只在 Windows 開發機上以 node 跑過邏輯回歸（116/116），**從未在任何 Linux 機器上執行過**。而且 linux hook 的 runner 判定是**刻意 case-preserving**（mac/Windows 走 `toLowerCase()`），這正是要真機才驗得到的差異，**不要用「和 mac 同類、應該沒問題」帶過**。要在 Linux 上用它：先在你自己的機器上原生跑過 `tests/`（見安裝節）再決定信不信。
+> **本次 delta 的驗證分布（2026-07-26，Opus 5 對齊 ＋ gate 內建工具面補齊）。**
+> **Windows**：已在 win32 原生通過 gate-cases 108/108、`matcher-contract`、NTFS 8.3 短名測試，live 部署後另複驗一次。
+> **macOS**：已在 darwin arm64 原生通過 gate-cases 116/116、`matcher-contract`、`run-e2e.sh` 11/11，並核對受測 hook 確實是 worktree 內那份。
+>
+> **`linux/` 尚未原生驗證。** Linux 的 gate-cases 118/118 是**在 Windows 上以 node 執行的跨宿主邏輯回歸**——它只證明現有案例的判定結果，**不等於 Linux 原生驗證，也不涵蓋 Linux 檔案系統、`os.tmpdir()`／realpath 解析與實際 runtime 整合**。Linux 版另保留 case-sensitive／case-preserving 語義（`isRunnerTouchingSensitive()`，mac/Windows 走 `toLowerCase()`），已補兩筆**跨宿主可區辨**的回歸案例把它釘死；但語義以外的平台整合仍未驗。在 Linux 原生驗證完成前，本 repo **不**把這批 Linux 改動列為與 Windows／macOS 等同驗證——安裝者請先跑安裝節的測試，失敗請回報維護者。
 >
 > **功能差距（2026-07-16）**：`codex-check` 的**能力面 baseline diff**（NO_BASELINE／`-UpdateBaseline`（bash 為 `--update-baseline`）／四態盤點／快取版本鍵／依賴旗標探測）**Windows 與 macOS 版已實作**（macOS 於其目標平台原生跑過合成測試臺 47 案＋gate 98 案），**linux 版尚未移植**（連 0.143 的能力面盤點段都未移植）——移植規格與定案見 [`docs/handoff-capability-baseline-port.md`](docs/handoff-capability-baseline-port.md)。
 
@@ -110,7 +114,7 @@ windows/                         # PowerShell 版（已稽核、已部署）
     scripts/  super-mode.ps1  codex-consult.ps1  codex-exec.ps1  codex-check.ps1
     tests/    run-gate-tests.js  run-gate-tests.ps1  matcher-contract.test.js  gate-cases.json
 
-macos/                           # bash 版（自 Windows 設計移植、未原生驗證，見上方狀態矩陣）
+macos/                           # bash 版（平台移植版；本次 delta 的驗證狀態見上方狀態矩陣）
   settings.snippet.json
   CLAUDE-global-rule.md          # 同上，macOS 版 snippet
   hooks/super-mode-consult-gate.js
@@ -155,9 +159,9 @@ cp    "macos/hooks/super-mode-consult-gate.js" ~/.claude/hooks/
 # 3. 把 hook 接到 ~/.claude/settings.local.json（見 macos/settings.snippet.json），
 #    並把絕對路徑改成你自己家目錄的路徑。
 # 4. 驗證：
-node ~/.claude/skills/超級模式/tests/run-gate-tests.js        # 應全數 PASS（案例數見 gate-cases.json）
-node ~/.claude/skills/超級模式/tests/matcher-contract.test.js # ★ 必跑：抓「裝了 hook 但步驟 3 沒接上」
-bash ~/.claude/skills/超級模式/tests/run-e2e.sh               # 應全數 passed
+node "$HOME/.claude/skills/超級模式/tests/run-gate-tests.js"        # 應全數 PASS（案例數見 gate-cases.json）
+node "$HOME/.claude/skills/超級模式/tests/matcher-contract.test.js" # ★ 必跑，見下方說明
+bash "$HOME/.claude/skills/超級模式/tests/run-e2e.sh"               # 應全數 passed
 ```
 
 **Linux**
@@ -168,10 +172,11 @@ cp    "linux/hooks/super-mode-consult-gate.js" ~/.claude/hooks/
 # 3. 把 hook 接到 ~/.claude/settings.local.json（見 linux/settings.snippet.json），
 #    絕對路徑改成你家目錄；若 node 不在系統 PATH（可攜式安裝），command 開頭的
 #    node 也要寫絕對路徑，否則 hook 會靜默不跑。
-# 4. 驗證：★ Linux 版的最新一批改動未經原生驗證（見上方狀態矩陣），這步不是形式，是你這台機器的第一次真驗
-node ~/.claude/skills/超級模式/tests/run-gate-tests.js        # 應全數 PASS（案例數見 gate-cases.json）
-node ~/.claude/skills/超級模式/tests/matcher-contract.test.js # ★ 必跑：抓「裝了 hook 但步驟 3 沒接上」
-bash ~/.claude/skills/超級模式/tests/run-e2e.sh               # 應全數 passed
+# 4. 驗證：★ Linux 版的最新一批改動未經原生驗證（見上方狀態矩陣）——這步不是形式，
+#    是這批改動在 Linux 上的第一次原生執行。失敗請回報維護者，別自行忽略。
+node "$HOME/.claude/skills/超級模式/tests/run-gate-tests.js"        # 應全數 PASS（案例數見 gate-cases.json）
+node "$HOME/.claude/skills/超級模式/tests/matcher-contract.test.js" # ★ 必跑，見下方說明
+bash "$HOME/.claude/skills/超級模式/tests/run-e2e.sh"               # 應全數 passed
 ```
 
 **Windows**
@@ -181,8 +186,11 @@ Copy-Item ".\windows\hooks\super-mode-consult-gate.js" "$env:USERPROFILE\.claude
 # 然後把 hook 接到 ~/.claude/settings.json（見 windows/settings.snippet.json）。
 # 驗證：
 node "$env:USERPROFILE\.claude\skills\超級模式\tests\run-gate-tests.js"        # 應全數 PASS
-node "$env:USERPROFILE\.claude\skills\超級模式\tests\matcher-contract.test.js" # ★ 必跑：抓「裝了 hook 但沒接上」
+node "$env:USERPROFILE\.claude\skills\超級模式\tests\matcher-contract.test.js" # ★ 必跑，見下方說明
 ```
+
+> ★ **`matcher-contract` 不是可選項。** hook 裡的攔截清單**只有在 settings 的 PreToolUse `matcher` 也列到該工具名時才會生效**；matcher 漏合併時，另兩支測試（它們是**直接呼叫** `decide()`）照樣全綠，但真實情況是 hook 根本不會被叫起。這支測試把兩邊的清單釘死。
+> **但也別高估它**：它做的是**靜態比對**——挑出 settings 裡註冊了本 hook 的那筆 entry，比對其 `matcher` 與 hook 的清單。它**不**驗證該 entry 的 `command` 路徑真的存在、也**不**證明 Claude Code runtime 真的載入了那份 settings。要確認端到端接上，仍需在新 session 實際觸發一次。
 
 hook **在啟用前是 fail-open 且停用的** — 安裝它不會影響一般 session；只有在 `super-mode.{sh,ps1} on` 之後才會作用。
 

@@ -1,6 +1,14 @@
 # HANDOFF — macOS 原生驗證：Opus 5 對齊 + gate 內建工具面補齊
 
-> ## ⛔ 不要安裝這個分支
+> # ✅ 已完成／封存（2026-07-26）——**不要再照跑**
+> macOS 原生驗證**已完成**（darwin arm64：gate-cases **116/116**、`matcher-contract` exit 0、
+> `run-e2e.sh` 11/11、`GATE_UNDER_TEST` 確認指向 worktree），該批改動**已 promote 進 main**。
+> 本檔保留為歷史紀錄與**格式範本**。下方的期望值（114/114 等）是**當時**的數字、**已過時**；
+> 「不要安裝這個分支」也僅適用於當時那個 pending 分支。
+> **Linux 原生驗證仍未做**——要做時請以本檔為格式另備一份 handoff，期望值重新從
+> `linux/skills/超級模式/tests/gate-cases.json` 取（目前 118 案）。
+
+> ## ⛔ 不要安裝這個分支（以下為當時內容，保留原樣）
 > 本分支的 macOS／Linux 改動**只在 Windows 上以 node 跑過邏輯回歸，未經真機驗證**。
 > **不要**把這個分支的檔案複製進 `~/.claude/`，**不要**照 `docs/AI-INSTALL.md` 安裝它。
 > 這份 handoff 只做一件事：在**隔離的 worktree 裡**跑測試、把原始輸出貼回來。

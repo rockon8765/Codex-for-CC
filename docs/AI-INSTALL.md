@@ -11,6 +11,12 @@
 
 以下每步先列 macOS 指令、再列 Windows 對應；**Linux 照 macOS 指令做，把路徑裡的 `macos/` 換成 `linux/` 即可**。
 
+> ⚠️ **Linux 使用者請先讀（2026-07-26）：`linux/` 樹的最新一批改動（gate 內建工具面補齊）尚未經原生驗證。**
+> 它只在 Windows 開發機上以 node 跑過跨宿主邏輯回歸（gate-cases 118/118），**從未在任何 Linux 機器上執行過**；
+> 這不涵蓋 Linux 檔案系統、`os.tmpdir()`／realpath 解析與實際 runtime 整合。
+> 你**可以**照本文件安裝，但**步驟 1a 與步驟 3 的測試不是形式**——那是這批改動在 Linux 上的第一次原生執行。
+> 任何 FAIL：**停止安裝／立即回滾**，並把原始輸出回報使用者與維護者，**不要**自行判斷「應該只是平台差異」而放行。
+
 ## 1. 安裝 skill 與 hook（先驗證 → 先備份 → 安裝，失敗可回滾）
 
 > ⚠️ **不要直接覆蓋既有的 live hook 再測。** 若新版有問題，你會在驗證前就毀掉一個原本可用的 hook（且無回滾）。照「先驗證 repo 版本 → 備份既有 live → 安裝 → 驗證（步驟 3）→ 失敗回滾」的順序做。
@@ -86,8 +92,14 @@ node "$env:USERPROFILE\.claude\skills\超級模式\tests\matcher-contract.test.j
 
 > ★ **`matcher-contract` 是步驟 2 的驗收，不是可選項。** 另外兩支測試都是**直接呼叫** `decide()`，
 > 就算你把 `matcher` 合併錯或漏合併，它們照樣全綠 —— 但真實情況是 hook **根本不會被叫起**，
-> 新工具完全不受攔（假綠）。這支測試專門比對 hook 的工具清單與你剛合併進 settings 的 `matcher`，
-> 是唯一能抓到「裝了 hook 但沒接上」的關卡。FAIL 就回去檢查步驟 2 的合併結果。
+> 新工具完全不受攔（假綠）。這支測試專門比對 hook 的工具清單與你剛合併進 settings 的 `matcher`。
+> FAIL 就回去檢查步驟 2 的合併結果。
+>
+> **它的界線（別高估）**：這是**靜態比對**——挑出 settings 裡註冊了本 hook 的那筆 entry，比對 `matcher` 與 hook 清單。
+> 它**不**驗證該 entry 的 `command` 路徑真的存在、也**不**證明 Claude Code runtime 真的載入了那份 settings
+> （例如 `settings.json` 的 matcher 正確但 `command` 指向不存在的檔、而實際生效的是 `settings.local.json` 的舊 entry，
+> 這支測試仍可能 PASS）。要確認端到端接上，唯一方法是**在新 session 實際觸發一次**：
+> ⚠ hook 設定變更**下個 session 才生效**，所以請在下個 session 開超級模式、於無憑證狀態試一個會被攔的動作，確認真的 deny。
 
 **任何 FAIL → 先回滾、再回報使用者、停止**（不要留一個壞掉的 live hook）：
 
