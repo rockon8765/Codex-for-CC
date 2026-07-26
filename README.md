@@ -34,6 +34,8 @@
 
 > **現況（據實）。** **Windows 版**是目前唯一在其目標平台上原生稽核＋跑過完整回歸測試的版本；本 repo 的維護與對抗測試都以它為準。**macOS／Linux 版**是從 Windows 設計移植的**未原生驗證**版本——路徑正規化（realpath）分支在 Windows 開發機上（`process.platform !== 'win32'`）不會執行，因此那條關鍵路徑**從未在 mac/linux 實機跑過**。在你自己的 mac/linux 上原生跑過 `tests/`（見安裝節）之前，請把它們當**參考實作**，不要當「與 Windows 等價、可直接信賴」的版本。各平台的分階段紀錄與回歸測試臺規格在各自的 `FIX-PLAN.md`（上表連結）；案例數以各平台 `tests/gate-cases.json` 為準（三平台不同、且會隨修補變動）。
 >
+> **本次 delta 的驗證分布（2026-07-26，Opus 5 對齊 ＋ gate 內建工具面補齊）。** Windows 與 macOS 版的這批改動都已在**其目標平台上原生**跑過（gate-cases 各 108/108 與 116/116、`matcher-contract` 皆 PASS；macOS 另原生跑 `run-e2e.sh` 並核對受測的確實是 worktree 內的 hook）。**但 `linux/` 樹未經原生驗證**——這次 linux 的改動只在 Windows 開發機上以 node 跑過邏輯回歸（116/116），**從未在任何 Linux 機器上執行過**。而且 linux hook 的 runner 判定是**刻意 case-preserving**（mac/Windows 走 `toLowerCase()`），這正是要真機才驗得到的差異，**不要用「和 mac 同類、應該沒問題」帶過**。要在 Linux 上用它：先在你自己的機器上原生跑過 `tests/`（見安裝節）再決定信不信。
+>
 > **功能差距（2026-07-16）**：`codex-check` 的**能力面 baseline diff**（NO_BASELINE／`-UpdateBaseline`（bash 為 `--update-baseline`）／四態盤點／快取版本鍵／依賴旗標探測）**Windows 與 macOS 版已實作**（macOS 於其目標平台原生跑過合成測試臺 47 案＋gate 98 案），**linux 版尚未移植**（連 0.143 的能力面盤點段都未移植）——移植規格與定案見 [`docs/handoff-capability-baseline-port.md`](docs/handoff-capability-baseline-port.md)。
 
 ---
@@ -153,8 +155,9 @@ cp    "macos/hooks/super-mode-consult-gate.js" ~/.claude/hooks/
 # 3. 把 hook 接到 ~/.claude/settings.local.json（見 macos/settings.snippet.json），
 #    並把絕對路徑改成你自己家目錄的路徑。
 # 4. 驗證：
-node ~/.claude/skills/超級模式/tests/run-gate-tests.js   # 應全數 PASS（案例數見 gate-cases.json）
-bash ~/.claude/skills/超級模式/tests/run-e2e.sh          # 應全數 passed
+node ~/.claude/skills/超級模式/tests/run-gate-tests.js        # 應全數 PASS（案例數見 gate-cases.json）
+node ~/.claude/skills/超級模式/tests/matcher-contract.test.js # ★ 必跑：抓「裝了 hook 但步驟 3 沒接上」
+bash ~/.claude/skills/超級模式/tests/run-e2e.sh               # 應全數 passed
 ```
 
 **Linux**
@@ -165,9 +168,10 @@ cp    "linux/hooks/super-mode-consult-gate.js" ~/.claude/hooks/
 # 3. 把 hook 接到 ~/.claude/settings.local.json（見 linux/settings.snippet.json），
 #    絕對路徑改成你家目錄；若 node 不在系統 PATH（可攜式安裝），command 開頭的
 #    node 也要寫絕對路徑，否則 hook 會靜默不跑。
-# 4. 驗證：
-node ~/.claude/skills/超級模式/tests/run-gate-tests.js   # 應全數 PASS（案例數見 gate-cases.json）
-bash ~/.claude/skills/超級模式/tests/run-e2e.sh          # 應全數 passed
+# 4. 驗證：★ Linux 版的最新一批改動未經原生驗證（見上方狀態矩陣），這步不是形式，是你這台機器的第一次真驗
+node ~/.claude/skills/超級模式/tests/run-gate-tests.js        # 應全數 PASS（案例數見 gate-cases.json）
+node ~/.claude/skills/超級模式/tests/matcher-contract.test.js # ★ 必跑：抓「裝了 hook 但步驟 3 沒接上」
+bash ~/.claude/skills/超級模式/tests/run-e2e.sh               # 應全數 passed
 ```
 
 **Windows**
@@ -175,6 +179,9 @@ bash ~/.claude/skills/超級模式/tests/run-e2e.sh          # 應全數 passed
 Copy-Item -Recurse ".\windows\skills\超級模式" "$env:USERPROFILE\.claude\skills\"
 Copy-Item ".\windows\hooks\super-mode-consult-gate.js" "$env:USERPROFILE\.claude\hooks\"
 # 然後把 hook 接到 ~/.claude/settings.json（見 windows/settings.snippet.json）。
+# 驗證：
+node "$env:USERPROFILE\.claude\skills\超級模式\tests\run-gate-tests.js"        # 應全數 PASS
+node "$env:USERPROFILE\.claude\skills\超級模式\tests\matcher-contract.test.js" # ★ 必跑：抓「裝了 hook 但沒接上」
 ```
 
 hook **在啟用前是 fail-open 且停用的** — 安裝它不會影響一般 session；只有在 `super-mode.{sh,ps1} on` 之後才會作用。

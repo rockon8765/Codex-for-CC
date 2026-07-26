@@ -223,6 +223,8 @@ WSL/UNC 註記）。
 | T3 §5 委派行為註記 | 文件 | ✅ 三平台完成 | 否 |
 | T4 Windows description 同步 | 文件 | ✅ 完成 | 否 |
 | T5 gate 內建工具面補齊 | code | ✅ repo 完成、三平台測試全綠、**Windows live 已部署驗證** | ✅ 使用者已同意 settings.json + 部署 |
+| promote 進 main | 交付 | ✅ 三平台一次到位（`linux/` 為 **provisional**，見 §7.2/§7.3） | ✅ 使用者已同意 |
+| Linux 原生驗證 | 驗證 | ☐ **未做**——README 的未驗證聲明在此之前不得移除 | — |
 | B1/B2/B3 | backlog | ☐ 未排程 | — |
 
 ## 7.1 執行紀錄（2026-07-25/26）
@@ -290,6 +292,16 @@ WSL/UNC 註記）。
   **失敗項完全相同**，證實是 win32 node 跑 linux hook 的既有平台不匹配，非本次 regression。
 - Windows live 已重新部署（備份 `bak-20260726-015137`，6 檔 SHA 全符，live 108/108 + matcher-contract + 8.3 全綠）。
 
+**⚠ 平台驗證分布（據實，勿模糊帶過）**
+
+| 平台 | 這批 delta 的驗證狀態 |
+|---|---|
+| `windows/` | **已原生驗證**：gate-cases 108/108、`matcher-contract` PASS、8.3 PASS、live 部署後複驗全綠 |
+| `macos/` | **已原生驗證**：Mac 端（darwin arm64、原生 node）gate-cases 116/116、`matcher-contract` exit 0、`run-e2e.sh` 11/11 且 `GATE_UNDER_TEST` 確認指向 worktree；另做憑證 mtime 探針證實 `Artifact` 真的把憑證降到 3 分鐘（60s→1020s）、`ScheduleWakeup` 不消耗 |
+| `linux/` | **未經原生驗證**——本次 delta 的 linux 改動**只在 Windows 開發機上以 node 跑過邏輯回歸（116/116）**，從未在任何 Linux 機器上執行過 |
+
+**linux 的風險不可用「與 mac 同類」代換**（Codex 對抗審查的明確要求，我採納）：linux hook 的 runner 判定是**刻意 case-preserving**（對齊 `norm()` 在 Linux 的 case-sensitive 行為），mac/Windows 才是 `toLowerCase()`——這是三平台**語義真的分岔**的那一處，正好是本次抽 `isRunnerTouchingSensitive()` helper 時碰到的地方（見 §7.1「翻掉規劃假設」第 2 點）。它只有真機跑得出來。再者，本次 linux delta 連容器都沒進過：對照 codex-check C2/C3 那次至少跑過 Debian 容器，這次背書強度**更低**。故 `linux/` 這批屬 **provisional promote**——進 main 是為了讓三平台鏡像不刻意漂移，**不是**宣稱它已驗證。README 狀態矩陣已同步寫明。
+
 **尚未做（需批准）**
 1. **Mac 最小補驗**：核對新 final HEAD、證明 `16737a8..final` 只動預期檔、原 6 筆 blob 未變、
    `bash -n run-e2e.sh`、從 worktree 跑修補後的 e2e 並確認 `GATE_UNDER_TEST` 指向 worktree。
@@ -297,6 +309,26 @@ WSL/UNC 註記）。
 2. **Linux 原生驗證**：Codex 明確反駁「linux 與 mac 同類」——Linux 的 case-preserving 正是要真機驗的差異，
    且本次 linux delta 目前只有 Windows-hosted node 背書（C2/C3 那次至少跑過 Debian 容器）。
 3. promote 進 main（三平台一次到位；不做拆平台 promote，以免三平台鏡像變成刻意漂移）。
+
+## 7.3 第三輪：Linux 誠實聲明 + promote 進 main（2026-07-26）
+
+**promote 前的查證（不採信交接文字，逐項實查）**
+- `git fetch origin --prune` 後 `git ls-remote origin`：`origin/main` = `b103184`（**與上一輪交接所載相同、未被他人推進**）。
+- `git merge-base --is-ancestor origin/main HEAD` exit 0 → 驗證分支是 `origin/main` 的直系後代，**可 ff-merge、無需 rebase**、無衝突。
+- 工作區乾淨；`origin/main..HEAD` 為 4 個 commit（09340e3 / d771fc5 / 16737a8 / 95f5018）。
+
+**promote gate（三平台回歸，promote 當下重跑）**：`run-gate-tests.js` Windows **108/108**、macOS **116/116**、Linux **116/116**；`matcher-contract.test.js` 三平台皆 PASS（15 工具名 + `mcp__.*`）。
+
+**本輪新增的文件改動**
+- `README.md` 狀態矩陣新增「本次 delta 的驗證分布」段：明寫 Windows/macOS 已原生驗證、**`linux/` 未經原生驗證（僅 Windows 上的 node 邏輯回歸）**，並點名 case-preserving 是要真機驗的差異。
+- 本規劃書 §7.2 新增「平台驗證分布」表與 provisional promote 的界定。
+- **順手修掉 §7.2 的一項不實記載**：§7.2 表格末列寫「AI-INSTALL 的安裝前與安裝後驗證、**README 安裝段**全部加入 `matcher-contract`」，但實查 `README.md` 安裝段**當時並未加入**（只有 `docs/AI-INSTALL.md` 加了）。本輪已補齊三平台安裝段（Windows 段原本連驗證指令都沒有，一併補上），使該記載成立。
+
+**promote 方式**：ff-merge（`main` 直接前移到本分支 tip，不產生 merge commit），故 promote 後的 `main` 即本檔所在的 commit。推送後以 `git ls-remote origin` 核對遠端 `main` 確實等於該 SHA，確認無誤才刪除遠端驗證分支。
+
+**promote 後仍未做（不在本輪範圍）**
+- **Linux 原生驗證**：要做時另備 handoff（格式參考 [`docs/HANDOFF-opus5-builtin-gate-macos.md`](HANDOFF-opus5-builtin-gate-macos.md)）。在那之前 README 的未驗證聲明**不得移除**。
+- **macOS live 部署**：由 Mac 端自行照 [`docs/AI-INSTALL.md`](AI-INSTALL.md) 執行（Windows live 已於 §7.2 部署完成）。
 
 ## 8. 風險與未決
 
