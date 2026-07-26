@@ -42,11 +42,13 @@
 > **Windows**：已在 win32 原生通過 gate-cases 108/108、`matcher-contract`、NTFS 8.3 短名測試，live 部署後另複驗一次。
 > **macOS**：已在 darwin arm64 原生通過 gate-cases 116/116、`matcher-contract`、`run-e2e.sh` 11/11，並核對受測 hook 確實是 worktree 內那份。
 >
-> **Linux**：已在**兩個獨立的 Linux 環境**原生通過——WSL2／ext4／glibc／Node v22.23.1，以及 GitHub Actions 的 `ubuntu-latest`（Ubuntu 24.04、Node v22.23.1）。兩者跑的是**同一份 bytes**（`run-e2e.sh` 印出的 `GATE_BLOB` 相同）：gate-cases **118/118**、`matcher-contract`、`run-e2e.sh` 11/11、`codex-check` 合成測試臺 41 案、`consult-schema` 2 案、`bash -n` ×7。
+> **Linux**：已在**兩個 Linux-kernel 執行環境**通過——Windows-hosted 的 WSL2（ext4／glibc／Node v22.23.1）與 GitHub-hosted 的 Ubuntu runner（映像版本以 CI log 為準，Node v22.23.1）。兩者 checkout 同一個 commit，且 `run-e2e.sh` 印出的 `GATE_BLOB`（**hook 的 blob hash**，非整棵樹）相同。結果：gate-cases **120/120**、`matcher-contract`、`run-e2e.sh` 11/11、`codex-check` 合成測試臺 41 案、`consult-schema` 2 案、`bash -n` ×7。
 >
-> Linux 版保留 case-sensitive／case-preserving 語義（`isRunnerTouchingSensitive()`，mac/Windows 走 `toLowerCase()`）。**這條語義的守護是實測過的**：把它誤植成 mac 的 `toLowerCase()` 後，在真 Linux 上 gate-cases 會變成 116/118 —— 且失敗的**只有**那兩筆專為此設計的案例。（值得記下的教訓：同一個誤植在 **Windows 主機**上會被另外 3 個案例擋下，但那 3 案的區辨性來自 Windows 的 `os.tmpdir()` 含大寫；真 Linux 的 `tmpdir` 是全小寫 `/tmp`，那 3 案會**假綠**。跨宿主跑測試 ≠ 原生驗證，這就是最好的例子。）該變異測試已寫進 CI，防止這層守護日後被悄悄拆掉。
+> 這證明的是**目標 ABI 與檔案系統語義**（大小寫敏感、`realpath`、`os.tmpdir()`），**不代表**裸機或跨 distro 相容性——兩個環境都是 Ubuntu 系 glibc。
 >
-> **仍未涵蓋的**：以上全是**直接呼叫 `decide()`** 的測試，不證明 Claude Code runtime 真的載入你的 settings 並叫起 hook。端到端只能在新 session 實際觸發一次（見安裝節的 `matcher-contract` 說明）。
+> Linux 版保留 case-sensitive／case-preserving 語義（`isRunnerTouchingSensitive()`，mac/Windows 走 `toLowerCase()`）。**這條語義的守護是實測過的**：把它誤植成 mac 的 `toLowerCase()` 後，在真 Linux 上 gate-cases 會變成 118/120 —— 且失敗的**只有**那兩筆專為此設計的案例。（值得記下的教訓：同一個誤植在 **Windows 主機**上會被另外 3 個案例擋下，但那 3 案的區辨性來自 Windows 的 `os.tmpdir()` 含大寫；真 Linux 的 `tmpdir` 是全小寫 `/tmp`，那 3 案會**假綠**。跨宿主跑測試 ≠ 原生驗證，這就是最好的例子。）該變異測試已寫進 CI，防止這層守護日後被悄悄拆掉。
+>
+> **仍未涵蓋的**：`run-gate-tests.js` 與 `matcher-contract` 是**直接呼叫／靜態讀取**；`run-e2e.sh` 確實會以 stdin 啟動**完整的 hook process**（所以 hook 的行程層行為有被驗到）。但**沒有任何一支**證明 Claude Code runtime 真的載入你的 settings 並據此叫起 hook——那條路只能在新 session 實際觸發一次（見安裝節的 `matcher-contract` 說明）。
 >
 > **功能差距（2026-07-16）**：`codex-check` 的**能力面 baseline diff**（NO_BASELINE／`-UpdateBaseline`（bash 為 `--update-baseline`）／四態盤點／快取版本鍵／依賴旗標探測）**Windows 與 macOS 版已實作**（macOS 於其目標平台原生跑過合成測試臺 47 案＋gate 98 案），**linux 版尚未移植**（連 0.143 的能力面盤點段都未移植；`capability`/`baseline` 關鍵字在 Windows 版 25／52 處、macOS 版 25／58 處，Linux 版 **0 處**）——這是 Linux 版**目前進行中的開發項目**，移植規格見 [`docs/handoff-capability-baseline-port.md`](docs/handoff-capability-baseline-port.md) 與 [`docs/handoff-0143-capability-surface-port.md`](docs/handoff-0143-capability-surface-port.md)。
 
@@ -231,4 +233,4 @@ hook **在啟用前是 fail-open 且停用的** — 安裝它不會影響一般 
 - 沒有 BOM 問題 — 那些步驟已刻意移除。簡報以一般 stdin 重導向（`< file`）送給 Codex；stderr 收到獨立檔再併進 log（絕不用 `2>&1`，那會把 Codex 的雜訊回灌進 Claude 的 context）。
 - `set -e` + pipeline 會吞掉 Codex 的 exit code — 腳本用固定的 `set +e … ${PIPESTATUS[0]} … set -e` 寫法（FIX-PLAN §0.5）。
 - macOS ↔ Linux 的**共通**差異是 `stat`（BSD `-f %m` vs GNU `-c %Y`，在 `codex-check.sh` 與 `super-mode.sh`）——別把版本拿錯邊。
-- ⚠️ **但兩者早已不只差一個 `stat`。** `codex-check.sh` 目前 macOS 549 行、Linux 123 行：**能力面盤點與 baseline diff 整段尚未移植到 Linux**（`capability`/`baseline` 關鍵字在 mac 版各 25／58 處，Linux 版 **0 處**）；`.codex-check-baseline` 也還沒進 Linux hook 的安全關鍵檔清單。**不要**把 macOS 版的 `codex-check.sh` 直接當成 Linux 版的等價物拿來抄或替換。移植規格見 [`docs/handoff-capability-baseline-port.md`](docs/handoff-capability-baseline-port.md) 與 [`docs/handoff-0143-capability-surface-port.md`](docs/handoff-0143-capability-surface-port.md)。
+- ⚠️ **但兩者早已不只差一個 `stat`。** `codex-check.sh` 目前 macOS 549 行、Linux 123 行：**能力面盤點與 baseline diff 整段尚未移植到 Linux**（`capability`/`baseline` 關鍵字在 mac 版各 25／58 處，Linux 版 **0 處**）。（`.codex-check-baseline` 的 hook 安全關鍵檔保護**已於 2026-07-26 補上**，屬未來功能的預留保護——但產生該檔的 `codex-check` 功能本身仍未移植。）**不要**把 macOS 版的 `codex-check.sh` 直接當成 Linux 版的等價物拿來抄或替換。移植規格見 [`docs/handoff-capability-baseline-port.md`](docs/handoff-capability-baseline-port.md) 與 [`docs/handoff-0143-capability-surface-port.md`](docs/handoff-0143-capability-surface-port.md)。

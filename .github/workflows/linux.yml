@@ -5,7 +5,8 @@
 # os.tmpdir()，在 Windows 上含大寫、在 Linux 上是全小寫 /tmp，同一組案例的區辨性因此
 # 完全不同（2026-07-26 的變異測試實證：mac 式 toLowerCase 的錯誤移植，在 Windows 主機
 # 上會被 3 個案例擋下，在真 Linux 上那 3 案卻照樣全綠）。
-# ubuntu-latest 是真 Linux（ext4、GNU userland、原生 node），跑在這裡才算數。
+# GitHub-hosted 的 Ubuntu runner 是真 Linux kernel + GNU userland + 原生 node，跑在這裡才算數。
+# （實際映像版本與檔案系統**不**寫死在註解裡——由下方「環境」步驟印進 log 當證據。）
 name: linux
 
 on:
@@ -23,17 +24,30 @@ concurrency:
 jobs:
   regression:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v7
+      # action 一律釘 commit SHA，不用可移動的 vN tag（供應鏈：tag 可被重指）。
+      # SHA 由 `gh api repos/<r>/git/ref/tags/v7` 自行解析取得，非抄來的。
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          # 這個 workflow 只讀 repo、不推東西；留著 checkout 寫進 git config 的 token
+          # 只是讓後續任意步驟（含 PR 分支帶進來的測試腳本）多一個可用憑證。
+          persist-credentials: false
 
       # 釘 22.x：2026-07-26 的 WSL2 原生驗收就是 Node v22.23.1，保持同一大版本以免
       # 用不同 runtime 解讀同一組期望值。
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: '22'
+          # 本 repo 沒有 npm 相依，不需要（也不該）依 package.json 自動開快取。
+          package-manager-cache: false
 
       - name: 環境（留在 log 裡當證據）
         run: |
+          uname -a
+          . /etc/os-release && echo "distro: $PRETTY_NAME"
+          # 別在文件裡宣稱 runner 的檔案系統——當場量出來寫進 log。
+          findmnt -T . -o TARGET,SOURCE,FSTYPE || true
           node -v
           node -p "process.platform + ' ' + process.arch + ' tmpdir=' + require('os').tmpdir()"
           bash --version | head -1

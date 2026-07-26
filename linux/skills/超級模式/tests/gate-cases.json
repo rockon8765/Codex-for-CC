@@ -327,6 +327,6 @@
   {"name":"T5 Monitor: 命令替換 denies","flagContent":"","tokenAgeMs":null,"input":{"tool_name":"Monitor","tool_input":{"command":"tail -f $(cat target.txt)"}},"expect":"deny"},
   {"name":"linux case-preserving: Bash runner 指向 /TMP 不當成 /tmp → allow（釘死 isRunnerTouchingSensitive 不得盲抄 mac 的 toLowerCase；正向控制是上面的 /tmp deny 案）","flagContent":"","tokenAgeMs":null,"input":{"tool_name":"Bash","tool_input":{"command":"pytest /TMP/claude-x/scratchpad"},"cwd":"/home/user/proj"},"expect":"allow"},
   {"name":"linux case-preserving: Monitor runner 指向 /TMP → allow（Monitor 與 Bash 共用同一 helper，兩個呼叫點都要釘）","flagContent":"","tokenAgeMs":null,"input":{"tool_name":"Monitor","tool_input":{"command":"pytest /TMP/claude-x/scratchpad"}},"expect":"allow"},
-  {"name":"B: scoped flag, Write .codex-check-baseline denies (能力面 baseline 屬安全關鍵檔)","flagContent":"/home/user/someRepo","tokenAgeMs":null,"input":{"tool_name":"Write","tool_input":{"file_path":"__BASE__/.codex-check-baseline"}},"expect":"deny"},
-  {"name":"B: unscoped flag, Edit .codex-check-baseline denies","flagContent":"","tokenAgeMs":null,"input":{"tool_name":"Edit","tool_input":{"file_path":"__BASE__/.codex-check-baseline"}},"expect":"deny"}
+  {"name":"B: scoped flag, Write .codex-check-baseline denies (安全關鍵檔；⚠ Linux 的 codex-check 尚未實作 baseline，此為預留路徑保護)","flagContent":"/home/user/someRepo","tokenAgeMs":null,"input":{"tool_name":"Write","tool_input":{"file_path":"__BASE__/.codex-check-baseline"}},"expect":"deny"},
+  {"name":"B: unscoped flag, Edit .codex-check-baseline denies (同上，預留路徑)","flagContent":"","tokenAgeMs":null,"input":{"tool_name":"Edit","tool_input":{"file_path":"__BASE__/.codex-check-baseline"}},"expect":"deny"}
 ]
