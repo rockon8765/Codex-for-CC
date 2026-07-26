@@ -1,0 +1,96 @@
+# Linux 原生回歸 — 讓 linux/ 樹不必依賴「維護者剛好有 Linux 機器」。
+#
+# 為什麼需要：本 repo 的三平台鏡像中，linux/ 的改動長期只能在 Windows 上以 node 做
+# 跨宿主邏輯回歸。那種跑法**證明力有限** —— 例如 gate-cases 用 `__TMP__` 佔位符展開成
+# os.tmpdir()，在 Windows 上含大寫、在 Linux 上是全小寫 /tmp，同一組案例的區辨性因此
+# 完全不同（2026-07-26 的變異測試實證：mac 式 toLowerCase 的錯誤移植，在 Windows 主機
+# 上會被 3 個案例擋下，在真 Linux 上那 3 案卻照樣全綠）。
+# ubuntu-latest 是真 Linux（ext4、GNU userland、原生 node），跑在這裡才算數。
+name: linux
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: linux-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # 釘 22.x：2026-07-26 的 WSL2 原生驗收就是 Node v22.23.1，保持同一大版本以免
+      # 用不同 runtime 解讀同一組期望值。
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: 環境（留在 log 裡當證據）
+        run: |
+          node -v
+          node -p "process.platform + ' ' + process.arch + ' tmpdir=' + require('os').tmpdir()"
+          bash --version | head -1
+          stat --version | head -1
+
+      # SUT 身分：測試臺在找不到 repo 內 hook 時會 fallback 到 ~/.claude/hooks，
+      # 那會變成「驗到安裝版而非待驗 bytes」的假綠。runner 上不該有這個目錄，明確斷言。
+      - name: 斷言無 shadow hook
+        run: |
+          if [ -e "$HOME/.claude" ]; then
+            echo "::error::runner 上出現 ~/.claude，測試可能驗到非待驗 bytes"
+            exit 1
+          fi
+          echo "no ~/.claude — SUT 只會是 repo 內的 hook"
+
+      - name: node --check（hook 語法）
+        run: node --check "linux/hooks/super-mode-consult-gate.js"
+
+      - name: bash -n（腳本與測試臺語法）
+        run: |
+          for f in linux/skills/超級模式/scripts/*.sh linux/skills/超級模式/tests/*.sh; do
+            bash -n "$f" && echo "OK  $f"
+          done
+
+      - name: gate-cases 回歸
+        run: node "linux/skills/超級模式/tests/run-gate-tests.js"
+
+      # 這支抓的是「hook 的攔截清單」與「settings matcher」漂移 —— 另外兩支測試都是直接
+      # 呼叫 decide()，matcher 漏列時它們照樣全綠，但真實情況是 hook 根本不會被叫起。
+      - name: matcher-contract
+        run: node "linux/skills/超級模式/tests/matcher-contract.test.js"
+
+      - name: e2e（會印 GATE_UNDER_TEST / GATE_BLOB 供核對）
+        run: bash "linux/skills/超級模式/tests/run-e2e.sh"
+
+      - name: codex-check 合成測試臺
+        run: bash "linux/skills/超級模式/tests/codex-check.tests.sh"
+
+      - name: consult-schema
+        run: bash "linux/skills/超級模式/tests/consult-schema.tests.sh"
+
+      # 非空驗證：把 linux 的 case-preserving helper 換成 mac 版的 toLowerCase()，
+      # gate-cases 必須變紅。若這步「變異後仍全綠」，代表回歸網對這條平台語義失效了。
+      - name: 變異測試（守住 case-preserving 的區辨性）
+        run: |
+          cp -r linux "$RUNNER_TEMP/linux-mut"
+          MUT="$RUNNER_TEMP/linux-mut/hooks/super-mode-consult-gate.js"
+          sed -i 's/String(cmd)\.replace(/String(cmd).toLowerCase().replace(/' "$MUT"
+          # 先確認變異真的套用了 —— helper 若被改名/重寫，這步要當場失敗，而不是
+          # 讓「變異後仍全綠」被誤讀成回歸網失效。
+          grep -q 'String(cmd).toLowerCase().replace(' "$MUT" || {
+            echo "::error::變異點不存在 — isRunnerTouchingSensitive 已被改寫，請更新本步驟"
+            exit 1
+          }
+          node --check "$MUT"
+          if node "$RUNNER_TEMP/linux-mut/skills/超級模式/tests/run-gate-tests.js"; then
+            echo "::error::變異後仍全綠 —— case-preserving 已無測試守護（假綠）"
+            exit 1
+          fi
+          echo "變異已被測試抓到 — 回歸網有效"
