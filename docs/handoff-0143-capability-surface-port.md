@@ -1,5 +1,19 @@
 # Handoff：把 0.143.0 的能力面盤點移植到 macos/ 與 linux/
 
+> # ⛔ 已被取代（2026-07-26）——**不要照 §1 的程式碼片段實作**
+> 本文件寫於 Codex CLI **0.143.0** 時代。§1 那段「可直接貼上的實作」把要盤點的 feature **寫死成 8 個名字**：
+> `remote_plugin plugins computer_use browser_use in_app_browser multi_agent network_proxy respect_system_proxy`。
+>
+> 對照 **0.145.0** 的實測（本機 live baseline）：`codex features list` 共 **37 項**，
+> 上述 8 項中**只有 6 項仍存在**，`network_proxy` 與 `respect_system_proxy` **已不存在**。
+> 照抄的結果是一個只看得見 **6/37** 能力面、還引用兩個死旗標的盤點——比沒有更糟，因為它看起來像有在盯。
+>
+> **現行唯一真相 ＝ `macos/skills/超級模式/scripts/codex-check.sh` 的實作**
+> （`collect_capability_snapshot()` / `show_capability_surface()`）。它是**版本無關**的：
+> 以 awk 泛解析 `codex plugin list` / `codex mcp list` / `codex features list` 的每一列，
+> 不寫死任何名單，因此新版新增的 feature（如 0.145 的 `skill_search`）會自動被納入。
+> 要移植到 Linux，**以那份實作為來源**；本文件只保留「為什麼要做」的背景與落點說明。
+
 > 對象：維護 `macos/` 與 `linux/` 的人（或其 Claude Code）。
 > 來源：`windows/` 已於 commit `a90b127` 落地兩處改動；本文件說明哪一處要移植、哪一處**不要**移植，以及精準落點與驗收。
 > 背景：Codex CLI 升到 **0.143.0**，其中 `remote_plugin` 旗標改為**預設 ON**（遠端外掛預設啟用）。這讓「worker 繼承全域 config 的一大包能力面」更值得每次派工前看得見。

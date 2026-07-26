@@ -1,5 +1,12 @@
 # Handoff：能力面 baseline diff 移植（macOS / Linux）
 
+> ℹ️ **移植 Linux 版時，程式碼來源以 `macos/skills/超級模式/scripts/codex-check.sh` 的現行實作為準**
+> （`collect_capability_snapshot()` / `show_capability_surface()` / `read_baseline_file()` /
+> `write_baseline_file()` / `invoke_baseline_check()`）；本文件當規格與決策紀錄讀。
+> 理由：實作已隨 Codex CLI 演進數版（本機現為 **0.145.0**），文件中的片段只是撰寫當下的快照。
+> 同一個坑已在 [`handoff-0143-capability-surface-port.md`](handoff-0143-capability-surface-port.md) 發生過——
+> 那份的可貼上片段寫死 feature 名單，對照 0.145 實測的 37 項只涵蓋 6 項、且有 2 項已不存在。
+
 > **執行紀錄（2026-07-16，macOS）**：macOS 版已完成移植——`macos/.../scripts/codex-check.sh`（`-u/--update-baseline`）、
 > 19 個 `t_b_*` 案全數鏡像（合成測試臺 47 案 118 斷言全綠，t_b_no_drift 內加測 BOM+CRLF 容忍）、
 > `t_h4_newformat_cache_hit` 補 2 斷言、hook `.codex-check-baseline` 入安全關鍵檔（gate 98/98）、

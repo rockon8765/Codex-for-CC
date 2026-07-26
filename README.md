@@ -50,7 +50,7 @@
 >
 > **仍未涵蓋的**：`run-gate-tests.js` 與 `matcher-contract` 是**直接呼叫／靜態讀取**；`run-e2e.sh` 確實會以 stdin 啟動**完整的 hook process**（所以 hook 的行程層行為有被驗到）。但**沒有任何一支**證明 Claude Code runtime 真的載入你的 settings 並據此叫起 hook——那條路只能在新 session 實際觸發一次（見安裝節的 `matcher-contract` 說明）。
 >
-> **功能差距（2026-07-16）**：`codex-check` 的**能力面 baseline diff**（NO_BASELINE／`-UpdateBaseline`（bash 為 `--update-baseline`）／四態盤點／快取版本鍵／依賴旗標探測）**Windows 與 macOS 版已實作**（macOS 於其目標平台原生跑過合成測試臺 47 案＋gate 98 案），**linux 版尚未移植**（連 0.143 的能力面盤點段都未移植；`capability`/`baseline` 關鍵字在 Windows 版 25／52 處、macOS 版 25／58 處，Linux 版 **0 處**）——這是 Linux 版**目前進行中的開發項目**，移植規格見 [`docs/handoff-capability-baseline-port.md`](docs/handoff-capability-baseline-port.md) 與 [`docs/handoff-0143-capability-surface-port.md`](docs/handoff-0143-capability-surface-port.md)。
+> **功能差距（2026-07-16）**：`codex-check` 的**能力面 baseline diff**（NO_BASELINE／`-UpdateBaseline`（bash 為 `--update-baseline`）／四態盤點／快取版本鍵／依賴旗標探測）**Windows 與 macOS 版已實作**（macOS 於其目標平台原生跑過合成測試臺 47 案＋gate 98 案），**linux 版尚未移植**（連 0.143 的能力面盤點段都未移植；`capability`/`baseline` 關鍵字在 Windows 版 25／52 處、macOS 版 25／58 處，Linux 版 **0 處**）——這是 Linux 版**目前進行中的開發項目**。⚠️ **移植來源是 [`macos/skills/超級模式/scripts/codex-check.sh`](macos/skills/超級模式/scripts/codex-check.sh) 的現行實作**（版本無關：泛解析 `codex {plugin,mcp,features} list` 的每一列，不寫死名單，新版新增的 feature 會自動納入）。兩份 handoff（[baseline](docs/handoff-capability-baseline-port.md)、[0.143 能力面](docs/handoff-0143-capability-surface-port.md)）只當「為什麼要做」的背景讀——**後者的可貼上片段已過時**：它寫死 8 個 feature，對照 0.145 實測的 37 項只涵蓋 6 項，且其中 2 項已不存在。
 
 ---
 
