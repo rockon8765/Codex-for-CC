@@ -11,11 +11,10 @@
 
 以下每步先列 macOS 指令、再列 Windows 對應；**Linux 照 macOS 指令做，把路徑裡的 `macos/` 換成 `linux/` 即可**。
 
-> ⚠️ **Linux 使用者請先讀（2026-07-26）：`linux/` 樹的最新一批改動（gate 內建工具面補齊）尚未經原生驗證。**
-> 它只在 Windows 開發機上以 node 跑過跨宿主邏輯回歸（gate-cases 118/118），**從未在任何 Linux 機器上執行過**；
-> 這不涵蓋 Linux 檔案系統、`os.tmpdir()`／realpath 解析與實際 runtime 整合。
-> 你**可以**照本文件安裝，但**步驟 1a 與步驟 3 的測試不是形式**——那是這批改動在 Linux 上的第一次原生執行。
-> 任何 FAIL：**停止安裝／立即回滾**，並把原始輸出回報使用者與維護者，**不要**自行判斷「應該只是平台差異」而放行。
+> ℹ️ **Linux（2026-07-26 起）**：`linux/` 樹每次 push／PR 都會在 GitHub Actions 的 `ubuntu-latest` 上跑完整原生回歸
+> （[`.github/workflows/linux.yml`](../.github/workflows/linux.yml)）。安裝前想確認你要裝的 commit 是否綠燈，
+> 看該 workflow 的狀態即可。**但這不免除步驟 1a／步驟 3**——CI 驗的是 repo bytes，你要驗的是**你這台機器的安裝結果**
+> （node 位置、settings 合併、家目錄路徑），那是 CI 驗不到的部分。任何 FAIL：停止安裝／回滾並回報。
 
 ## 1. 安裝 skill 與 hook（先驗證 → 先備份 → 安裝，失敗可回滾）
 
@@ -131,6 +130,7 @@ node "$env:USERPROFILE\.claude\skills\超級模式\tests\matcher-contract.test.j
 跑已安裝的權威 smoke test（不要只跑 `codex --version`，登入狀態要靠真實呼叫驗證）：
 
 **macOS**：`bash ~/.claude/skills/超級模式/scripts/codex-check.sh`
+**Linux**：`bash ~/.claude/skills/超級模式/scripts/codex-check.sh`（同路徑；**注意 Linux 版目前只有 H1–H5 那層，沒有能力面盤點與 baseline diff**——輸出比 macOS／Windows 短是預期的，不是壞掉）
 **Windows**：`& "$env:USERPROFILE\.claude\skills\超級模式\scripts\codex-check.ps1"`
 
 - **通過** → 繼續步驟 5。

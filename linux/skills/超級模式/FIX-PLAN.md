@@ -1,7 +1,8 @@
 # 超級模式移植紀錄（FIX-PLAN · Linux 版）
 
 > 版本：2026-07-03 v1.0 ｜ 依據：本 repo 的 macOS 版（`macos/`，其 FIX-PLAN 記錄了自 Windows 參考版移植 + Phase 1–5 全數完成的過程）
-> 性質：**機械式移植**。macOS bash 版與 Linux 的差異只剩 BSD vs GNU userland 與文件內的平台文案；所有發現、不變量（I1–I9）、驗收條件全數沿用 macOS 版，本文件只記錄「哪裡不同、為什麼、怎麼驗」。
+> 性質：**起初是機械式移植**（2026-07-03），所有發現、不變量（I1–I9）、驗收條件沿用 macOS 版。
+> ⚠️ **但 2026-07-26 起，「差異只剩 BSD vs GNU userland」這句已不成立**——下表已按實測重寫。真實狀況：hook 有 3 處**平台語義**差異、`codex-check.sh` 有一整層功能尚未移植（macOS 549 行 vs Linux 123 行）、`codex-exec.sh` 有一處**三平台不一致**。本文件只記錄「哪裡不同、為什麼、怎麼驗」。
 > 語言慣例：說明用繁體中文；程式碼／指令／檔名／旗標一律英文。
 
 ---
@@ -10,10 +11,10 @@
 
 | 檔案 | 差異 | 原因 |
 |---|---|---|
-| `hooks/super-mode-consult-gate.js` | **逐位元組相同** | hook 是純 Node，無平台分支；I9 的 `.sh` basename 排除在 Linux 同義成立 |
-| `scripts/codex-consult.sh` | **逐位元組相同** | 純 POSIX + codex CLI，無 BSD 依賴 |
-| `scripts/codex-exec.sh` | **逐位元組相同** | 同上 |
-| `scripts/codex-check.sh` | `stat -f %m` → `stat -c %Y` | BSD stat（macOS）→ GNU stat（Linux）；語意同為「檔案 mtime epoch 秒」 |
+| `hooks/super-mode-consult-gate.js` | ❌ **不相同**（vs macOS：+12 / −11 行）。**3 處是真實語義、其餘是註解**：<br>① `norm()`：macOS `toLowerCase()`（APFS 大小寫不敏感），Linux **不 lowercase**（否則 `/home/user/Proj` 會被誤判在 `/home/user/proj` 內）<br>② `isRunnerTouchingSensitive()`：Linux **case-preserving**，與 `norm()` 對齊（避免 home/tmpdir 含大寫時漏偵測）<br>③ `isSecurityCriticalPath()` 的 `.codex-check-baseline`（2026-07-26 補上，補前 Linux 上寫該檔**零憑證放行**，與 win/mac 不一致） | 平台檔案系統大小寫語義不同。**①②勿與 mac 版互抄**——實測誤植成 `toLowerCase()` 後，真 Linux 上 gate-cases 由 120 掉到 118，且失敗的只有專為此設計的兩案（在 Windows 主機上跑則會假綠，見 §4） |
+| `scripts/codex-consult.sh` | **逐位元組相同**（實測 SHA256 相符） | 純 POSIX + codex CLI，無 BSD 依賴 |
+| `scripts/codex-exec.sh` | ❌ **不相同**（2 行）：macOS 有 `--disable remote_plugin`，Linux **沒有** | ⚠️ **這不是 Linux 落後，是三平台不一致**——`windows/codex-exec.ps1` 同樣沒有；該旗標是 Mac 端單方面加的硬化（`8bbd43f`）。維護者已明確**暫緩**收緊 `--disable`，故本版**刻意不移植**。要改請三平台一起改 |
+| `scripts/codex-check.sh` | ❌ **差距遠不只 `stat`**：macOS **549 行** vs Linux **123 行**。Linux 只有 H1–H5（版本抽取／npm watchdog／能力探測），**能力面盤點與 baseline diff 整段不存在**（`capability`/`baseline` 關鍵字：macOS 25／58 處，Linux **0／0**） | 移植中的開發項目。規格見 [`docs/handoff-0143-capability-surface-port.md`](../../../docs/handoff-0143-capability-surface-port.md) 與 [`docs/handoff-capability-baseline-port.md`](../../../docs/handoff-capability-baseline-port.md)。共通的 `stat -f %m` → `stat -c %Y` 翻譯仍成立 |
 | `scripts/super-mode.sh` | `stat -f %m` → `stat -c %Y` | 同上 |
 | `tests/run-gate-tests.js` | **逐位元組相同** | 佔位符機制（`__TMP__`/`__BASE__`）本就跨平台 |
 | `tests/gate-cases.json` | 假路徑字面 `/Users/user/...` → `/home/user/...` | 僅字面一致性；判定邏輯不依賴路徑前綴（homedir 豁免走 `__BASE__`） |
@@ -26,7 +27,7 @@
 
 ## 2. 不變量對照（沿用 macOS 版 I1–I9）
 
-- **I1–I7**：hook 逐位元組相同、憑證／旗標語意不變 → 直接沿用，由 34 案例回歸測試臺背書（見 §4）。
+- **I1–I7**：憑證／旗標語意不變 → 沿用，由 **120 案**回歸測試臺背書（見 §4）。⚠️ 原文寫「hook 逐位元組相同」，**2026-07-26 起不成立**（見 §1 表格；差異是刻意的平台語義，不是漂移）。
 - **I8**（UTF-8 不亂碼）：Linux 預設 UTF-8 locale，天然成立；驗收同 macOS——部署後實跑一輪中文簡報 consult/exec。
 - **I9**（`*.sh` 不得被 scratchpad／`~/.claude` 豁免）：與 macOS 同義成立，測試案例背書。
 
@@ -37,7 +38,38 @@
 3. **codex 位置**：npm global 安裝常落在 `~/.local/bin/codex` 或 npm prefix 的 `bin/`；只要在 PATH 上即可，腳本不寫死路徑。
 4. 其餘部署步驟與 macOS 版相同：hook 複製到 `~/.claude/hooks/`（skill 目錄內不留副本——I3 的唯一保護目錄）、skill 目錄放 `~/.claude/skills/超級模式/`、snippet 合併進 `settings.local.json`。
 
-## 4. 驗證紀錄（2026-07-03，Linux x86_64 / GNU coreutils / Node v22.14.0 / codex-cli 0.142.5）
+## 4. 驗證紀錄
+
+### 4.1（2026-07-26）Linux 原生 —— 兩個獨立環境 + 持續性 CI
+
+| 環境 | 內容 |
+|---|---|
+| WSL2 | ext4 / glibc / Node **v22.23.1**（官方 tarball，SHA256 核對） |
+| GitHub Actions | `ubuntu-latest`（Ubuntu 24.04）/ Node **v22.23.1** |
+
+兩者跑**同一份 bytes**（`run-e2e.sh` 印出的 `GATE_BLOB` 相同）。結果：
+
+| 項目 | 結果 |
+|---|---|
+| `node --check` hook | ✅ |
+| `bash -n`（scripts ×4 + tests ×3） | ✅ |
+| `node tests/run-gate-tests.js` | ✅ **120/120** |
+| `node tests/matcher-contract.test.js` | ✅ |
+| `bash tests/run-e2e.sh` | ✅ 11/11，`GATE_UNDER_TEST` 指向 repo 內 hook |
+| `bash tests/codex-check.tests.sh` | ✅ TOTAL 41 FAIL 0 |
+| `bash tests/consult-schema.tests.sh` | ✅ 2/2 |
+
+**變異測試（非空驗證，重要）**：把 `isRunnerTouchingSensitive()` 換成 macOS 的 `toLowerCase()` 後，
+真 Linux 上 gate-cases 變 **118/120**，且失敗的**只有**那兩筆專為此設計的 `/TMP` 案例。
+**同一個誤植在 Windows 主機上跑，卻會被另外 3 個案例擋下**——但那 3 案的區辨性來自 Windows 的
+`os.tmpdir()` 含大寫（`C:\Users\...\Temp`）；真 Linux 的 `tmpdir` 是全小寫 `/tmp`，那 3 案會**假綠**。
+**結論：跨宿主跑 `run-gate-tests.js` 不能取代 Linux 原生驗證。** 該變異測試已寫進 CI
+（[`.github/workflows/linux.yml`](../../../.github/workflows/linux.yml)），防止這層守護日後被悄悄拆掉。
+
+**仍未涵蓋**：以上皆為直接呼叫 `decide()`，不證明 Claude Code runtime 真的載入 settings 並叫起 hook；
+端到端只能在新 session 實際觸發一次。
+
+### 4.2（2026-07-03，歷史）Linux x86_64 / GNU coreutils / Node v22.14.0 / codex-cli 0.142.5
 
 | 項目 | 指令 | 結果 |
 |---|---|---|

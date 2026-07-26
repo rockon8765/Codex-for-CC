@@ -1,5 +1,7 @@
 # Codex-for-CC — 超級模式 (Super Mode)
 
+[![linux](https://github.com/rockon8765/Codex-for-CC/actions/workflows/linux.yml/badge.svg)](https://github.com/rockon8765/Codex-for-CC/actions/workflows/linux.yml)
+
 一個 **Claude Code** skill：讓 Claude 當**指揮（orchestrator）**、**OpenAI Codex CLI** 當**執行（worker）**，把繁重的實作工作外包給 Codex（藉此節省 Claude Code 用量），而 Claude 專注在規劃、審查、並以 spec 當作合約。
 
 一個 `PreToolUse` 的 **consult-gate** hook 負責推動這套紀律：超級模式啟用期間，會改變狀態的工具呼叫（寫檔、shell、MCP 寫入、外發型內建工具）在**沒有** 20 分鐘內、由「先跑一次唯讀 Codex 諮詢」換來的「第二意見」憑證時會被攔下，要求先諮詢。
@@ -34,13 +36,19 @@
 
 > **現況（據實）。** **Windows 版**是本 repo 的維護基準，原生稽核與對抗測試的覆蓋最廣。**macOS 與 Linux 版都曾對特定 revision／功能做過原生驗證**（例如 P0.1 realpath 縱深硬化 `351061a` 記載 Linux 在 WSL2/ext4/glibc 上原生跑過 gate-cases 98/98 ＋ 9 個 symlink 探針），**但各次的涵蓋範圍與時間點都不同——不能由歷史上某次 PASS 推定目前 tip 已達成三平台等價驗證**。要判斷「現在這批改動可不可信」，請以下方**「本次 delta 的驗證分布」**為準。各平台的分階段紀錄與回歸測試臺規格在各自的 `FIX-PLAN.md`（上表連結）；案例數以各平台 `tests/gate-cases.json` 為準（三平台不同、且會隨修補變動）。
 >
+> **例外：Linux 自 2026-07-26 起有持續性的原生覆蓋。** [`.github/workflows/linux.yml`](.github/workflows/linux.yml) 讓每次 push／PR 都在 `ubuntu-latest` 上跑完整 `linux/` 回歸（含一道變異測試守住平台語義）。所以 linux 的「目前 tip 是否原生驗證過」不必再靠人工回想——看 CI 狀態即可。Windows 與 macOS 目前**沒有** CI，仍靠人工原生驗證。
+>
 > **本次 delta 的驗證分布（2026-07-26，Opus 5 對齊 ＋ gate 內建工具面補齊）。**
 > **Windows**：已在 win32 原生通過 gate-cases 108/108、`matcher-contract`、NTFS 8.3 短名測試，live 部署後另複驗一次。
 > **macOS**：已在 darwin arm64 原生通過 gate-cases 116/116、`matcher-contract`、`run-e2e.sh` 11/11，並核對受測 hook 確實是 worktree 內那份。
 >
-> **`linux/` 尚未原生驗證。** Linux 的 gate-cases 118/118 是**在 Windows 上以 node 執行的跨宿主邏輯回歸**——它只證明現有案例的判定結果，**不等於 Linux 原生驗證，也不涵蓋 Linux 檔案系統、`os.tmpdir()`／realpath 解析與實際 runtime 整合**。Linux 版另保留 case-sensitive／case-preserving 語義（`isRunnerTouchingSensitive()`，mac/Windows 走 `toLowerCase()`），已補兩筆**跨宿主可區辨**的回歸案例把它釘死；但語義以外的平台整合仍未驗。在 Linux 原生驗證完成前，本 repo **不**把這批 Linux 改動列為與 Windows／macOS 等同驗證——安裝者請先跑安裝節的測試，失敗請回報維護者。
+> **Linux**：已在**兩個獨立的 Linux 環境**原生通過——WSL2／ext4／glibc／Node v22.23.1，以及 GitHub Actions 的 `ubuntu-latest`（Ubuntu 24.04、Node v22.23.1）。兩者跑的是**同一份 bytes**（`run-e2e.sh` 印出的 `GATE_BLOB` 相同）：gate-cases **118/118**、`matcher-contract`、`run-e2e.sh` 11/11、`codex-check` 合成測試臺 41 案、`consult-schema` 2 案、`bash -n` ×7。
 >
-> **功能差距（2026-07-16）**：`codex-check` 的**能力面 baseline diff**（NO_BASELINE／`-UpdateBaseline`（bash 為 `--update-baseline`）／四態盤點／快取版本鍵／依賴旗標探測）**Windows 與 macOS 版已實作**（macOS 於其目標平台原生跑過合成測試臺 47 案＋gate 98 案），**linux 版尚未移植**（連 0.143 的能力面盤點段都未移植）——移植規格與定案見 [`docs/handoff-capability-baseline-port.md`](docs/handoff-capability-baseline-port.md)。
+> Linux 版保留 case-sensitive／case-preserving 語義（`isRunnerTouchingSensitive()`，mac/Windows 走 `toLowerCase()`）。**這條語義的守護是實測過的**：把它誤植成 mac 的 `toLowerCase()` 後，在真 Linux 上 gate-cases 會變成 116/118 —— 且失敗的**只有**那兩筆專為此設計的案例。（值得記下的教訓：同一個誤植在 **Windows 主機**上會被另外 3 個案例擋下，但那 3 案的區辨性來自 Windows 的 `os.tmpdir()` 含大寫；真 Linux 的 `tmpdir` 是全小寫 `/tmp`，那 3 案會**假綠**。跨宿主跑測試 ≠ 原生驗證，這就是最好的例子。）該變異測試已寫進 CI，防止這層守護日後被悄悄拆掉。
+>
+> **仍未涵蓋的**：以上全是**直接呼叫 `decide()`** 的測試，不證明 Claude Code runtime 真的載入你的 settings 並叫起 hook。端到端只能在新 session 實際觸發一次（見安裝節的 `matcher-contract` 說明）。
+>
+> **功能差距（2026-07-16）**：`codex-check` 的**能力面 baseline diff**（NO_BASELINE／`-UpdateBaseline`（bash 為 `--update-baseline`）／四態盤點／快取版本鍵／依賴旗標探測）**Windows 與 macOS 版已實作**（macOS 於其目標平台原生跑過合成測試臺 47 案＋gate 98 案），**linux 版尚未移植**（連 0.143 的能力面盤點段都未移植；`capability`/`baseline` 關鍵字在 Windows 版 25／52 處、macOS 版 25／58 處，Linux 版 **0 處**）——這是 Linux 版**目前進行中的開發項目**，移植規格見 [`docs/handoff-capability-baseline-port.md`](docs/handoff-capability-baseline-port.md) 與 [`docs/handoff-0143-capability-surface-port.md`](docs/handoff-0143-capability-surface-port.md)。
 
 ---
 
@@ -123,7 +131,7 @@ macos/                           # bash 版（平台移植版；本次 delta 的
     scripts/  super-mode.sh  codex-consult.sh  codex-exec.sh  codex-check.sh
     tests/    run-gate-tests.js  run-e2e.sh  matcher-contract.test.js  gate-cases.json
 
-linux/                           # bash 版（自 macOS 機械式移植、GNU userland）
+linux/                           # bash 版（GNU userland；每次 push 由 ubuntu-latest CI 原生回歸）
   settings.snippet.json
   CLAUDE-global-rule.md          # 同上，Linux 版 snippet
   hooks/super-mode-consult-gate.js
@@ -172,8 +180,7 @@ cp    "linux/hooks/super-mode-consult-gate.js" ~/.claude/hooks/
 # 3. 把 hook 接到 ~/.claude/settings.local.json（見 linux/settings.snippet.json），
 #    絕對路徑改成你家目錄；若 node 不在系統 PATH（可攜式安裝），command 開頭的
 #    node 也要寫絕對路徑，否則 hook 會靜默不跑。
-# 4. 驗證：★ Linux 版的最新一批改動未經原生驗證（見上方狀態矩陣）——這步不是形式，
-#    是這批改動在 Linux 上的第一次原生執行。失敗請回報維護者，別自行忽略。
+# 4. 驗證（linux/ 每次 push 都跑 ubuntu-latest CI，這裡是驗你這台機器的安裝結果）：
 node "$HOME/.claude/skills/超級模式/tests/run-gate-tests.js"        # 應全數 PASS（案例數見 gate-cases.json）
 node "$HOME/.claude/skills/超級模式/tests/matcher-contract.test.js" # ★ 必跑，見下方說明
 bash "$HOME/.claude/skills/超級模式/tests/run-e2e.sh"               # 應全數 passed
@@ -223,4 +230,5 @@ hook **在啟用前是 fail-open 且停用的** — 安裝它不會影響一般 
 **macOS / Linux**
 - 沒有 BOM 問題 — 那些步驟已刻意移除。簡報以一般 stdin 重導向（`< file`）送給 Codex；stderr 收到獨立檔再併進 log（絕不用 `2>&1`，那會把 Codex 的雜訊回灌進 Claude 的 context）。
 - `set -e` + pipeline 會吞掉 Codex 的 exit code — 腳本用固定的 `set +e … ${PIPESTATUS[0]} … set -e` 寫法（FIX-PLAN §0.5）。
-- macOS ↔ Linux 唯二的腳本差異是 `stat`（BSD `-f %m` vs GNU `-c %Y`，在 `codex-check.sh` 與 `super-mode.sh`）——別把版本拿錯邊。
+- macOS ↔ Linux 的**共通**差異是 `stat`（BSD `-f %m` vs GNU `-c %Y`，在 `codex-check.sh` 與 `super-mode.sh`）——別把版本拿錯邊。
+- ⚠️ **但兩者早已不只差一個 `stat`。** `codex-check.sh` 目前 macOS 549 行、Linux 123 行：**能力面盤點與 baseline diff 整段尚未移植到 Linux**（`capability`/`baseline` 關鍵字在 mac 版各 25／58 處，Linux 版 **0 處**）；`.codex-check-baseline` 也還沒進 Linux hook 的安全關鍵檔清單。**不要**把 macOS 版的 `codex-check.sh` 直接當成 Linux 版的等價物拿來抄或替換。移植規格見 [`docs/handoff-capability-baseline-port.md`](docs/handoff-capability-baseline-port.md) 與 [`docs/handoff-0143-capability-surface-port.md`](docs/handoff-0143-capability-surface-port.md)。
