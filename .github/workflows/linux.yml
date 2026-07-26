@@ -24,11 +24,11 @@ jobs:
   regression:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # 釘 22.x：2026-07-26 的 WSL2 原生驗收就是 Node v22.23.1，保持同一大版本以免
       # 用不同 runtime 解讀同一組期望值。
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: '22'
 
