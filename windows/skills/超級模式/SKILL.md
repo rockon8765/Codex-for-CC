@@ -40,17 +40,17 @@ description: 重型工程協作工作流的「明確開關」——spec-first �
 
 ## 3. 指揮 Codex CLI（執行層）
 - **逾時與長跑（重要）**：`codex-consult.ps1` / `codex-check.ps1` 前景跑，工具 `timeout` 設 **360000ms（6 分鐘）**。`codex-exec.ps1` 派工一律 **`run_in_background: true`**（重任務常超過工具 10 分鐘上限，跑完會自動通知）。逐字輸出與最終回覆自動落地 `~/.claude/super-mode-logs/`。
-- **派工前先確認 Codex 版本與能力面**：跑 `scripts/codex-check.ps1`（查版本 + smoke test + 能力面 baseline 機器比對；24 小時內查過會用快取直接回報，`-Force` 強制重查；版本變更會自動作廢快取）。「有新版」是**中性情報、非更新指令**——更新屬選擇性系統變更且可能造成參數/外掛/行為漂移 → **先問使用者**；更新後必重跑 `-Force` 並檢視漂移警示。無 baseline 或確認漂移符合預期後，以 `-UpdateBaseline` 建立/接受（唯一更新途徑；等 smoke 通過才落檔，結果看輸出行 `UPDATE_BASELINE=OK/REFUSED/NOT_APPLIED`，被拒回 exit 2）。漂移警示屬提醒非閘門（姿態 A）。（baseline diff：Windows/macOS 已實作，linux 待移植。）
-- **派工也要先諮詢**：`codex-exec.ps1` 是 workspace-write 執行者，會實際改檔 → gate **不再無條件放行**，派工前必須有 20 分鐘內憑證（先做 §3.5 諮詢）。每步產一份自足任務簡報（規格依據 / 目標檔清單 / 要做什麼 / 驗收條件 / 限制：不得做架構決策、有疑慮回報），**用 Write 工具把簡報寫進 scratchpad**，用 PowerShell 工具跑 `scripts/codex-exec.ps1 -Dir <repo> -PromptFile <brief> -Quiet`（一律 `run_in_background: true`；`-Quiet` 讓 stdout 只回摘要不回灌逐字稿）。簡報格式見 `references/orchestration.md`。
+- **派工前先確認 Codex 版本與能力面**：跑 `scripts/codex-check.ps1`。**「有新版」是中性情報、不是更新指令**——更新屬選擇性系統變更、可能造成參數/外掛/行為漂移 → **先問使用者**。漂移警示屬提醒非閘門（姿態 A）。快取與 `-Force`／`-UpdateBaseline` 的判讀、各平台實作狀態見 `references/orchestration.md` §3。
+- **派工也要先諮詢**：`codex-exec.ps1` 是 workspace-write 執行者，會實際改檔 → gate **不再無條件放行**，派工前必須有 20 分鐘內憑證（先做 §3.5 諮詢）。每步產一份**自足**任務簡報，**用 Write 工具寫進 scratchpad**，再用 PowerShell 工具跑 `scripts/codex-exec.ps1 -Dir <repo> -PromptFile <brief> -Quiet`。**第一次派工前必讀 `references/orchestration.md` §2（生成 AGENTS.md）與 §3（簡報格式與自驗合約）**——簡報少了驗收條件或輸出合約，Codex 交回的東西就無法機器驗收。
 - Codex 交回後 **Claude 一定要 review**（正確性 / 符合 spec / 安全），不合格退回重做，別照單全收。**收工後只讀 `_last.txt`（最終回覆）＋ `git diff`**；逐字稿 log 只在退回重做 / 除錯時抽段讀（省 Claude context）。審查依 orchestration.md §5 分級：預設單線 diff，安全敏感 / 架構才開三鏡頭。Codex 派工失敗＝退回重派或回報使用者；Claude 不得未經使用者同意接手實作（額度耗盡 runbook 的一般化）。
 
 ## 3.5 諮詢節奏（advice gate，鐵則）
 **預設：每個里程碑諮詢一次 `scripts/codex-consult.ps1`；另在任何不可逆動作（commit / push / deploy / 刪除）前諮詢一次。里程碑內的例行判斷（要不要退回、diff 疑點、下一步順序）不需逐一諮詢——併入下一次里程碑諮詢一起批次問。** 這與 gate 的 20 分鐘憑證窗＋收尾降 3 分鐘節奏對齊（見本節末段與 orchestration.md）。
 - 例外（可不問）：純閒聊、純狀態回報、純唯讀探索（Read / Grep / ls）、里程碑內例行判斷。
 - **不可逆動作前一律先問**；不確定是不是不可逆 → 先問。諮詢回覆以首行裁決（格式 ^(ALLOW|BLOCK): 開頭）；BLOCK 就不做並回報使用者；首行不合格式 → 視為 BLOCK，重問一次取得合法首行後才可執行。
-- 諮詢簡報一次**批次列出本里程碑所有待決問題**（方案取捨、風險、審查重點），Codex 一次回答。簡報（現況數據＋候選方案＋初判，請它挑戰你的假設）**用 Write 工具寫進 scratchpad**（gate 豁免路徑；別用 shell 寫、也別用 Bash 包 `powershell -Command` 呼叫腳本，兩者都會被擋成繞圈），用 PowerShell 工具跑 `scripts/codex-consult.ps1 -Dir <repo> -PromptFile <brief>`（工具 timeout 360000ms）。
-- **Claude 擁有最終決定權**：對照、調和、必要時反駁，再決定；有分歧向使用者說明。諮詢逐字稿自動存 `~/.claude/super-mode-logs/`。
-- **硬性強制**：consult-gate hook 在超級模式啟用時攔 Edit/Write/**Bash/PowerShell/Monitor**/MCP 寫入類/外發·排程·worktree 內建工具(RemoteTrigger/PushNotification/Cron*/Artifact/ScheduleWakeup/Enter·ExitWorktree)。**`Monitor` 有 command 就走 Bash 那套唯讀分類器；純 WebSocket（沒有 command）一律要憑證**。唯讀白名單（git status/diff、ls、cat、rg、Get-*、測試/lint）自動放行，**其餘一律 default-deny** 要 20 分鐘內諮詢憑證；未知 MCP 工具也 default-deny，`codex-exec` 派工同樣要憑證（只有唯讀的 codex-consult/check 與 super-mode 開關無條件放行）。commit/push/merge/publish/deploy 放行後憑證**降為只剩 3 分鐘**（同一條指令內 commit+push 不受影響），逼下一個里程碑重新諮詢。scratchpad 與 `~/.claude`（除 settings/hooks/旗標/憑證等安全關鍵檔）寫入豁免；旗標超過 8 小時自動視為殘留解除。詳見 `references/orchestration.md`。
+- 諮詢簡報一次**批次列出本里程碑所有待決問題**（方案取捨、風險、審查重點），Codex 一次回答。簡報（現況數據＋候選方案＋初判，請它挑戰你的假設）**用 Write 工具寫進 scratchpad**，再用 PowerShell 工具跑 `scripts/codex-consult.ps1 -Dir <repo> -PromptFile <brief>`（工具 timeout 360000ms；**一律 `-PromptFile`**，inline `-Prompt` 已 deprecated）。為什麼不能用 shell 寫簡報、不能用 Bash 包 `powershell -Command` 呼叫腳本，見 `references/orchestration.md` §3.5。
+- **Claude 擁有最終決定權**：對照、調和、必要時反駁，再決定；有分歧向使用者說明。諮詢逐字稿自動存 `~/.claude/super-mode-logs/`。簡報會送到 Codex 並落地逐字稿 → **全域規則的隱私條款照舊適用**：只放最小必要證據，敏感個資／財務明細先去識別化。
+- **硬性強制**：超級模式啟用時，consult-gate hook 會攔下**所有會改變狀態的動作**（檔案寫入、非唯讀 shell、MCP 寫入／外發、排程／發佈／worktree 內建工具），要求 20 分鐘內的諮詢憑證；唯讀動作自動放行，**未知一律 default-deny**。`codex-exec` 派工同樣要憑證（只有唯讀的 codex-consult/check 與 super-mode 開關無條件放行）。收尾動作（commit/push/merge/publish/deploy）放行後憑證**降為只剩 3 分鐘**（同一條指令內 commit+push 不受影響），逼下一個里程碑重新諮詢。scratchpad 與 `~/.claude`（安全關鍵檔除外）寫入豁免。**被擋時照 hook 的拒絕訊息做**——它會給出當下該跑的指令。完整攔截面枚舉、豁免細則與 pathless 取捨見 `references/orchestration.md` §3.5。
 - **非超級模式的日常討論**：走全域常駐規則（`~/.claude/CLAUDE.md`「Codex 討論夥伴」）——決策型輸出交付前先用 `codex-consult.ps1 -Dir <repo> -NoCredential -PromptFile <brief>` 與 Codex 討論（`-NoCredential`：不 mint 憑證，日常討論不會替並行的超級模式 session 解鎖動作）。超級模式啟用時以本節節奏優先、照常 mint 憑證，勿雙重諮詢。
 
 ## 4. 里程碑回寫 md
@@ -58,13 +58,13 @@ description: 重型工程協作工作流的「明確開關」——spec-first �
 
 ## 5. Ultracode 疊用
 ultracode 開啟時：理解 / 設計 / 審查階段用 Workflow 多代理（唯讀分析），派工仍走 `codex exec`。對照分工見 `references/orchestration.md`。
-**鐵則：每步只有一個 worker pool 寫檔**（預設 Codex 寫程式、Claude 的 Workflow agents 只做不寫檔的研究 / 規劃 / 審查；要平行跑多個 `codex exec` 須各自在 worktree 隔離）。
-**鐵則：Workflow / subagent 一律禁止呼叫 `codex-consult.ps1` / `codex-exec.ps1`。** consult-gate 也會在子代理內觸發；子代理被擋時**把被擋的動作與理由回報 orchestrator（主 Claude）**，由主線統一諮詢與派工——否則 N 個平行子代理各自諮詢會燒 Codex 額度、且任一子代理的諮詢會 mint 全機憑證、commit 會降級全體憑證。審查階段子代理若要跑 build/verify（如 `npm run build`），交給主線在有憑證時跑。
+**鐵則：每步只有一個 worker pool 寫檔。** 預設 Codex 寫程式，Claude 的 Workflow agents 只做不寫檔的研究／規劃／審查。
+**鐵則：Workflow / subagent 一律禁止呼叫 `codex-consult.ps1` / `codex-exec.ps1`。** 子代理被 gate 擋下時**回報 orchestrator（主 Claude）就停手**，由主線統一諮詢與派工；子代理要跑 build/verify 也交給主線。（各自諮詢的代價見 `references/orchestration.md` §5。）
 > 新一代模型（Opus 5 起）比前代**更傾向主動派子代理**。fan-out 只用在**真正獨立**的工作分支（多檔平行調查、彼此無依賴的研究線）；能在主線幾個工具呼叫內做完的事別外包——N 個平行子代理各自撞 gate、各自回報，只會拖慢主線。
 
 **模型與 effort（本機姿態：靜默繼承、不指定）**
-- Workflow / Agent 呼叫**不要指定 `model`，也不要指定 `effort`**——兩者省略時都跟隨 session 值。session 的模型與 effort 由使用者依任務自行設定；skill 自行分層＝在派工時覆蓋掉使用者當下的判斷。
-- **別自作主張降階。** 子代理用哪個模型是**使用者的決定、不是 skill 的**——預設一律繼承。要降階必須有具體理由，不是「唯讀階段就降一階省額度」的反射動作（**唯讀 ≠ 低風險**：安全／架構審查降階會提高漏判）。本機姿態：Sonnet 可接受、**Haiku 不可**。
+- Workflow / Agent 呼叫**不要指定 `model`，也不要指定 `effort`**——兩者省略時都跟隨 session 值，那是使用者依任務自己調的旋鈕。
+- **別自作主張降階。** 要降階必須有具體理由，不是「唯讀階段就降一階省額度」的反射動作。本機姿態：Sonnet 可接受、**Haiku 不可**。（理由見 `references/orchestration.md` §5。）
 - 子代理的工具權限由 `agentType` 決定（唯讀階段用 `Explore` / `Plan` 這類唯讀 agent type）；call-time **沒有** `tools` allowlist / `permissionMode` / `maxTurns` 這些參數，別憑空發明。
 
 ## 收尾

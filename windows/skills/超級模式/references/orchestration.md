@@ -2,6 +2,13 @@
 
 SKILL.md 的 §2 / §3 / §3.5 / §5 的詳細範本與程序。用到才讀。
 
+> **三層分工（別在兩個地方講同一件事）**：
+> **SKILL.md ＝ 前置條件**——動手前非知道不可的鐵則與門檻，薄但完整。
+> **hook／腳本的錯誤訊息 ＝ 復原指令**——撞到時才需要，且帶當下的實際工具名與路徑。
+> **本檔 ＝ 理由、完整攔截面、範本與範例**——需要時才載入。
+> 同一條資訊只住一層；要改就改它所屬那層，別在另一層補摘要。
+> **各平台的實作狀態（哪個平台已有哪個功能）一律以 README「功能差距」段為準**，不要在 SKILL 或本檔另記一份——那份必然先過時。
+
 ## §2 AGENTS.md 生成（共用規範層 → Codex）
 
 第一次要派 Codex 時，從共用規範層**單向生成** repo 根目錄的 `AGENTS.md`（不要雙向手抄，必 drift）。只放精選共用規範，不是 125 個 skill。
@@ -66,7 +73,10 @@ SKILL.md 的 §2 / §3 / §3.5 / §5 的詳細範本與程序。用到才讀。
 請：逐題指出我漏掉或高估的點、各給單一排序建議、明說你和我哪裡不同。
 反方規則：(a) 攻擊面優先——往「昂貴失敗」找：資料遺失、權限/認證、競態、rollback 不可行、空狀態、版本/介面漂移；不挑 style。(b) 每個 finding 必答四問：什麼會壞？為何此路徑脆弱？影響多大？具體怎麼改？(c) 校準——一個強 finding 勝過多個弱的；判斷安全就直說，不准硬湊反對。(d) 事實紀律——推論要標注「推論」；勿把我方敘述當已驗證證據，以 repo 現況為準。
 ```
-簡報**一律用 Write 工具寫進 scratchpad**（gate 豁免路徑；inline `-Prompt` 含 `;|&` 等標點會被 gate 的指令解析誤判。**別用 shell 寫簡報、也別用 Bash 包 `powershell -Command` 呼叫腳本**——shell 寫 scratchpad 不在豁免內、Bash-wrapper 不符腳本放行的開頭錨定，兩者都會被擋成繞圈）。用 PowerShell 工具跑 `scripts/codex-consult.ps1 -Dir <repo> -PromptFile <brief.txt>`（read-only，工具 timeout 360000ms）。Claude 統合後決定；逐字稿自動存 `~/.claude/super-mode-logs/codex_consult_<ts>.txt`。
+簡報**一律用 Write 工具寫進 scratchpad**，理由有三，都是實際會被擋的路徑：
+1. **為什麼是 scratchpad**：它在 gate 豁免路徑內；shell 寫檔**不在**豁免內，用 shell 產簡報會被擋成繞圈。
+2. **為什麼不能用 Bash 包 `powershell -Command` 呼叫腳本**：腳本放行是「錨定在指令開頭」判定的，Bash-wrapper 不符合這個形狀，一樣會被擋。
+3. **為什麼不用 inline `-Prompt`**：簡報含 `;` `|` `&` 等標點時，會被 gate 的指令解析誤判成串接指令。`-Prompt` 已 deprecated（stage 1：仍可跑但出警告；同時給 `-Prompt` 與 `-PromptFile` 直接報錯），一律用 `-PromptFile`。用 PowerShell 工具跑 `scripts/codex-consult.ps1 -Dir <repo> -PromptFile <brief.txt>`（read-only，工具 timeout 360000ms）。Claude 統合後決定；逐字稿自動存 `~/.claude/super-mode-logs/codex_consult_<ts>.txt`。
 
 **不可逆動作前諮詢的簡報變體**：不可逆動作（commit/push/deploy/刪除）前的諮詢，簡報末尾必加一句：「你的最終回覆第一行必須是 `ALLOW: <20 字內理由>` 或 `BLOCK: <20 字內理由>`，之前不得有任何字元。」
 
@@ -87,10 +97,11 @@ SKILL.md 的 §2 / §3 / §3.5 / §5 的詳細範本與程序。用到才讀。
 | 審查 Codex 產出 | ✅ 但**分級** | **預設單線** diff 審查（輸入限 `git diff --stat` + 針對性 hunks + 測試輸出，禁止全檔重讀）；**三鏡頭對抗審查（正確性/安全/符合 spec）只在**碰安全敏感面（auth／支付／使用者資料／檔案系統／外部 API／加密）或架構層 diff 才升級，升級條件沿用 `code-review.md` 的安全觸發清單。有異議退回。 |
 | 里程碑回寫 | ❌ | 單線做即可 |
 
-**鐵則：每步只有一個 worker pool 動手寫檔。** 預設 Codex 寫、Claude agents 只做不寫檔的工作；要平行多個 `codex exec` 須各自 `isolation: 'worktree'` 隔離，否則在同一 working tree 打架。
-**鐵則：Workflow / subagent 一律禁止呼叫 `codex-consult.ps1` / `codex-exec.ps1`。** 子代理被 consult-gate 擋下時，回報 orchestrator（主 Claude）由主線統一諮詢／派工，別讓每個子代理各自諮詢（會燒額度、mint 全機憑證、commit 降級全體）。
+**兩條鐵則（條文在 SKILL §5，此處只講理由與做法）：**
+- **單一 writer pool**：要平行跑多個 `codex exec`，須各自 `isolation: 'worktree'` 隔離，否則在同一 working tree 互相覆蓋。
+- **子代理不得自行諮詢／派工**：代價有三層——N 個平行子代理各自諮詢會燒 Codex 額度；任一子代理的諮詢會 mint **全機**憑證（憑證不分代理）；其中任一次 commit 會把**全體**憑證降到 3 分鐘。所以由主線統一諮詢與派工。consult-gate 在子代理內同樣會觸發，且它的拒絕訊息已含「子代理請回報 orchestrator 後停手」的分支。
 **派工簡報的驗收條件內建「Codex 自審 + 跑測試 + lint 並回報自審結論」**（見 §3 範本），讓第一道審查花 Codex 額度、不花 Claude。
 **審查產出 findings 後先呈報使用者選擇要修哪些，勿自動批次修。**
 審查型派工帶 `-SchemaFile references/review-output.schema.json`（路徑相對 skill 根目錄，跨目錄派工改傳絕對路徑），收工用 JSON 解析驗收 findings；驗證失敗 fallback 讀全文。
 
-**模型與 effort（本機姿態）**：Workflow / Agent 呼叫**不指定 `model`、也不指定 `effort`**，兩者省略即跟隨 session 值——session 的模型與 effort 是使用者依任務自己調的旋鈕，skill 分層等於覆蓋掉使用者當下的判斷。**別自作主張降階**——子代理用哪個模型是使用者的決定、不是 skill 的，預設一律繼承；降階要有具體理由而非省額度的反射動作（**唯讀 ≠ 低風險**：安全／架構審查降階會提高漏判）。本機姿態：Sonnet 可接受、**Haiku 不可**。工具權限用 `agentType` 控（唯讀階段選 `Explore` / `Plan`）；call-time 沒有 `tools` allowlist / `permissionMode` / `maxTurns` 參數。新一代模型（Opus 5 起）更傾向主動派子代理，fan-out 只用在真正獨立的工作分支。
+**模型與 effort — 為什麼是「靜默繼承」**（規則在 SKILL §5，此處只講理由）：session 的模型與 effort 是**使用者依任務自己調的旋鈕**，skill 在派工時自行分層，等於覆蓋掉使用者當下的判斷。而「唯讀階段就降一階省額度」是錯的直覺——**唯讀 ≠ 低風險**：安全與架構審查一旦降階，漏判率就上升，省下的額度遠不夠賠。所以預設一律繼承，降階要有具體理由。
