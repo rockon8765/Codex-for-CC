@@ -39,17 +39,24 @@ $noSchema = "C:\__c5_no_such_schema__.json"
 function TStream($name, $scriptPath, $preface) {
   $id = [guid]::NewGuid().ToString('N').Substring(0, 6)
   $o = Join-Path $tmp "c5_$id.out"; $er = Join-Path $tmp "c5_$id.err"
-  $argstr = "-Dir C:\ -Prompt t -SchemaFile $noSchema"
+  # 隔離（縱深防禦）：-Dir 用保證不存在的 GUID 路徑、consult 額外帶 -NoCredential。
+  # 正常情況下 sentinel 在啟動 codex 之前就 throw，根本走不到；但萬一日後重構讓
+  # missing-schema 不再 fail-fast，這兩道能擋住「測試意外啟動真 Codex、甚至 mint 全機憑證」。
+  $isolatedDir = "C:\__c5_no_such_dir_$id"
+  $extra = if ($scriptPath -like "*codex-consult.ps1") { " -NoCredential" } else { "" }
+  $argstr = "-Dir $isolatedDir -Prompt t -SchemaFile $noSchema$extra"
   $inv = if ($preface) { "powershell -NoProfile -Command ""$preface; & '$scriptPath' $argstr""" }
          else          { "powershell -NoProfile -File ""$scriptPath"" $argstr" }
   cmd /c "$inv > ""$o"" 2> ""$er""" | Out-Null
+  $rc = $LASTEXITCODE
   $so = [string](Get-Content -LiteralPath $o  -Raw -ErrorAction SilentlyContinue)
   $se = [string](Get-Content -LiteralPath $er -Raw -ErrorAction SilentlyContinue)
   Remove-Item -LiteralPath $o, $er -Force -ErrorAction SilentlyContinue
-  # 三個條件：stdout 乾淨、deprecation 在 stderr、且流程有走到 deprecation 之後（sentinel 錯誤）
-  $ok = ($so -notmatch 'DEPRECATED') -and ($se -match 'DEPRECATED') -and ($se -match 'SchemaFile not found')
+  # 四個條件：子行程確實失敗（沒有意外跑成功）、stdout 乾淨、deprecation 在 stderr、
+  # 且流程有走到 deprecation 之後（命中 sentinel）。
+  $ok = ($rc -ne 0) -and ($so -notmatch 'DEPRECATED') -and ($se -match 'DEPRECATED') -and ($se -match 'SchemaFile not found')
   if ($ok) { Write-Output "PASS  $name"; $script:pass++ }
-  else { Write-Output "FAIL  $name (stdout=[$so] stderr=[$se])"; $script:fail++ }
+  else { Write-Output "FAIL  $name (rc=$rc stdout=[$so] stderr=[$se])"; $script:fail++ }
 }
 TStream "c5-deprecation-stderr-only (consult)" $consult $null
 TStream "c5-deprecation-stderr-only (exec)"    $exec    $null
