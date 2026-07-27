@@ -33,109 +33,133 @@ node ".\windows\skills\超級模式\tests\run-gate-tests.js"        # 這裡就 
 node ".\windows\skills\超級模式\tests\matcher-contract.test.js" # hook 的工具清單 vs settings matcher 是否一致
 ```
 
-**1b. 備份既有 live（若存在）——記住印出的時間戳 `ts`，回滾要用**
+**1b. 開一個安裝交易（記住印出的 `TX` 路徑，回滾要用）**
 
-> ⚠️ **備份一定要放在 `~/.claude/skills/` 外面**（本文用 `~/.claude/skills-backup/`）。
-> 備份若留在 `~/.claude/skills/` 底下，Claude Code 的 skill loader 會把它**當成另一個
+> ⚠️ **交易目錄一定要在 `~/.claude/skills/` 外面**（本文放 `~/.claude/install-tx.XXXXXXXX`）。
+> 備份或暫存若留在 `~/.claude/skills/` 底下，Claude Code 的 skill loader 會把它**當成另一個
 > skill 註冊**——名稱與 description 幾乎相同，會干擾 skill 選擇。（2026-07-27 實際發生過。）
 >
-> ⚠️ **這段是 fail-closed 的**：備份指令失敗就直接中止，不會印出 `ts`。所以「有印出 `ts`」
-> 才等於「備份確實成功」——不要把「有跑過 1b」當成有備份。同時記下 `had_skill` / `had_hook`
-> 兩個旗標，回滾時要靠它們分辨「還原舊版」與「刪掉全新安裝」。
+> ⚠️ **這段是 fail-closed 的**：任何一步失敗就直接中止，不會印出 `TX=`。所以「有印出 `TX=`」
+> 才等於「這個交易確實建立成功」——不要把「有跑過 1b」當成已備份。
+>
+> **回滾只需要記住一個值：`TX` 這個交易目錄路徑。** 目錄本身就是狀態紀錄（manifest）：
+> 裡面有沒有 `old-hook` / `replaced-skill` 就代表安裝前有沒有既存的 hook / skill。
+> 這樣回滾不必靠人工填布林值——**手填布林值是真的會出錯的**：PowerShell 裡字串 `"False"`
+> 在 `if ($x)` 會走 **true** 分支，把輸出的 `False` 當字串填回去就會嘗試還原不存在的備份。
+>
+> 交易目錄用 `mktemp` / GUID 產生**唯一路徑**，不是固定名稱——固定路徑會讓兩個同時進行的
+> 安裝互相清掉對方的暫存。
 
 macOS / Linux:
 ```bash
 set -euo pipefail
-ts=$(date +%Y%m%d-%H%M%S)
-mkdir -p ~/.claude/skills-backup ~/.claude/skills ~/.claude/hooks
+mkdir -p ~/.claude/skills ~/.claude/hooks
+tx=$(mktemp -d "$HOME/.claude/install-tx.XXXXXXXX")   # 唯一路徑，且在 skills/ 外面
 
-had_hook=0;  [ -e ~/.claude/hooks/super-mode-consult-gate.js ] && had_hook=1
-had_skill=0; [ -d ~/.claude/skills/超級模式 ]                  && had_skill=1
-
-if [ "$had_hook" = 1 ]; then
-  cp ~/.claude/hooks/super-mode-consult-gate.js ~/.claude/hooks/super-mode-consult-gate.js.bak-$ts
-  [ -s ~/.claude/hooks/super-mode-consult-gate.js.bak-$ts ] || { echo "hook 備份不完整，中止"; exit 1; }
+if [ -e ~/.claude/hooks/super-mode-consult-gate.js ]; then
+  cp ~/.claude/hooks/super-mode-consult-gate.js "$tx/old-hook"
+  [ -s "$tx/old-hook" ] || { echo "hook 備份不完整，中止"; exit 1; }
 fi
-if [ "$had_skill" = 1 ]; then
-  cp -R ~/.claude/skills/超級模式 ~/.claude/skills-backup/超級模式.bak-$ts
-  [ -f ~/.claude/skills-backup/超級模式.bak-$ts/SKILL.md ] || { echo "skill 備份不完整，中止"; exit 1; }
-fi
-echo "backup ts=$ts had_skill=$had_skill had_hook=$had_hook"
+echo "TX=$tx"
 ```
 Windows:
 ```powershell
 $ErrorActionPreference = 'Stop'
-$ts     = Get-Date -Format yyyyMMdd-HHmmss
-$hook   = "$env:USERPROFILE\.claude\hooks\super-mode-consult-gate.js"
-$skill  = "$env:USERPROFILE\.claude\skills\超級模式"
-$bakDir = "$env:USERPROFILE\.claude\skills-backup"
-New-Item -ItemType Directory -Force -Path $bakDir, (Split-Path $hook), (Split-Path $skill) | Out-Null
-
-$hadHook  = Test-Path $hook
-$hadSkill = Test-Path $skill
-
-if ($hadHook)  {
-  Copy-Item $hook "$hook.bak-$ts"
-  if (-not (Test-Path "$hook.bak-$ts")) { throw "hook 備份不完整，中止" }
-}
-if ($hadSkill) {
-  Copy-Item -Recurse $skill "$bakDir\超級模式.bak-$ts"
-  if (-not (Test-Path "$bakDir\超級模式.bak-$ts\SKILL.md")) { throw "skill 備份不完整，中止" }
-}
-"backup ts=$ts hadSkill=$hadSkill hadHook=$hadHook"
-```
-
-**1c. 安裝（staging → 驗證 → 交換）**
-
-> ⚠️ **不要直接對 live 做「先刪再複製」。** 刪除必須發生在**新版已經完整就緒**之後，否則權限
-> 不足、磁碟滿、跑錯工作目錄、複製到一半失敗，都會讓使用者的 live 被刪掉卻換不上新版。
-> 本段的順序是：驗證來源 → 複製到 `~/.claude/skills/` **外面**的 staging → 驗證 staging 完整
-> → 才交換 live。任何一步失敗都在碰 live 之前就停。
->
-> 為什麼不能直接複製上去（合併語意）：上游**刪掉**的檔案會留在 live 變成殘留。例如
-> 2026-07-27 把 `FIX-PLAN.md` 移出 payload 後，只做複製的話 live 會留著那份已完成的舊修復
-> 規劃書，未來的 agent 可能誤讀重跑。staging 交換沒有這個問題。
->
-> staging 目錄同樣**必須在 `~/.claude/skills/` 外面**，理由同 1b（會被當成另一個 skill）。
-
-macOS / Linux:
-```bash
-set -euo pipefail
-src="macos/skills/超級模式"                      # Linux 改成 linux/skills/超級模式
-[ -f "$src/SKILL.md" ] || { echo "來源不對（請在 repo 根目錄執行），中止"; exit 1; }
-
-stage_root=~/.claude/skills-staging
-rm -rf "$stage_root"; mkdir -p "$stage_root"
-cp -R "$src" "$stage_root/"
-stage="$stage_root/超級模式"
-[ -f "$stage/SKILL.md" ] && [ -d "$stage/scripts" ] && [ -d "$stage/tests" ] \
-  || { echo "staging 不完整，live 未被更動，中止"; rm -rf "$stage_root"; exit 1; }
-
-rm -rf ~/.claude/skills/超級模式                  # 到這裡才碰 live：備份已驗、新版已就緒
-mv "$stage" ~/.claude/skills/超級模式
-rmdir "$stage_root"
-cp "macos/hooks/super-mode-consult-gate.js" ~/.claude/hooks/
-```
-Windows:
-```powershell
-$ErrorActionPreference = 'Stop'
-$src = ".\windows\skills\超級模式"
-if (-not (Test-Path "$src\SKILL.md")) { throw "來源不對（請在 repo 根目錄執行），中止" }
-
-$stageRoot = "$env:USERPROFILE\.claude\skills-staging"
-if (Test-Path $stageRoot) { Remove-Item -Recurse -Force $stageRoot }
-New-Item -ItemType Directory -Force -Path $stageRoot | Out-Null
-Copy-Item -Recurse $src $stageRoot
-$stage = Join-Path $stageRoot "超級模式"
-if (-not ((Test-Path "$stage\SKILL.md") -and (Test-Path "$stage\scripts") -and (Test-Path "$stage\tests"))) {
-  Remove-Item -Recurse -Force $stageRoot; throw "staging 不完整，live 未被更動，中止"
-}
-
+$hook  = "$env:USERPROFILE\.claude\hooks\super-mode-consult-gate.js"
 $skill = "$env:USERPROFILE\.claude\skills\超級模式"
-if (Test-Path $skill) { Remove-Item -Recurse -Force $skill }   # 到這裡才碰 live
-Move-Item $stage $skill
-Remove-Item -Recurse -Force $stageRoot
-Copy-Item ".\windows\hooks\super-mode-consult-gate.js" "$env:USERPROFILE\.claude\hooks\" -Force
+New-Item -ItemType Directory -Force -Path (Split-Path $hook), (Split-Path $skill) | Out-Null
+$tx = Join-Path "$env:USERPROFILE\.claude" ("install-tx." + [guid]::NewGuid().ToString('N').Substring(0,8))
+New-Item -ItemType Directory -Path $tx | Out-Null
+
+if (Test-Path $hook) {
+  Copy-Item $hook "$tx\old-hook"
+  if (-not (Get-Item "$tx\old-hook").Length) { throw "hook 備份不完整，中止" }
+}
+"TX=$tx"
+```
+
+**1c. 安裝（staging → 逐檔驗證 → 非破壞性交換）**
+
+> ⚠️ **舊的 live 不是被刪掉，是被「搬到交易目錄」。** 順序是：驗證來源 → 複製到交易目錄裡的
+> staging → **逐檔比對來源與 staging 的內容** → 把舊 live 搬進交易目錄 → 把新版搬進來。
+> 最後一步若失敗，會**立刻把舊 live 搬回原位**再中止——所以不存在「刪了卻換不上」的窗口。
+> 舊 live 留在交易目錄裡，就是回滾要用的備份。
+>
+> 為什麼不直接複製上去（合併語意）：上游**刪掉**的檔案會留在 live 變成殘留。例如
+> 2026-07-27 把 `FIX-PLAN.md` 移出 payload 後，只做複製的話 live 會留著那份已完成的舊修復
+> 規劃書，未來的 agent 可能誤讀重跑。搬移式交換沒有這個問題。
+>
+> 完整性判準是**逐檔內容比對**，不是「幾個目錄存在」——後者抓不到截斷或部分複製。
+
+macOS / Linux:
+```bash
+set -euo pipefail
+# tx 用 1b 印出的 TX= 值
+src="macos/skills/超級模式"                      # Linux 改成 linux/skills/超級模式
+hooksrc="macos/hooks/super-mode-consult-gate.js" # Linux 改成 linux/hooks/...
+live=~/.claude/skills/超級模式
+hook=~/.claude/hooks/super-mode-consult-gate.js
+[ -d "$tx" ] || { echo "找不到交易目錄 $tx，中止"; exit 1; }
+[ -f "$src/SKILL.md" ] || { echo "來源不對（請在 repo 根目錄執行），中止"; exit 1; }
+# 一個交易只能用一次。重複使用會把來源複製進既有的 new-skill 裡，變成難懂的「不一致」錯誤。
+if [ -e "$tx/new-skill" ] || [ -e "$tx/replaced-skill" ]; then
+  echo "交易 $tx 已經用過（或上次失敗留下殘留）。請重跑 1b 取得新的 TX，中止"; exit 1
+fi
+
+cp -R "$src" "$tx/new-skill"
+cp "$hooksrc" "$tx/new-hook"
+# 逐檔內容比對：staging 必須與來源完全一致
+diff -r "$src" "$tx/new-skill" >/dev/null || { echo "staging 與來源不一致，live 未被更動，中止"; exit 1; }
+cmp -s "$hooksrc" "$tx/new-hook" || { echo "hook staging 與來源不一致，live 未被更動，中止"; exit 1; }
+
+# 非破壞性交換：舊的先搬進交易目錄（它同時就是回滾用的備份）
+[ -d "$live" ] && mv "$live" "$tx/replaced-skill"
+if ! mv "$tx/new-skill" "$live"; then
+  [ -d "$tx/replaced-skill" ] && mv "$tx/replaced-skill" "$live"   # 換不上就立刻搬回來
+  echo "交換失敗，已還原舊版，中止"; exit 1
+fi
+# hook 也走「同目錄暫存 → 置換」，避免複製到一半留下受損的 hook
+mv "$tx/new-hook" "$hook.incoming" && mv "$hook.incoming" "$hook"
+echo "安裝完成。回滾請用 TX=$tx"
+```
+Windows:
+```powershell
+$ErrorActionPreference = 'Stop'
+# $tx 用 1b 印出的 TX= 值
+$src     = ".\windows\skills\超級模式"
+$hooksrc = ".\windows\hooks\super-mode-consult-gate.js"
+$live    = "$env:USERPROFILE\.claude\skills\超級模式"
+$hook    = "$env:USERPROFILE\.claude\hooks\super-mode-consult-gate.js"
+if (-not (Test-Path $tx)) { throw "找不到交易目錄 $tx，中止" }
+if (-not (Test-Path "$src\SKILL.md")) { throw "來源不對（請在 repo 根目錄執行），中止" }
+# 一個交易只能用一次。重複使用會把來源複製進既有的 new-skill 裡，變成難懂的「不一致」錯誤。
+if ((Test-Path "$tx\new-skill") -or (Test-Path "$tx\replaced-skill")) {
+  throw "交易 $tx 已經用過（或上次失敗留下殘留）。請重跑 1b 取得新的 TX，中止"
+}
+
+Copy-Item -Recurse $src "$tx\new-skill"
+Copy-Item $hooksrc "$tx\new-hook"
+function Get-TreeFingerprint($root) {
+  Get-ChildItem $root -Recurse -File | ForEach-Object {
+    '{0}|{1}' -f $_.FullName.Substring($root.Length).TrimStart('\'), (Get-FileHash $_.FullName -Algorithm SHA256).Hash
+  } | Sort-Object
+}
+if (((Get-TreeFingerprint (Resolve-Path $src).Path) -join "`n") -ne ((Get-TreeFingerprint "$tx\new-skill") -join "`n")) {
+  throw "staging 與來源不一致，live 未被更動，中止"
+}
+if ((Get-FileHash $hooksrc).Hash -ne (Get-FileHash "$tx\new-hook").Hash) {
+  throw "hook staging 與來源不一致，live 未被更動，中止"
+}
+
+if (Test-Path $live) { Move-Item $live "$tx\replaced-skill" }
+try { Move-Item "$tx\new-skill" $live }
+catch {
+  if (Test-Path "$tx\replaced-skill") { Move-Item "$tx\replaced-skill" $live }   # 換不上就搬回來
+  throw "交換失敗，已還原舊版，中止"
+}
+Move-Item "$tx\new-hook" "$hook.incoming" -Force
+Move-Item "$hook.incoming" $hook -Force
+"安裝完成。回滾請用 TX=$tx"
 ```
 
 ## 2. 註冊 hook
@@ -175,46 +199,46 @@ node "$env:USERPROFILE\.claude\skills\超級模式\tests\matcher-contract.test.j
 
 **任何 FAIL → 先回滾、再回報使用者、停止**（不要留一個壞掉的 live hook）：
 
-用 **1b 印出來的 `ts` / `had_skill` / `had_hook`** 決定每個元件該還原還是刪除——**不要**用「有沒有跑過
-1b」來判斷。1b 是 fail-closed 的：有印出那三個值才代表備份確實成功。hook 與 skill 各自判斷，因為
-可能只有其中一個是全新安裝。
+回滾**只需要 1b 印出的 `TX` 路徑**。狀態全部從交易目錄本身讀，不用人工填任何布林值
+（手填布林值會出錯：PowerShell 裡字串 `"False"` 在 `if ($x)` 會走 **true** 分支）。
+判讀規則：交易目錄裡有 `replaced-skill` ⇒ 安裝前有既存 skill，還原它；沒有 ⇒ 是全新安裝，刪掉。
+hook 同理看 `old-hook`。兩者各自判斷，因為可能只有其中一個是全新安裝。
+**找不到 `TX` 就停手回報使用者，不要盲目刪 live。**
 
 macOS / Linux:
 ```bash
 set -euo pipefail
-# ts / had_skill / had_hook 用 1b 印出來的值填進來
-rm -rf ~/.claude/skills-staging                                   # 1c 中途失敗可能留下
+# tx 用 1b 印出的 TX= 值
+live=~/.claude/skills/超級模式
+hook=~/.claude/hooks/super-mode-consult-gate.js
+[ -d "$tx" ] || { echo "找不到交易目錄 $tx，停止（不要盲目刪 live），回報使用者"; exit 1; }
 
-if [ "$had_hook" = 1 ]; then
-  cp ~/.claude/hooks/super-mode-consult-gate.js.bak-$ts ~/.claude/hooks/super-mode-consult-gate.js
-else
-  rm -f ~/.claude/hooks/super-mode-consult-gate.js
-fi
+rm -rf "$live"
+[ -d "$tx/replaced-skill" ] && mv "$tx/replaced-skill" "$live"     # 沒有就代表是全新安裝，維持刪除
 
-rm -rf ~/.claude/skills/超級模式
-if [ "$had_skill" = 1 ]; then
-  mv ~/.claude/skills-backup/超級模式.bak-$ts ~/.claude/skills/超級模式
-fi
+if [ -e "$tx/old-hook" ]; then cp "$tx/old-hook" "$hook"; else rm -f "$hook"; fi
+rm -f "$hook.incoming"                                             # 1c 中途失敗可能留下
+echo "已回滾（交易目錄 $tx 保留，確認無誤後自行刪除）"
 ```
 Windows:
 ```powershell
 $ErrorActionPreference = 'Stop'
-# $ts / $hadSkill / $hadHook 用 1b 印出來的值填進來
-$hook  = "$env:USERPROFILE\.claude\hooks\super-mode-consult-gate.js"
-$skill = "$env:USERPROFILE\.claude\skills\超級模式"
-$bak   = "$env:USERPROFILE\.claude\skills-backup\超級模式.bak-$ts"
-$stageRoot = "$env:USERPROFILE\.claude\skills-staging"
-if (Test-Path $stageRoot) { Remove-Item -Recurse -Force $stageRoot }
+# $tx 用 1b 印出的 TX= 值
+$live = "$env:USERPROFILE\.claude\skills\超級模式"
+$hook = "$env:USERPROFILE\.claude\hooks\super-mode-consult-gate.js"
+if (-not (Test-Path $tx)) { throw "找不到交易目錄 $tx，停止（不要盲目刪 live），回報使用者" }
 
-if ($hadHook) { Copy-Item "$hook.bak-$ts" $hook -Force }
+if (Test-Path $live) { Remove-Item -Recurse -Force $live }
+if (Test-Path "$tx\replaced-skill") { Move-Item "$tx\replaced-skill" $live }
+
+if (Test-Path "$tx\old-hook") { Copy-Item "$tx\old-hook" $hook -Force }
 elseif (Test-Path $hook) { Remove-Item -Force $hook }
-
-if (Test-Path $skill) { Remove-Item -Recurse -Force $skill }
-if ($hadSkill) { Move-Item $bak $skill }
+if (Test-Path "$hook.incoming") { Remove-Item -Force "$hook.incoming" }
+"已回滾（交易目錄 $tx 保留，確認無誤後自行刪除）"
 ```
 
-**若 `had_hook` 是 0（hook 屬全新安裝）**，還要**移除步驟 2 加進 settings 的 hook 區塊**——否則 settings
-會指向一個已經不存在的 hook。
+**若交易目錄裡沒有 `old-hook`（hook 屬全新安裝）**，還要**移除步驟 2 加進 settings 的 hook 區塊**——
+否則 settings 會指向一個已經不存在的 hook。
 
 回滾後把失敗的測試輸出一併回報使用者，不要繼續下一步。
 
@@ -249,4 +273,4 @@ if ($hadSkill) { Move-Item $bak $skill }
 2. 從 settings 檔移除該 hook 區塊。
 3. 從 `~/.claude/CLAUDE.md` 刪掉 `BEGIN CODEX-DISCUSSION-PARTNER` 到 `END CODEX-DISCUSSION-PARTNER` 的區塊。
 4. 清掉殘留旗標／憑證（若存在）：`~/.claude/.super-mode-active`、`~/.claude/.super-mode-consult-ok`。
-5. 安裝時留下的備份（`~/.claude/skills-backup/超級模式.bak-*`、`~/.claude/hooks/super-mode-consult-gate.js.bak-*`）與逐字稿（`~/.claude/super-mode-logs/`）**不會自動清除**——確認不再需要回滾後自行刪除。
+5. 安裝交易目錄（`~/.claude/install-tx.*`，裡面是舊版 skill 與 hook 的備份）與逐字稿（`~/.claude/super-mode-logs/`）**不會自動清除**——確認不再需要回滾後自行刪除。

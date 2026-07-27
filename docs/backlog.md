@@ -27,6 +27,7 @@
 | **`-Prompt`／`-p` inline 淘汰 stage 2** | 目前是 stage 1：同時給 `-Prompt` 與 `-PromptFile` 直接報錯、單獨用 inline 出 deprecation 警告。改成硬錯誤要等一個 release window，並先確認沒有外部呼叫端還在用 |
 | **macOS 原生驗證（2026-07-27 批次）** | 該批的 macOS 改動未在 Mac 上跑過。驗證分支 `refactor/context-engineering-2026-07-27-pending-native-macos` 刻意保留至此。Mac 上要複跑：gate-cases（應為 **117**）、`matcher-contract`、`consult-schema` **4/4**、`run-e2e.sh`。驗完即可刪該分支 |
 | **mac／Windows 沒有 CI** | 只有 Linux 有（`.github/workflows/linux.yml`）。Windows 與 macOS 的原生回歸仍靠人工，每次 promote 都得手動跑 |
+| **安裝流程的全域互斥鎖（刻意未做）** | Codex 建議在 1b 取得全流程獨占鎖、拒絕第二個並行安裝。**評估後不做**：交易目錄已改用 `mktemp`／GUID 唯一路徑，兩個並行安裝不會再互相清掉暫存或搬走對方的 staging；剩下的殘留風險只有「兩人同時交換同一個 live」，對一份手動執行的安裝指引不成比例。若日後改成自動化排程安裝，這條要重新評估 |
 
 ## 已完成（留紀錄，避免重複開題）
 
