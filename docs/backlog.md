@@ -27,6 +27,7 @@
 | **`-Prompt`／`-p` inline 淘汰 stage 2** | 目前是 stage 1：同時給 `-Prompt` 與 `-PromptFile` 直接報錯、單獨用 inline 出 deprecation 警告。改成硬錯誤要等一個 release window，並先確認沒有外部呼叫端還在用 |
 | **macOS 原生驗證（2026-07-27 批次）** | 該批的 macOS 改動未在 Mac 上跑過。驗證分支 `refactor/context-engineering-2026-07-27-pending-native-macos` 刻意保留至此。Mac 上要複跑：gate-cases（應為 **117**）、`matcher-contract`、`consult-schema` **4/4**、`run-e2e.sh`。驗完即可刪該分支 |
 | **mac／Windows 沒有 CI** | 只有 Linux 有（`.github/workflows/linux.yml`）。Windows 與 macOS 的原生回歸仍靠人工，每次 promote 都得手動跑 |
+| **Windows 無法偵測斷掉的 symlink（已知限制，刻意不修）** | `AI-INSTALL` 1b 用型別檢查判斷 hook／skill／settings 是「存在」還是「安裝前就沒有」。POSIX 版用 `[ -e ] \|\| [ -L ]` 能攔住斷掉的 symlink；**Windows 的 `Test-Path` 無法區分「沒有這個項目」與「指向不存在目標的 symlink」**，兩者都回 false，於是斷 link 會被當成「不存在」而建立 `.absent` 標記。修法需要從父目錄取 directory entry 並檢查 `LinkType`／`ReparsePoint`，但**本機無管理員權限、無法建立 symlink 實測**——不放未經驗證的安全性程式碼進 canonical 安裝指引。已在 1b 的 Windows 區塊標明此限制。有管理員權限的環境可補上並加 dangling file-link／directory-link 測試 |
 | **安裝流程的殘留檔清單要跟著維護** | 1c 用「複製（合併語意）＋ 逐一刪除已知移除路徑」處理殘留，目前清單只有 `FIX-PLAN.md` 一筆。**日後若再有檔案移出 skill payload，必須同步加進 1c 的清理行**，否則舊檔會留在使用者的 live。這是刻意選的取捨：換來「安裝流程從不整個刪除 live」這個性質 |
 | **安裝流程若要自動化，需重新設計為交易式** | 現行 1b/1c 是給人／AI 手動逐段執行的，沒有交易語義與併發保護（兩個同時進行的安裝會互相覆蓋）。2026-07-27 曾嘗試改成 staging＋交易目錄模型，經三輪對抗審查暴露出「刪了卻換不上」「狀態 marker 不完整」「跨交易競爭同一 live」等問題後**整批回退**——結論是交易協定不該寫在複製貼上的 markdown 裡。若日後要做排程／自動安裝，應改寫成 repo 內有測試臺的腳本，而不是繼續加厚文件 |
 
@@ -34,5 +35,5 @@
 
 | 項目 | 處置 |
 |---|---|
-| ~~repo 缺 `.gitattributes`~~ | **2026-07-27 已加**。`* text=auto` 打底；`*.sh` 與 `**/codex-check-stubs/*`（三平台各 2 個無副檔名的 `#!/bin/bash` 腳本，`*.sh` 抓不到）、`*.js`／`*.json`／`*.yml`／`*.md` 一律 `eol=lf`；`*.ps1` 為 `eol=crlf`（Windows 原生執行，且另有 UTF-8 BOM 需求——BOM 與行尾是兩回事）。加入後 `git status` 無偽差異，`git ls-files --eol` 確認 index 全部 `i/lf` |
+| ~~repo 缺 `.gitattributes`~~ | **2026-07-27 已加**。`* text=auto` 打底；`*.sh` 一律 `eol=lf`，另**逐檔明列** `codex-check-stubs/codex` 與 `codex-check-stubs/npm`（三平台各 2 個無副檔名的 `#!/bin/bash` 腳本，`*.sh` 抓不到；刻意不用萬用字元，否則日後放進該目錄的 binary fixture 會被強制當文字正規化）；`*.js`／`*.json`／`*.yml`／`*.md` 也是 `eol=lf`；`*.ps1` 為 `eol=crlf`（Windows 原生執行，另有 UTF-8 BOM 需求——BOM 與行尾是兩回事）。加入後 `git status` 無偽差異，`git ls-files --eol` 確認 index 全部 `i/lf` |
 | ~~`AI-INSTALL.md` 備份步驟會製造重複 skill~~ | **2026-07-27 已修**。備份改放 `~/.claude/skills-backup/`——原本放在 `~/.claude/skills/` 底下會被 skill loader 註冊成第二個 skill（description 幾乎相同、干擾選擇）。rollback 路徑一併更新，且還原改用**複製**而非搬移，備份因此留在原地、回滾可重複執行。殘留檔（`FIX-PLAN.md`）改用 1c 的逐一刪除處理，**安裝流程維持「從不整個刪除 live」** |

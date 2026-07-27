@@ -109,6 +109,11 @@ function Get-TreeFingerprint($root) {
 }
 # 型別要對才算「有」或「沒有」：skill 必須是目錄、hook/settings 必須是一般檔案。
 # 型別不對就中止 —— 若誤判成 .absent，回滾會把安裝前就存在的東西當「全新安裝」刪掉。
+# ⚠️ 已知限制（Windows）：`Test-Path` 無法區分「沒有這個項目」與「指向不存在目標的 symlink」，
+#    兩者都回 false。所以**斷掉的 symlink 會被當成「不存在」**、建立 .absent 標記。
+#    POSIX 版用 `[ -e ] || [ -L ]` 沒有這個問題。本機無管理員權限、無法建立 symlink 實測修法，
+#    因此不放未經驗證的偵測碼進來 —— 這是刻意的取捨，記在 docs/backlog.md。
+#    若你的 ~/.claude 底下這三個位置可能是 symlink，請先人工確認再安裝。
 if (Test-Path $hook -PathType Leaf) {
   Copy-Item $hook $hbak
   if ((Get-FileHash $hook).Hash -ne (Get-FileHash $hbak).Hash) { throw "hook 備份不完整，中止" }
@@ -254,14 +259,19 @@ setbak=$setf.bak-$ts
 # 只驗「存在」不夠 —— 備份被換成別的型別時，precheck 會過，但還原什麼都不會複製，
 # 卻已經把 live 刪掉了。
 precheck() { # 名稱 備份 標記 型別(d|f)
-  local n="$1" b="$2" a="$3" k="$4" okb=1 oka=1
-  if [ "$k" = d ]; then [ -d "$b" ] || okb=0; else [ -f "$b" ] || okb=0; fi
-  [ -f "$a" ] || oka=0
+  local n="$1" b="$2" a="$3" k="$4" eb=0 ea=0 okb=0 oka=0
+  # 先看「有沒有這個 directory entry」（含壞掉的 symlink），再看型別對不對。
+  # 順序很重要：若只比對「型別正確的存在」，當一邊有效、另一邊存在但型別錯時，
+  # 兩個錯誤分支都不會觸發，於是走進「原本不存在」那條 —— live 被刪卻不還原。
+  if [ -e "$b" ] || [ -L "$b" ]; then eb=1; fi
+  if [ -e "$a" ] || [ -L "$a" ]; then ea=1; fi
+  if [ "$k" = d ]; then if [ -d "$b" ]; then okb=1; fi; else if [ -f "$b" ]; then okb=1; fi; fi
+  if [ -f "$a" ]; then oka=1; fi
+
+  if [ "$eb" = 1 ] && [ "$okb" = 0 ]; then echo "$n：ts=$ts 的備份存在但型別不對，中止（live 未變更）"; exit 1; fi
+  if [ "$ea" = 1 ] && [ "$oka" = 0 ]; then echo "$n：ts=$ts 的 .absent 標記存在但型別不對，中止（live 未變更）"; exit 1; fi
   if [ "$okb" = 1 ] && [ "$oka" = 1 ]; then echo "$n：備份與 .absent 同時存在，狀態不明，中止（live 未變更）"; exit 1; fi
-  if [ "$okb" = 0 ] && [ "$oka" = 0 ]; then
-    if [ -e "$b" ] || [ -L "$b" ]; then echo "$n：ts=$ts 的備份存在但型別不對，中止（live 未變更）"; exit 1; fi
-    echo "$n：找不到 ts=$ts 的有效備份或標記，中止（live 未變更）"; exit 1
-  fi
+  if [ "$okb" = 0 ] && [ "$oka" = 0 ]; then echo "$n：找不到 ts=$ts 的有效備份或標記，中止（live 未變更）"; exit 1; fi
 }
 precheck skill    "$sbak"   "$sbak.absent"   d
 precheck hook     "$hbak"   "$hbak.absent"   f
@@ -290,13 +300,17 @@ $hbak   = "$hook.bak-$ts"; $setbak = "$setf.bak-$ts"
 # 型別也要對：只驗「存在」的話，備份被換成別的型別時 precheck 會過，
 # 但還原什麼都不會複製，卻已經把 live 刪掉了。
 function Test-Exactly1($name, $bak, $absent, $kind) {
+  # 先看 directory entry 在不在（Get-Item -Force 比 Test-Path 誠實），再看型別。
+  # 順序很重要：若只比對「型別正確的存在」，當一邊有效、另一邊存在但型別錯時，
+  # 兩個錯誤分支都不會觸發，於是走進「原本不存在」那條 —— live 被刪卻不還原。
+  $eb = $null -ne (Get-Item -LiteralPath $bak -Force -ErrorAction SilentlyContinue)
+  $ea = $null -ne (Get-Item -LiteralPath $absent -Force -ErrorAction SilentlyContinue)
   $okb = Test-Path $bak -PathType $kind          # Container = 目錄, Leaf = 一般檔
   $oka = Test-Path $absent -PathType Leaf
+  if ($eb -and -not $okb) { throw "${name}：ts=$ts 的備份存在但型別不對，中止（live 未變更）" }
+  if ($ea -and -not $oka) { throw "${name}：ts=$ts 的 .absent 標記存在但型別不對，中止（live 未變更）" }
   if ($okb -and $oka) { throw "${name}：備份與 .absent 同時存在，狀態不明，中止（live 未變更）" }
-  if (-not $okb -and -not $oka) {
-    if (Test-Path $bak) { throw "${name}：ts=$ts 的備份存在但型別不對，中止（live 未變更）" }
-    throw "${name}：找不到 ts=$ts 的有效備份或標記，中止（live 未變更）"
-  }
+  if (-not $okb -and -not $oka) { throw "${name}：找不到 ts=$ts 的有效備份或標記，中止（live 未變更）" }
 }
 Test-Exactly1 'skill'    $sbak   "$sbak.absent"   'Container'
 Test-Exactly1 'hook'     $hbak   "$hbak.absent"   'Leaf'
