@@ -32,4 +32,4 @@
 
 | 項目 | 處置 |
 |---|---|
-| ~~repo 缺 `.gitattributes`~~ | **2026-07-27 已加**。`* text=auto` 打底；`*.sh` 一律 `eol=lf`，另**逐檔明列** `codex-check-stubs/codex` 與 `codex-check-stubs/npm`（三平台各 2 個無副檔名的 `#!/bin/bash` 腳本，`*.sh` 抓不到；刻意不用萬用字元，否則日後放進該目錄的 binary fixture 會被強制當文字正規化）；`*.js`／`*.json`／`*.yml`／`*.md` 也是 `eol=lf`；`*.ps1` 為 `eol=crlf`（Windows 原生執行，另有 UTF-8 BOM 需求——BOM 與行尾是兩回事）。加入後 `git status` 無偽差異，`git ls-files --eol` 確認 index 全部 `i/lf`。⚠️ **只保證新的 checkout**：既有 clone 的工作目錄不會因為加了本檔就自動重寫（詳見檔頭註解）|
+| ~~repo 缺 `.gitattributes`~~ | **2026-07-27 已加**。`* text=auto` 打底；`*.sh` 一律 `eol=lf`，另**逐檔明列** `codex-check-stubs/codex` 與 `codex-check-stubs/npm`（`linux/` 與 `macos/` 各 2 個、共 4 個無副檔名的 `#!/bin/bash` 腳本，`windows/` 沒有該目錄；`*.sh` 抓不到它們。刻意不用萬用字元，否則日後放進該目錄的 binary fixture 會被強制當文字正規化）；`*.js`／`*.json`／`*.yml`／`*.md` 也是 `eol=lf`；`*.ps1` 為 `eol=crlf`（Windows 原生執行，另有 UTF-8 BOM 需求——BOM 與行尾是兩回事）。加入後 `git status` 無偽差異，`git ls-files --eol` 確認 index 全部 `i/lf`。⚠️ **只保證新的 checkout**：既有 clone 的工作目錄不會因為加了本檔就自動重寫（詳見檔頭註解）|

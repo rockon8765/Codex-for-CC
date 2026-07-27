@@ -9,16 +9,28 @@
 # 是把「剛好設定對所以沒事」變成「跟設定無關都沒事」。
 #
 # ⚠️ 只保證**新的 checkout**。既有 clone 的工作目錄不會因為加了本檔就自動重寫，
-# 未變更的檔案仍維持當初 checkout 出來的行尾（`git status` 乾淨**不代表**工作目錄已修好，
-# 因為比對時會先正規化）。要讓既有 clone 也乾淨：重新 clone，或在確認工作目錄
-# 完全沒有未提交變更後，強制重新 checkout 一次。
+# 未變更的檔案仍維持當初 checkout 出來的行尾。**`git status` 乾淨不代表工作目錄已修好**
+# ——比對時會先正規化，所以你不會收到任何提示。（實測：從舊 commit clone、再 checkout 到
+# 含本檔的 commit 之後，工作目錄仍有 71 個 CRLF 檔，而 `git status` 完全乾淨。）
+#
+# 要讓既有 clone 也刷新，**先確認沒有未提交的變更**（下面第三行會捨棄工作目錄變更），再跑：
+#
+#     git status                  # 必須乾淨，否則先 commit 或 stash
+#     git rm --cached -r -q .
+#     git reset --hard
+#
+# 實測結果：CRLF 檔 71 → 9（剩下的是 7 支刻意維持 CRLF 的 .ps1，加上只吃 text=auto 的
+# .gitattributes 與 .gitignore——在 core.autocrlf=true 的 Windows 上本來就該是 CRLF）；
+# .sh 與無副檔名 stub 的 CR 位元組歸零；.ps1 的 UTF-8 BOM 完好；事後 git status 乾淨。
+# 不想跑這段就重新 clone，效果相同。
 
 * text=auto
 
 # ── 由 Unix shell 執行 → 一律 LF ──────────────────────────────
 *.sh                    text eol=lf
-# 三平台 tests/codex-check-stubs/ 底下的 codex 與 npm 是**無副檔名**的
-# `#!/bin/bash` 腳本，*.sh 抓不到它們，必須單獨指定。
+# linux/ 與 macos/ 的 tests/codex-check-stubs/ 底下，codex 與 npm 是**無副檔名**的
+# `#!/bin/bash` 腳本，*.sh 抓不到它們，必須單獨指定。共 4 個（兩個 POSIX 平台各 2 個）；
+# windows/ 沒有這個目錄。
 # 刻意逐檔列出而不是用 `codex-check-stubs/*`：後者會把日後放進該目錄的任何檔案
 # （例如 .png fixture）也強制當成文字做 LF 正規化，可能弄壞 binary blob。
 **/codex-check-stubs/codex  text eol=lf
