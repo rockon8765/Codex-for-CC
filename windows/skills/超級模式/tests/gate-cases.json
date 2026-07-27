@@ -309,5 +309,6 @@
   {"name":"T5 Monitor: ws-only(無 command) denies — isReadOnlyCommand('') 回 true 的 fail-open 陷阱","flagContent":"","tokenAgeMs":null,"input":{"tool_name":"Monitor","tool_input":{"ws":{"url":"wss://example.com/stream"}}},"expect":"deny"},
   {"name":"T5 Monitor: 空 tool_input denies","flagContent":"","tokenAgeMs":null,"input":{"tool_name":"Monitor","tool_input":{}},"expect":"deny"},
   {"name":"T5 Monitor: 唯讀 runner 指向 scratchpad denies (與 Bash 分支同判準)","flagContent":"","tokenAgeMs":null,"input":{"tool_name":"Monitor","tool_input":{"command":"pytest \"__TMP__\\claude\\scratchpad\""}},"expect":"deny"},
-  {"name":"T5 Monitor: 命令替換 denies","flagContent":"","tokenAgeMs":null,"input":{"tool_name":"Monitor","tool_input":{"command":"tail -f $(cat target.txt)"}},"expect":"deny"}
+  {"name":"T5 Monitor: 命令替換 denies","flagContent":"","tokenAgeMs":null,"input":{"tool_name":"Monitor","tool_input":{"command":"tail -f $(cat target.txt)"}},"expect":"deny"},
+  {"name":"A2: deny 訊息必含子代理分支(否則子代理會照主線指令自行諮詢→燒額度+mint全機憑證)","flagContent":"","tokenAgeMs":null,"input":{"tool_name":"Write","tool_input":{"file_path":"C:\\proj\\a.js"}},"expect":"deny","expectReasonIncludes":"若你是子代理"}
 ]

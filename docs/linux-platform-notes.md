@@ -45,7 +45,26 @@
 
 ## 4. 驗證紀錄
 
+### 4.0（2026-07-27）Linux 原生 —— context-engineering 整理後複驗
+
+環境：WSL2 / ext4 / glibc / Node v22.23.1。**從 `git clone` 的 checkout 跑，不是從 Windows 工作目錄複製**
+（後者因 `core.autocrlf=true` 會拿到 CRLF 的 `.sh`，`set -euo pipefail` 會炸成
+`pipefail: invalid option name` —— 這是假陽性，不是程式壞掉，見 [`backlog.md`](backlog.md)）。
+
+| 項目 | 結果 |
+|---|---|
+| `node --check` hook | ✅ |
+| `bash -n`（scripts ×4 + tests ×3） | ✅ |
+| `node tests/run-gate-tests.js` | ✅ **121/121**（新增 1 案：deny 訊息須含子代理分支） |
+| `node tests/matcher-contract.test.js` | ✅ |
+| `bash tests/run-e2e.sh` | ✅ 11/11 |
+| `bash tests/consult-schema.tests.sh` | ✅ **4/4**（新增 2 案：`-p`/`-f` 互斥 fail-fast） |
+
+GitHub CI 於本批推上遠端後才會跑，綠燈與否以 CI 狀態為準。
+
 ### 4.1（2026-07-26）Linux 原生 —— 兩個獨立環境 + 持續性 CI
+
+> ⚠️ 以下數字屬 **2026-07-26 那個 revision**，不代表目前 tip（案例數已增加，見 §4.0）。
 
 | 環境 | 內容 |
 |---|---|

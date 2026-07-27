@@ -38,7 +38,12 @@
 >
 > **例外：Linux 自 2026-07-26 起有持續性的原生覆蓋。** [`.github/workflows/linux.yml`](.github/workflows/linux.yml) 讓每次 push／PR 都在 `ubuntu-latest` 上跑完整 `linux/` 回歸（含一道變異測試守住平台語義）。所以 linux 的「目前 tip 是否原生驗證過」不必再靠人工回想——看 CI 狀態即可。Windows 與 macOS 目前**沒有** CI，仍靠人工原生驗證。
 >
-> **本次 delta 的驗證分布（2026-07-26，Opus 5 對齊 ＋ gate 內建工具面補齊）。**
+> **本次 delta 的驗證分布（2026-07-27，context-engineering 整理：矛盾修正 ＋ 三層去重 ＋ 參數互斥 ＋ FIX-PLAN 移出 payload）。**
+> **Windows**：已在 win32 原生通過 gate-cases **109/109**、`matcher-contract`、NTFS 8.3 短名測試、`consult-schema` **10/10**；三支改過的 `.ps1` 保留 UTF-8 BOM 且 `Parser::ParseFile` 全 PARSE OK。新增的「deny 訊息含子代理分支」案例做過**變異測試**：換回舊 hook 會變 108/109，失敗的只有那一筆。
+> **Linux**：已在 WSL2（ext4／glibc／Node v22.23.1，**從 git checkout 而非 Windows 工作目錄複製**）原生通過 gate-cases **121/121**、`consult-schema` **4/4**、`matcher-contract`、`run-e2e.sh` 11/11、`bash -n` 全過。GitHub CI 於本批推上遠端後才會跑，**綠燈與否以 CI 狀態為準**。
+> **macOS**：本批**未原生驗證**——本機無 Mac。本批的 macOS 改動是同一段 hook 字串與同一段 bash 參數邏輯的平台孿生，但**下方 07-26 的 macOS 116/116 只屬於那個 revision，不可套用到目前 tip**。要視為已驗證，請在 Mac 上複跑 gate-cases（應為 117）、`matcher-contract`、`consult-schema`（應為 4/4）、`run-e2e.sh`。
+>
+> **前一次 delta 的驗證分布（2026-07-26，Opus 5 對齊 ＋ gate 內建工具面補齊）。**
 > **Windows**：已在 win32 原生通過 gate-cases 108/108、`matcher-contract`、NTFS 8.3 短名測試，live 部署後另複驗一次。
 > **macOS**：已在 darwin arm64 原生通過 gate-cases 116/116、`matcher-contract`、`run-e2e.sh` 11/11，並核對受測 hook 確實是 worktree 內那份。
 >

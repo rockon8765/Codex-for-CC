@@ -59,7 +59,10 @@ if ($PromptFile -and $Prompt) {
 if ($PromptFile)   { $p = Read-TextSmart $PromptFile }
 elseif ($Prompt)   {
   $p = $Prompt
-  Write-Warning "[DEPRECATED] -Prompt(inline) 將於未來版本改為錯誤。inline 簡報含 ; | & 等標點會被 consult-gate 的指令解析誤判成串接指令而擋下。請改用 -PromptFile：用 Write 工具把簡報寫進 scratchpad(gate 豁免路徑)再傳路徑。"
+  # 用 [Console]::Error 而非 Write-Warning：實測 powershell.exe -File 跨 process 時 warning stream
+  # 會落到 OS stdout(污染 -Quiet 摘要與 --output-schema 的 stdout 解析)，且 $WarningPreference='Stop'
+  # 會把它變成 ActionPreferenceStopException —— staged deprecation 的「仍可跑」承諾就破功了。
+  [Console]::Error.WriteLine("[DEPRECATED] -Prompt(inline) 將於未來版本改為錯誤。inline 簡報含 ; | & 等標點會被 consult-gate 的指令解析誤判成串接指令而擋下。請改用 -PromptFile：用 Write 工具把簡報寫進 scratchpad(gate 豁免路徑)再傳路徑。")
 }
 else               { throw "Provide -PromptFile (preferred) or -Prompt (deprecated)." }
 if ([string]::IsNullOrWhiteSpace($p)) { throw "Prompt is empty." }
