@@ -3,7 +3,8 @@
 # After it returns, Claude MUST review: read _last.txt + git diff (NOT the full log).
 # Usage:
 #   codex-exec.sh -d <dir> -f <brief-file> [-q] [-o <out>] [-s <schema.json>]
-#   codex-exec.sh -d <dir> -p "<brief>"
+#   codex-exec.sh -d <dir> -p "<brief>"   (DEPRECATED stage 1: warns, still runs;
+#                                          -p together with -f is now a hard error)
 #   -q  quiet: stdout 只印一行摘要（配 run_in_background 派工建議一律帶）
 #   -o  最終回覆落地路徑(--output-last-message)；預設 ~/.claude/super-mode-logs/codex_exec_<ts>_last.txt
 #   -s  JSON schema 檔路徑(--output-schema, opt-in)：讓最終回覆符合固定結構、好機器驗收
@@ -22,9 +23,15 @@ while [ $# -gt 0 ]; do
   esac
 done
 [ -n "$dir" ] || { echo "need -d <dir>" >&2; exit 2; }
+# C5 stage 1：舊行為是兩個都給就靜默採用 -f(呼叫端不會發現自己的 inline 被丟掉) → fail-fast。
+if [ -n "$pfile" ] && [ -n "$prompt" ]; then
+  echo "同時給了 -p 與 -f：語意不明確(舊行為靜默採用 -f)，拒絕執行。請只給 -f <brief-file>。" >&2; exit 2
+fi
 if   [ -n "$pfile" ]; then p="$(cat "$pfile")"
-elif [ -n "$prompt" ]; then p="$prompt"
-else echo "need -p or -f" >&2; exit 2; fi
+elif [ -n "$prompt" ]; then
+  p="$prompt"
+  echo "[DEPRECATED] -p/--prompt(inline) 將於未來版本改為錯誤。inline 簡報含 ; | & 等標點會被 consult-gate 的指令解析誤判成串接指令而擋下。請改用 -f <brief-file>：簡報寫進 scratchpad(gate 豁免路徑)再傳路徑。" >&2
+else echo "need -f <brief-file> (preferred) or -p (deprecated)" >&2; exit 2; fi
 [ -n "${p//[[:space:]]/}" ] || { echo "brief is empty" >&2; exit 2; }
 
 # -s：轉絕對路徑(-C 會換工作根) + 啟動 codex 前先驗 JSON 可解析(fail-fast)

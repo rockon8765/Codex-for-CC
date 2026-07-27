@@ -4,8 +4,10 @@
 # On success, writes a repo-scoped consult token so the consult-gate hook lets
 # matching mutating actions through for 20 min.
 # Usage:
-#   codex-consult.sh -d <dir> -f <brief-file>   (PREFERRED — brief written to scratchpad)
-#   codex-consult.sh -d <dir> -p "<brief>"      (short briefs only)
+#   codex-consult.sh -d <dir> -f <brief-file>   (THE way — brief written to scratchpad)
+#   codex-consult.sh -d <dir> -p "<brief>"      (DEPRECATED stage 1: warns, still runs;
+#                                                ; | & in inline briefs get gate-blocked.
+#                                                -p together with -f is now a hard error.)
 #   codex-consult.sh -d <dir> -n -f <brief>     (discussion mode — no consult-gate credential)
 #   -s <schema.json>  optional (T2b): constrain Codex's reply to a JSON schema (--output-schema); read-only/ephemeral unchanged
 # Tool timeout: 360000ms. Transcript: ~/.claude/super-mode-logs/codex_consult_<ts>.txt
@@ -23,9 +25,15 @@ while [ $# -gt 0 ]; do
   esac
 done
 [ -n "$dir" ] || { echo "need -d <dir>" >&2; exit 2; }
+# C5 stage 1：舊行為是兩個都給就靜默採用 -f(呼叫端不會發現自己的 inline 被丟掉) → fail-fast。
+if [ -n "$pfile" ] && [ -n "$prompt" ]; then
+  echo "同時給了 -p 與 -f：語意不明確(舊行為靜默採用 -f)，拒絕執行。請只給 -f <brief-file>。" >&2; exit 2
+fi
 if   [ -n "$pfile" ]; then p="$(cat "$pfile")"
-elif [ -n "$prompt" ]; then p="$prompt"
-else echo "need -p or -f" >&2; exit 2; fi
+elif [ -n "$prompt" ]; then
+  p="$prompt"
+  echo "[DEPRECATED] -p/--prompt(inline) 將於未來版本改為錯誤。inline 簡報含 ; | & 等標點會被 consult-gate 的指令解析誤判成串接指令而擋下。請改用 -f <brief-file>：簡報寫進 scratchpad(gate 豁免路徑)再傳路徑。" >&2
+else echo "need -f <brief-file> (preferred) or -p (deprecated)" >&2; exit 2; fi
 [ -n "${p//[[:space:]]/}" ] || { echo "prompt is empty" >&2; exit 2; }
 
 # T2b: -s 轉絕對路徑(-C 換工作根) + 啟動 codex 前先驗 JSON 可解析(fail-fast)；只約束輸出形狀，不改沙箱(read-only/ephemeral 不變)。

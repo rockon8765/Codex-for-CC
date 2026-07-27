@@ -4,10 +4,12 @@
   交回後 Claude 必須 review diff，不合格退回重做。
 .PARAMETER Dir
   Codex 的工作目錄（專案根，Windows 路徑）。Codex 沙箱進不到 WSL UNC 路徑。
-.PARAMETER Prompt
-  任務簡報文字（短簡報限定；含 ; | & 標點的 inline 簡報可能被 consult-gate 誤判）。
 .PARAMETER PromptFile
-  從檔案讀任務簡報。**建議一律用這個** — 簡報寫進 scratchpad（gate 豁免路徑）再傳入。
+  從檔案讀任務簡報 — **傳簡報就用這個**。簡報寫進 scratchpad（gate 豁免路徑）再傳路徑。
+.PARAMETER Prompt
+  DEPRECATED（stage 1：仍可用但出警告，未來版本改為錯誤）。含 ; | & 標點的 inline 簡報
+  會被 consult-gate 的指令解析誤判成串接指令而擋下。同時給 -Prompt 與 -PromptFile 現在
+  直接報錯，不再靜默採用 -PromptFile。
 .PARAMETER OutFile
   Codex 最終回覆落地路徑（--output-last-message）。不給就自動放 ~/.claude/super-mode-logs/。
 .EXAMPLE
@@ -47,9 +49,16 @@ function Read-TextSmart([string]$path) {
   return [System.Text.Encoding]::UTF8.GetString($b)
 }
 
+# C5 stage 1：舊行為是兩個都給就靜默採用 -PromptFile(呼叫端不會發現 inline 被丟掉) → fail-fast。
+if ($PromptFile -and $Prompt) {
+  throw "同時給了 -Prompt 與 -PromptFile：語意不明確(舊行為靜默採用 -PromptFile)，拒絕執行。請只給 -PromptFile。"
+}
 if ($PromptFile) { $p = Read-TextSmart $PromptFile }
-elseif ($Prompt) { $p = $Prompt }
-else { throw "需提供 -Prompt 或 -PromptFile" }
+elseif ($Prompt) {
+  $p = $Prompt
+  Write-Warning "[DEPRECATED] -Prompt(inline) 將於未來版本改為錯誤。inline 簡報含 ; | & 等標點會被 consult-gate 的指令解析誤判成串接指令而擋下。請改用 -PromptFile：用 Write 工具把簡報寫進 scratchpad(gate 豁免路徑)再傳路徑。"
+}
+else { throw "需提供 -PromptFile（建議）或 -Prompt（已 deprecated）" }
 if ([string]::IsNullOrWhiteSpace($p)) { throw "Prompt is empty." }
 
 # 5.1 output-schema：給了 -SchemaFile 就轉絕對路徑並在啟動 Codex 前先驗證可解析(fail-fast)

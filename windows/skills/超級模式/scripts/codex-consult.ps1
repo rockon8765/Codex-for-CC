@@ -6,10 +6,12 @@
 #
 # Params:
 #   -Dir         Codex working dir (project root, Windows path; WSL UNC not reachable -> feed evidence via the brief).
-#   -Prompt      Consult brief text (short only; punctuation like ; | & in inline
-#                prompts can trip the consult-gate's command parsing).
-#   -PromptFile  Read the consult brief from a file. PREFERRED -- write the brief
-#                to the session scratchpad (gate-exempt path) and pass it here.
+#   -PromptFile  Read the consult brief from a file. THE way to pass a brief --
+#                write it to the session scratchpad (gate-exempt path), pass path.
+#   -Prompt      DEPRECATED (stage 1: warns, still works; a later release errors).
+#                Inline briefs containing ; | & trip the consult-gate's command
+#                parsing and get blocked. Passing both -Prompt and -PromptFile is
+#                now a hard error instead of silently preferring the file.
 #   -NoCredential  Discussion-partner mode (outside super-mode): same read-only
 #                consult, but do NOT mint the consult-gate credential.
 #   -SchemaFile  Optional (T2b): JSON schema path; constrains Codex's final reply
@@ -49,9 +51,17 @@ function Read-TextSmart([string]$path) {
   return [System.Text.Encoding]::UTF8.GetString($b)
 }
 
+# C5 stage 1：介面收斂取代散文規則。舊行為是兩個都給就靜默採用 -PromptFile(呼叫端無從
+# 察覺自己的 inline 被丟掉) → 改 fail-fast。inline 單獨使用仍可跑，但出 deprecation 警告。
+if ($PromptFile -and $Prompt) {
+  throw "同時給了 -Prompt 與 -PromptFile：語意不明確(舊行為靜默採用 -PromptFile)，拒絕執行。請只給 -PromptFile。"
+}
 if ($PromptFile)   { $p = Read-TextSmart $PromptFile }
-elseif ($Prompt)   { $p = $Prompt }
-else               { throw "Provide -Prompt or -PromptFile" }
+elseif ($Prompt)   {
+  $p = $Prompt
+  Write-Warning "[DEPRECATED] -Prompt(inline) 將於未來版本改為錯誤。inline 簡報含 ; | & 等標點會被 consult-gate 的指令解析誤判成串接指令而擋下。請改用 -PromptFile：用 Write 工具把簡報寫進 scratchpad(gate 豁免路徑)再傳路徑。"
+}
+else               { throw "Provide -PromptFile (preferred) or -Prompt (deprecated)." }
 if ([string]::IsNullOrWhiteSpace($p)) { throw "Prompt is empty." }
 
 # T2b：給了 -SchemaFile 就轉絕對路徑並在啟動 Codex 前先驗證可解析(fail-fast)。只約束輸出形狀，不改沙箱(read-only/ephemeral 不變)。

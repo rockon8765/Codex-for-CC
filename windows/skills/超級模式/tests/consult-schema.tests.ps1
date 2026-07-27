@@ -1,12 +1,16 @@
-﻿# T2b 回歸：codex-consult.ps1 的 -SchemaFile 驗證 + cmd 注入守衛。
+﻿# 參數面回歸：codex-consult.ps1 的 -SchemaFile 驗證 + cmd 注入守衛（T2b），
+# 以及 consult/exec 的 -Prompt/-PromptFile 互斥 fail-fast（C5 stage 1）。
 # 所有 case 都在「呼叫 codex 之前」失敗(throw) → 不需真 codex、不 mint 憑證、無副作用。
 $consult = Join-Path $PSScriptRoot "..\scripts\codex-consult.ps1"
+$exec    = Join-Path $PSScriptRoot "..\scripts\codex-exec.ps1"
 $dir = "C:\"                       # 安全 -Dir；case 1-4 在 schema 階段就 throw、不會用到它
 $tmp = $env:TEMP
 $pass = 0; $fail = 0
-function T($name, $expect, [hashtable]$params) {
+$WarningPreference = 'SilentlyContinue'   # C5：inline -Prompt 會出 deprecation 警告，測試輸出不需要它
+function T($name, $expect, [hashtable]$params, $scriptPath) {
+  if (-not $scriptPath) { $scriptPath = $consult }
   $threw = $false; $msg = ""
-  try { & $consult @params 2>&1 | Out-Null } catch { $threw = $true; $msg = "$($_.Exception.Message)" }
+  try { & $scriptPath @params 2>&1 | Out-Null } catch { $threw = $true; $msg = "$($_.Exception.Message)" }
   if ($threw -and $msg -match [regex]::Escape($expect)) { Write-Output "PASS  $name"; $script:pass++ }
   else { Write-Output "FAIL  $name (threw=$threw msg=$msg)"; $script:fail++ }
 }
@@ -20,6 +24,11 @@ T "schema-bad-json"   "is not valid JSON"     @{ Dir=$dir; Prompt='t'; SchemaFil
 T "schema-pct-unsafe" "不安全字元"            @{ Dir=$dir; Prompt='t'; SchemaFile=$pct }
 T "schema-amp-unsafe" "不安全字元"            @{ Dir=$dir; Prompt='t'; SchemaFile=$amp }
 T "dir-pct-unsafe"    "不安全字元"            @{ Dir='C:\proj\%EVIL%'; Prompt='t' }
+
+# C5 stage 1：-Prompt 與 -PromptFile 互斥。舊行為是靜默採用 -PromptFile，呼叫端不會發現
+# 自己的 inline 簡報被丟掉 → 改 fail-fast。consult 與 exec 都要有，兩者是同一個坑。
+T "consult-both-prompt-and-file" "同時給了 -Prompt 與 -PromptFile" @{ Dir=$dir; Prompt='t'; PromptFile=$bad }
+T "exec-both-prompt-and-file"    "同時給了 -Prompt 與 -PromptFile" @{ Dir=$dir; Prompt='t'; PromptFile=$bad } $exec
 
 Remove-Item -LiteralPath $pct, $amp, $bad -Force -ErrorAction SilentlyContinue
 Write-Output ""
