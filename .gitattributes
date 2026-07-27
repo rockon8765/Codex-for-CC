@@ -1,0 +1,29 @@
+# 行尾一律由本檔決定，不依賴各 clone 的 core.autocrlf 設定。
+#
+# 為什麼需要這個檔（2026-07-27 實際踩過一次）：
+# 本 repo 原本沒有 .gitattributes，行尾完全看每台機器的 core.autocrlf。在
+# core.autocrlf=true 的 Windows clone 上，工作目錄的 .sh 會是 CRLF；把「Windows
+# 工作目錄」直接複製到 Unix 機器驗證時，`set -euo pipefail` 會炸成
+# `pipefail: invalid option name`，看起來像程式壞掉，其實是行尾假陽性。
+# committed blob 一直都是 LF，所以正常 git checkout 從來不受影響 —— 這個檔的作用
+# 是把「剛好設定對所以沒事」變成「跟設定無關都沒事」。
+
+* text=auto
+
+# ── 由 Unix shell 執行 → 一律 LF ──────────────────────────────
+*.sh                    text eol=lf
+# 三平台 tests/codex-check-stubs/ 底下的 codex 與 npm 是**無副檔名**的
+# `#!/bin/bash` 腳本，*.sh 抓不到它們，必須單獨指定。
+**/codex-check-stubs/*  text eol=lf
+
+# ── node / 設定檔 → LF（跨平台維持單一形狀，好做 byte 比對）────
+*.js                    text eol=lf
+*.json                  text eol=lf
+*.yml                   text eol=lf
+*.md                    text eol=lf
+
+# ── PowerShell → CRLF ────────────────────────────────────────
+# 只在 Windows 原生執行，維持與現行 core.autocrlf=true 工作目錄相同的形狀。
+# 注意：這些檔另有 UTF-8 BOM 的硬性需求（PowerShell 5.1 讀無 BOM 的含中文 .ps1
+# 會亂碼）。BOM 與行尾是兩回事，git 不會動 BOM。
+*.ps1                   text eol=crlf

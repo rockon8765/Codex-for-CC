@@ -35,11 +35,16 @@ node ".\windows\skills\超級模式\tests\matcher-contract.test.js" # hook 的�
 
 **1b. 備份既有 live（若存在）——記住印出的時間戳 `ts`，回滾要用**
 
+> ⚠️ **備份一定要放在 `~/.claude/skills/` 外面**（本文用 `~/.claude/skills-backup/`）。
+> 備份若留在 `~/.claude/skills/` 底下，Claude Code 的 skill loader 會把它**當成另一個
+> skill 註冊**——名稱與 description 幾乎相同，會干擾 skill 選擇。（2026-07-27 實際發生過。）
+
 macOS / Linux:
 ```bash
 ts=$(date +%Y%m%d-%H%M%S)
+mkdir -p ~/.claude/skills-backup
 [ -e ~/.claude/hooks/super-mode-consult-gate.js ] && cp ~/.claude/hooks/super-mode-consult-gate.js ~/.claude/hooks/super-mode-consult-gate.js.bak-$ts
-[ -d ~/.claude/skills/超級模式 ] && cp -R ~/.claude/skills/超級模式 ~/.claude/skills/超級模式.bak-$ts
+[ -d ~/.claude/skills/超級模式 ] && cp -R ~/.claude/skills/超級模式 ~/.claude/skills-backup/超級模式.bak-$ts
 echo "backup ts=$ts"
 ```
 Windows:
@@ -47,20 +52,29 @@ Windows:
 $ts = Get-Date -Format yyyyMMdd-HHmmss
 $hook = "$env:USERPROFILE\.claude\hooks\super-mode-consult-gate.js"
 if (Test-Path $hook) { Copy-Item $hook "$hook.bak-$ts" }
-$skill = "$env:USERPROFILE\.claude\skills\超級模式"
-if (Test-Path $skill) { Copy-Item -Recurse $skill "$skill.bak-$ts" }
+$skill  = "$env:USERPROFILE\.claude\skills\超級模式"
+$bakDir = "$env:USERPROFILE\.claude\skills-backup"
+New-Item -ItemType Directory -Force -Path $bakDir | Out-Null
+if (Test-Path $skill) { Copy-Item -Recurse $skill "$bakDir\超級模式.bak-$ts" }
 "backup ts=$ts"
 ```
 
 **1c. 安裝（複製到 live）**
 
+> ⚠️ **先清空舊的 skill 目錄再複製。** 直接複製是「合併」語意：上游**刪掉**的檔案會留在 live
+> 變成殘留（例如 2026-07-27 把 `FIX-PLAN.md` 移出 payload 後，只做複製的話 live 會留著那份
+> 已完成的舊修復規劃書，未來的 agent 可能誤讀重跑）。**執行前先確認 1b 的備份已完成。**
+
 macOS / Linux:
 ```bash
+rm -rf ~/.claude/skills/超級模式          # 1b 已備份到 skills-backup/ 才可以做這步
 cp -R "macos/skills/超級模式" ~/.claude/skills/
 cp    "macos/hooks/super-mode-consult-gate.js" ~/.claude/hooks/
 ```
 Windows:
 ```powershell
+$skill = "$env:USERPROFILE\.claude\skills\超級模式"
+if (Test-Path $skill) { Remove-Item -Recurse -Force $skill }   # 1b 已備份才可以做這步
 Copy-Item -Recurse ".\windows\skills\超級模式" "$env:USERPROFILE\.claude\skills\" -Force
 Copy-Item ".\windows\hooks\super-mode-consult-gate.js" "$env:USERPROFILE\.claude\hooks\" -Force
 ```
@@ -107,14 +121,15 @@ node "$env:USERPROFILE\.claude\skills\超級模式\tests\matcher-contract.test.j
   macOS / Linux:
   ```bash
   [ -e ~/.claude/hooks/super-mode-consult-gate.js.bak-$ts ] && cp ~/.claude/hooks/super-mode-consult-gate.js.bak-$ts ~/.claude/hooks/super-mode-consult-gate.js
-  [ -d ~/.claude/skills/超級模式.bak-$ts ] && rm -rf ~/.claude/skills/超級模式 && mv ~/.claude/skills/超級模式.bak-$ts ~/.claude/skills/超級模式
+  [ -d ~/.claude/skills-backup/超級模式.bak-$ts ] && rm -rf ~/.claude/skills/超級模式 && mv ~/.claude/skills-backup/超級模式.bak-$ts ~/.claude/skills/超級模式
   ```
   Windows:
   ```powershell
   $hook = "$env:USERPROFILE\.claude\hooks\super-mode-consult-gate.js"
   if (Test-Path "$hook.bak-$ts") { Copy-Item "$hook.bak-$ts" $hook -Force }
   $skill = "$env:USERPROFILE\.claude\skills\超級模式"
-  if (Test-Path "$skill.bak-$ts") { Remove-Item -Recurse -Force $skill; Rename-Item "$skill.bak-$ts" "超級模式" }
+  $bak   = "$env:USERPROFILE\.claude\skills-backup\超級模式.bak-$ts"
+  if (Test-Path $bak) { if (Test-Path $skill) { Remove-Item -Recurse -Force $skill }; Move-Item $bak $skill }
   ```
 
 - **全新安裝（步驟 1b 沒有備份）→ 刪掉剛裝的，並移除步驟 2 加進 settings 的 hook 區塊**（否則 settings 會指向已刪的 hook）：
@@ -156,3 +171,4 @@ node "$env:USERPROFILE\.claude\skills\超級模式\tests\matcher-contract.test.j
 2. 從 settings 檔移除該 hook 區塊。
 3. 從 `~/.claude/CLAUDE.md` 刪掉 `BEGIN CODEX-DISCUSSION-PARTNER` 到 `END CODEX-DISCUSSION-PARTNER` 的區塊。
 4. 清掉殘留旗標／憑證（若存在）：`~/.claude/.super-mode-active`、`~/.claude/.super-mode-consult-ok`。
+5. 安裝時留下的備份（`~/.claude/skills-backup/超級模式.bak-*`、`~/.claude/hooks/super-mode-consult-gate.js.bak-*`）與逐字稿（`~/.claude/super-mode-logs/`）**不會自動清除**——確認不再需要回滾後自行刪除。
