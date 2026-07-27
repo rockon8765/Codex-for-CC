@@ -32,9 +32,9 @@
 | Codex CLI 位置 | `C:\npm\codex.cmd`（寫死） | `PATH` 上的 `codex`（Homebrew npm global） | `PATH` 上的 `codex`（npm global） |
 | Gate 拒絕機制 | `permissionDecision` / exit 2 | stderr + exit 2 | stderr + exit 2 |
 | 接 hook 的設定檔 | `settings.json` | `settings.local.json` | `settings.local.json` |
-| 修復紀錄 | [`windows/skills/超級模式/FIX-PLAN.md`](windows/skills/超級模式/FIX-PLAN.md) | [`macos/skills/超級模式/FIX-PLAN.md`](macos/skills/超級模式/FIX-PLAN.md) | [`linux/skills/超級模式/FIX-PLAN.md`](linux/skills/超級模式/FIX-PLAN.md) |
+| 修復／平台紀錄 | [`docs/history/FIX-PLAN-windows-2026-07-02.md`](docs/history/FIX-PLAN-windows-2026-07-02.md) | [`docs/history/FIX-PLAN-macos-2026-07-03.md`](docs/history/FIX-PLAN-macos-2026-07-03.md) | [`docs/linux-platform-notes.md`](docs/linux-platform-notes.md)（現行參考，非史料） |
 
-> **現況（據實）。** **Windows 版**是本 repo 的維護基準，原生稽核與對抗測試的覆蓋最廣。**macOS 與 Linux 版都曾對特定 revision／功能做過原生驗證**（例如 P0.1 realpath 縱深硬化 `351061a` 記載 Linux 在 WSL2/ext4/glibc 上原生跑過 gate-cases 98/98 ＋ 9 個 symlink 探針），**但各次的涵蓋範圍與時間點都不同——不能由歷史上某次 PASS 推定目前 tip 已達成三平台等價驗證**。要判斷「現在這批改動可不可信」，請以下方**「本次 delta 的驗證分布」**為準。各平台的分階段紀錄與回歸測試臺規格在各自的 `FIX-PLAN.md`（上表連結）；案例數以各平台 `tests/gate-cases.json` 為準（三平台不同、且會隨修補變動）。
+> **現況（據實）。** **Windows 版**是本 repo 的維護基準，原生稽核與對抗測試的覆蓋最廣。**macOS 與 Linux 版都曾對特定 revision／功能做過原生驗證**（例如 P0.1 realpath 縱深硬化 `351061a` 記載 Linux 在 WSL2/ext4/glibc 上原生跑過 gate-cases 98/98 ＋ 9 個 symlink 探針），**但各次的涵蓋範圍與時間點都不同——不能由歷史上某次 PASS 推定目前 tip 已達成三平台等價驗證**。要判斷「現在這批改動可不可信」，請以下方**「本次 delta 的驗證分布」**為準。各平台的分階段紀錄與回歸測試臺規格見上表「修復／平台紀錄」列（**2026-07-27 起這些文件都移出 skill payload**：已完成的過程放 [`docs/history/`](docs/history/)、Linux 的現行平台差異放 [`docs/linux-platform-notes.md`](docs/linux-platform-notes.md)——不再隨安裝被複製進 `~/.claude/skills/`）；案例數以各平台 `tests/gate-cases.json` 為準（三平台不同、且會隨修補變動）。
 >
 > **例外：Linux 自 2026-07-26 起有持續性的原生覆蓋。** [`.github/workflows/linux.yml`](.github/workflows/linux.yml) 讓每次 push／PR 都在 `ubuntu-latest` 上跑完整 `linux/` 回歸（含一道變異測試守住平台語義）。所以 linux 的「目前 tip 是否原生驗證過」不必再靠人工回想——看 CI 狀態即可。Windows 與 macOS 目前**沒有** CI，仍靠人工原生驗證。
 >
@@ -114,13 +114,16 @@
 ```
 CLAUDE.md  AGENTS.md             # AI 助手自動載入的轉接指引（安裝用，指向 docs/AI-INSTALL.md）
 docs/AI-INSTALL.md               # AI 安裝指引（安裝流程的唯一真相）
+docs/backlog.md                  # 已知未完成項（跨平台彙整）
+docs/linux-platform-notes.md     # Linux 平台差異與部署注意事項（現行參考）
+docs/history/                    # 已完成的修復／移植過程紀錄（不隨安裝部署）
 
 windows/                         # PowerShell 版（已稽核、已部署）
   settings.snippet.json
   CLAUDE-global-rule.md          # 「Codex 討論夥伴」全域規則 snippet（append 到 ~/.claude/CLAUDE.md）
   hooks/super-mode-consult-gate.js
   skills/超級模式/
-    SKILL.md  FIX-PLAN.md  references/orchestration.md  references/review-output.schema.json
+    SKILL.md  references/orchestration.md  references/review-output.schema.json
     scripts/  super-mode.ps1  codex-consult.ps1  codex-exec.ps1  codex-check.ps1
     tests/    run-gate-tests.js  run-gate-tests.ps1  matcher-contract.test.js  gate-cases.json
 
@@ -129,7 +132,7 @@ macos/                           # bash 版（平台移植版；本次 delta 的
   CLAUDE-global-rule.md          # 同上，macOS 版 snippet
   hooks/super-mode-consult-gate.js
   skills/超級模式/
-    SKILL.md  FIX-PLAN.md  references/orchestration.md  references/review-output.schema.json
+    SKILL.md  references/orchestration.md  references/review-output.schema.json
     scripts/  super-mode.sh  codex-consult.sh  codex-exec.sh  codex-check.sh
     tests/    run-gate-tests.js  run-e2e.sh  matcher-contract.test.js  gate-cases.json
 
@@ -138,7 +141,7 @@ linux/                           # bash 版（GNU userland；每次 push 由 ubu
   CLAUDE-global-rule.md          # 同上，Linux 版 snippet
   hooks/super-mode-consult-gate.js
   skills/超級模式/
-    SKILL.md  FIX-PLAN.md  references/orchestration.md  references/review-output.schema.json
+    SKILL.md  references/orchestration.md  references/review-output.schema.json
     scripts/  super-mode.sh  codex-consult.sh  codex-exec.sh  codex-check.sh
     tests/    run-gate-tests.js  run-e2e.sh  matcher-contract.test.js  gate-cases.json
 ```
@@ -226,11 +229,11 @@ hook **在啟用前是 fail-open 且停用的** — 安裝它不會影響一般 
 ## 已知的坑（血淚換來的）
 
 **Windows 專屬** — **不要**移植到 macOS / Linux：
-- Claude 的寫檔工具產生的是**無 BOM** 的 UTF-8；PowerShell 5.1 讀無 BOM 的含中文 `.ps1` 會亂碼。改完任何 `.ps1` 後，要重新補上 UTF-8 BOM 並重新驗證語法（見 `windows/.../FIX-PLAN.md` §0.5）。
+- Claude 的寫檔工具產生的是**無 BOM** 的 UTF-8；PowerShell 5.1 讀無 BOM 的含中文 `.ps1` 會亂碼。改完任何 `.ps1` 後，要重新補上 UTF-8 BOM 並重新驗證語法（見 [`docs/history/FIX-PLAN-windows-2026-07-02.md`](docs/history/FIX-PLAN-windows-2026-07-02.md) §0.5）。
 - 簡報透過 `cmd /s /c "... < file"` 餵給 Codex，因為 PS 5.1 的 `$OutputEncoding` 對 native pipe 不生效（非 ASCII 會變成 `?`）。
 
 **macOS / Linux**
 - 沒有 BOM 問題 — 那些步驟已刻意移除。簡報以一般 stdin 重導向（`< file`）送給 Codex；stderr 收到獨立檔再併進 log（絕不用 `2>&1`，那會把 Codex 的雜訊回灌進 Claude 的 context）。
-- `set -e` + pipeline 會吞掉 Codex 的 exit code — 腳本用固定的 `set +e … ${PIPESTATUS[0]} … set -e` 寫法（FIX-PLAN §0.5）。
+- `set -e` + pipeline 會吞掉 Codex 的 exit code — 腳本用固定的 `set +e … ${PIPESTATUS[0]} … set -e` 寫法（見 [`docs/history/FIX-PLAN-macos-2026-07-03.md`](docs/history/FIX-PLAN-macos-2026-07-03.md) §0.5）。
 - macOS ↔ Linux 的**共通**差異是 `stat`（BSD `-f %m` vs GNU `-c %Y`，在 `codex-check.sh` 與 `super-mode.sh`）——別把版本拿錯邊。
 - ⚠️ **但兩者早已不只差一個 `stat`。** `codex-check.sh` 目前 macOS 549 行、Linux 123 行：**能力面盤點與 baseline diff 整段尚未移植到 Linux**（`capability`/`baseline` 關鍵字在 mac 版各 25／58 處，Linux 版 **0 處**）。（`.codex-check-baseline` 的 hook 安全關鍵檔保護**已於 2026-07-26 補上**，屬未來功能的預留保護——但產生該檔的 `codex-check` 功能本身仍未移植。）**不要**把 macOS 版的 `codex-check.sh` 直接當成 Linux 版的等價物拿來抄或替換。移植規格見 [`docs/handoff-capability-baseline-port.md`](docs/handoff-capability-baseline-port.md) 與 [`docs/handoff-0143-capability-surface-port.md`](docs/handoff-0143-capability-surface-port.md)。
