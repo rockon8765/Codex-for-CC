@@ -47,6 +47,10 @@ node ".\windows\skills\超級模式\tests\matcher-contract.test.js" # hook 的�
 >
 > **這段是 fail-fast 的**：任何一步失敗就中止，不會印出 `ts`。所以「有印出 `ts`」才等於
 > 「三個備份都確實完成」。skill 的備份會與 live 做逐檔比對，避免部分複製被當成完整備份。
+>
+> **三個位置若有任何一個是 link（symlink／junction／mount point）一律中止**，不會嘗試備份。
+> 型別檢查會跟隨有效的 link，備走的是「別處的內容」，回滾時卻會把 link 本身換成實體檔案／
+> 目錄——等於在你不知情下改掉佈局。要在這種佈局上安裝，請先自行確認並手動處理。
 
 macOS / Linux（Windows 的 settings 檔名不同，見下一段）:
 ```bash
@@ -65,24 +69,30 @@ for p in "$hbak" "$hbak.absent" "$sbak" "$sbak.absent" "$setbak" "$setbak.absent
 done
 
 # 型別要對才算「有」或「沒有」：skill 必須是目錄、hook/settings 必須是一般檔案。
-# 型別不對（例如 skill 位置是一般檔案、或壞掉的 symlink）就中止 —— 若誤判成 .absent，
+# 型別不對（例如 skill 位置是一般檔案）就中止 —— 若誤判成 .absent，
 # 回滾會把安裝前就存在的東西當成「全新安裝」刪掉。
+# symlink 一律中止，而且要**先驗**：`-f`／`-d` 會跟隨有效的 link，把「指向別處的 link」
+# 當成一般檔案／目錄備走內容，回滾時卻會把 link 本身換成實體檔案／目錄。`-L` 對斷掉的
+# link 也為真，所以這一條同時涵蓋有效與斷掉兩種。
 h=~/.claude/hooks/super-mode-consult-gate.js
 s=~/.claude/skills/超級模式
 
-if [ -f "$h" ]; then
+if [ -L "$h" ]; then echo "$h 是 symlink，狀態不明，中止"; exit 1
+elif [ -f "$h" ]; then
   cp "$h" "$hbak"; cmp -s "$h" "$hbak" || { echo "hook 備份不完整，中止"; exit 1; }
-elif [ -e "$h" ] || [ -L "$h" ]; then echo "$h 存在但不是一般檔案（或壞掉的 symlink），狀態不明，中止"; exit 1
+elif [ -e "$h" ]; then echo "$h 存在但不是一般檔案，狀態不明，中止"; exit 1
 else : > "$hbak.absent"; fi
 
-if [ -d "$s" ]; then
+if [ -L "$s" ]; then echo "$s 是 symlink，狀態不明，中止"; exit 1
+elif [ -d "$s" ]; then
   cp -R "$s" "$sbak"; diff -r "$s" "$sbak" >/dev/null || { echo "skill 備份與 live 不一致，中止"; exit 1; }
-elif [ -e "$s" ] || [ -L "$s" ]; then echo "$s 存在但不是目錄（或壞掉的 symlink），狀態不明，中止"; exit 1
+elif [ -e "$s" ]; then echo "$s 存在但不是目錄，狀態不明，中止"; exit 1
 else : > "$sbak.absent"; fi
 
-if [ -f "$setf" ]; then
+if [ -L "$setf" ]; then echo "$setf 是 symlink，狀態不明，中止"; exit 1
+elif [ -f "$setf" ]; then
   cp "$setf" "$setbak"; cmp -s "$setf" "$setbak" || { echo "settings 備份不完整，中止"; exit 1; }
-elif [ -e "$setf" ] || [ -L "$setf" ]; then echo "$setf 存在但不是一般檔案（或壞掉的 symlink），狀態不明，中止"; exit 1
+elif [ -e "$setf" ]; then echo "$setf 存在但不是一般檔案，狀態不明，中止"; exit 1
 else : > "$setbak.absent"; fi
 
 echo "backup ts=$ts"
@@ -98,40 +108,56 @@ $setf   = "$env:USERPROFILE\.claude\settings.json"
 New-Item -ItemType Directory -Force -Path $bakDir, (Split-Path $hook), (Split-Path $skill) | Out-Null
 $hbak = "$hook.bak-$ts"; $sbak = "$bakDir\超級模式.bak-$ts"; $setbak = "$setf.bak-$ts"
 
+# ⚠️ 全程用 -LiteralPath。一般 -Path 會把 `[ ]` `?` `*` 當成萬用字元 pattern，
+# 家目錄含中括號（Windows 使用者名稱允許）時「存在」判斷會反過來：對真實存在的路徑
+# `Test-Path` 回 false、`-LiteralPath` 回 true —— 於是安裝前就有的東西被誤標成 .absent，
+# 回滾時被當成「全新安裝」刪掉。（`New-Item` 沒有 -LiteralPath，但它建立時不做 pattern
+# 展開，含 `[ ]` 也會產生字面名稱，安全。）
+function Get-Entry($p) { Get-Item -LiteralPath $p -Force -ErrorAction SilentlyContinue }
+function Test-Reparse($e) { $null -ne $e -and (($e.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) }
+
 foreach ($p in @($hbak, "$hbak.absent", $sbak, "$sbak.absent", $setbak, "$setbak.absent")) {
-  if (Test-Path $p) { throw "已存在 ts=$ts 的備份產物（$p），等一秒後重跑，中止" }
+  if (Get-Entry $p) { throw "已存在 ts=$ts 的備份產物（$p），等一秒後重跑，中止" }
 }
 
 function Get-TreeFingerprint($root) {
-  Get-ChildItem $root -Recurse -File -Force | ForEach-Object {
-    '{0}|{1}' -f $_.FullName.Substring($root.Length).TrimStart('\'), (Get-FileHash $_.FullName -Algorithm SHA256).Hash
+  Get-ChildItem -LiteralPath $root -Recurse -File -Force | ForEach-Object {
+    '{0}|{1}' -f $_.FullName.Substring($root.Length).TrimStart('\'), (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash
   } | Sort-Object
 }
 # 型別要對才算「有」或「沒有」：skill 必須是目錄、hook/settings 必須是一般檔案。
 # 型別不對就中止 —— 若誤判成 .absent，回滾會把安裝前就存在的東西當「全新安裝」刪掉。
-# ⚠️ 已知限制（Windows）：`Test-Path` 無法區分「沒有這個項目」與「指向不存在目標的 symlink」，
-#    兩者都回 false。所以**斷掉的 symlink 會被當成「不存在」**、建立 .absent 標記。
-#    POSIX 版用 `[ -e ] || [ -L ]` 沒有這個問題。本機無管理員權限、無法建立 symlink 實測修法，
-#    因此不放未經驗證的偵測碼進來 —— 這是刻意的取捨，記在 docs/backlog.md。
+# link 一律中止：`Test-Path -PathType Leaf/Container` 會**跟隨**有效的 link，
+# 把「指向別處的 link」當成一般檔案／目錄備走內容，回滾時卻會把 link 本身換成實體檔案／目錄。
+# 所以先用 ReparsePoint 屬性攔下（symlink、junction、mount point 皆帶此屬性）。
+# ⚠️ 已知殘留限制（Windows）：**指向不存在目標的 symlink** 有可能連 `Get-Item -Force` 都回 null，
+#    那樣仍會落入「不存在」分支而建立 .absent。本機無管理員權限、無法建立 symlink 實測該分支
+#    （斷掉的 **junction** 已實測會被上面的 ReparsePoint 檢查攔下）。記在 docs/backlog.md。
 #    若你的 ~/.claude 底下這三個位置可能是 symlink，請先人工確認再安裝。
-if (Test-Path $hook -PathType Leaf) {
-  Copy-Item $hook $hbak
-  if ((Get-FileHash $hook).Hash -ne (Get-FileHash $hbak).Hash) { throw "hook 備份不完整，中止" }
-} elseif (Test-Path $hook) { throw "$hook 存在但不是一般檔案，狀態不明，中止" }
+$he = Get-Entry $hook
+if (Test-Reparse $he) { throw "$hook 是 link／reparse point，狀態不明，中止" }
+elseif (Test-Path -LiteralPath $hook -PathType Leaf) {
+  Copy-Item -LiteralPath $hook -Destination $hbak
+  if ((Get-FileHash -LiteralPath $hook).Hash -ne (Get-FileHash -LiteralPath $hbak).Hash) { throw "hook 備份不完整，中止" }
+} elseif ($he) { throw "$hook 存在但不是一般檔案，狀態不明，中止" }
 else { New-Item -ItemType File -Path "$hbak.absent" | Out-Null }
 
-if (Test-Path $skill -PathType Container) {
-  Copy-Item -Recurse $skill $sbak
-  if (((Get-TreeFingerprint (Resolve-Path $skill).Path) -join "`n") -ne ((Get-TreeFingerprint (Resolve-Path $sbak).Path) -join "`n")) {
+$se = Get-Entry $skill
+if (Test-Reparse $se) { throw "$skill 是 link／reparse point，狀態不明，中止" }
+elseif (Test-Path -LiteralPath $skill -PathType Container) {
+  Copy-Item -LiteralPath $skill -Destination $sbak -Recurse
+  if (((Get-TreeFingerprint $se.FullName) -join "`n") -ne ((Get-TreeFingerprint (Get-Entry $sbak).FullName) -join "`n")) {
     throw "skill 備份與 live 不一致，中止"
   }
-} elseif (Test-Path $skill) { throw "$skill 存在但不是目錄，狀態不明，中止" }
+} elseif ($se) { throw "$skill 存在但不是目錄，狀態不明，中止" }
 else { New-Item -ItemType File -Path "$sbak.absent" | Out-Null }
 
-if (Test-Path $setf -PathType Leaf) {
-  Copy-Item $setf $setbak
-  if ((Get-FileHash $setf).Hash -ne (Get-FileHash $setbak).Hash) { throw "settings 備份不完整，中止" }
-} elseif (Test-Path $setf) { throw "$setf 存在但不是一般檔案，狀態不明，中止" }
+$te = Get-Entry $setf
+if (Test-Reparse $te) { throw "$setf 是 link／reparse point，狀態不明，中止" }
+elseif (Test-Path -LiteralPath $setf -PathType Leaf) {
+  Copy-Item -LiteralPath $setf -Destination $setbak
+  if ((Get-FileHash -LiteralPath $setf).Hash -ne (Get-FileHash -LiteralPath $setbak).Hash) { throw "settings 備份不完整，中止" }
+} elseif ($te) { throw "$setf 存在但不是一般檔案，狀態不明，中止" }
 else { New-Item -ItemType File -Path "$setbak.absent" | Out-Null }
 
 "backup ts=$ts"
@@ -176,23 +202,25 @@ $ErrorActionPreference = 'Stop'
 $src = ".\windows\skills\超級模式"; $hooksrc = ".\windows\hooks\super-mode-consult-gate.js"
 $live = "$env:USERPROFILE\.claude\skills\超級模式"
 $hook = "$env:USERPROFILE\.claude\hooks\super-mode-consult-gate.js"
-if (-not (Test-Path "$src\SKILL.md")) { throw "來源不對（請在 repo 根目錄執行），中止" }
+# 與 1b 同理，全程 -LiteralPath：家目錄含 `[ ]` 時一般 -Path 會把它當萬用字元，
+# 使「live 缺少某檔」的判斷反過來，讓安裝驗證形同虛設。
+if (-not (Test-Path -LiteralPath "$src\SKILL.md")) { throw "來源不對（請在 repo 根目錄執行），中止" }
 
-Copy-Item -Recurse $src "$env:USERPROFILE\.claude\skills\" -Force
-Copy-Item $hooksrc $hook -Force
+Copy-Item -LiteralPath $src -Destination "$env:USERPROFILE\.claude\skills\" -Recurse -Force
+Copy-Item -LiteralPath $hooksrc -Destination $hook -Force
 # 已從 payload 移出的檔案（2026-07-27 起 FIX-PLAN.md 改放 repo 的 docs/）：
 $stale = "$live\FIX-PLAN.md"
-if (Test-Path $stale) { Remove-Item -Force $stale }
+if (Test-Path -LiteralPath $stale) { Remove-Item -LiteralPath $stale -Force }
 
-$srcRoot = (Resolve-Path $src).Path
-Get-ChildItem $srcRoot -Recurse -File -Force | ForEach-Object {
+$srcRoot = (Resolve-Path -LiteralPath $src).Path
+Get-ChildItem -LiteralPath $srcRoot -Recurse -File -Force | ForEach-Object {
   $rel = $_.FullName.Substring($srcRoot.Length).TrimStart('\')
   $dst = Join-Path $live $rel
-  if (-not (Test-Path $dst)) { throw "安裝驗證失敗：live 缺少 $rel" }
-  if ((Get-FileHash $_.FullName).Hash -ne (Get-FileHash $dst).Hash) { throw "安裝驗證失敗：$rel 與來源不符" }
+  if (-not (Test-Path -LiteralPath $dst)) { throw "安裝驗證失敗：live 缺少 $rel" }
+  if ((Get-FileHash -LiteralPath $_.FullName).Hash -ne (Get-FileHash -LiteralPath $dst).Hash) { throw "安裝驗證失敗：$rel 與來源不符" }
 }
-if ((Get-FileHash $hooksrc).Hash -ne (Get-FileHash $hook).Hash) { throw "安裝驗證失敗：hook 與來源不符" }
-if (Test-Path $stale) { throw "安裝驗證失敗：FIX-PLAN.md 未清除" }
+if ((Get-FileHash -LiteralPath $hooksrc).Hash -ne (Get-FileHash -LiteralPath $hook).Hash) { throw "安裝驗證失敗：hook 與來源不符" }
+if (Test-Path -LiteralPath $stale) { throw "安裝驗證失敗：FIX-PLAN.md 未清除" }
 "install OK"
 ```
 
@@ -240,6 +268,10 @@ node "$env:USERPROFILE\.claude\skills\超級模式\tests\matcher-contract.test.j
 > 兩者都在（狀態不明）或兩者都無（`ts` 給錯、或備份被手動刪掉）**一律停手、完全不動 live**。
 > 這是為了避免「skill 還原了、hook 卻靜默略過」而做出舊 skill + 新 hook 的混版。
 >
+> `ts` 會**先驗形狀**（`yyyyMMdd-HHmmss`）再拿去拼路徑。貼成含 `?`／`*`／`[]` 的值會被擋下——
+> 那種值會把「這個備份在不在」變成萬用字元比對，可能比對到**別的** `ts` 的備份，
+> 於是預檢通過、live 被刪、再還原成錯誤的版本。備份或標記本身是 link 時同樣中止。
+>
 > 還原用**複製**而非搬移，備份留在原地——所以可以重複執行，重跑結果相同；中途失敗時備份仍在，
 > 重跑本段即可。
 >
@@ -250,6 +282,14 @@ macOS / Linux:
 ```bash
 set -euo pipefail
 ts='<貼上 1b 印出的值>'          # 例：20260727-154409
+
+# ts 必須是 1b 產生的形狀。不驗的話，一個含 glob 字元或路徑分隔的 ts 會讓下面每個
+# 由它拼出來的路徑都指到非預期的地方（Windows 版有實測到的具體繞過，見該區塊註解）。
+case "$ts" in
+  [0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]-[0-9][0-9][0-9][0-9][0-9][0-9]) ;;
+  *) echo "ts 格式不對（應為 yyyyMMdd-HHmmss，例 20260727-154409），中止（live 未變更）"; exit 1 ;;
+esac
+
 sbak=~/.claude/skills-backup/超級模式.bak-$ts
 hbak=~/.claude/hooks/super-mode-consult-gate.js.bak-$ts
 setf=~/.claude/settings.local.json
@@ -260,11 +300,16 @@ setbak=$setf.bak-$ts
 # 卻已經把 live 刪掉了。
 precheck() { # 名稱 備份 標記 型別(d|f)
   local n="$1" b="$2" a="$3" k="$4" eb=0 ea=0 okb=0 oka=0
-  # 先看「有沒有這個 directory entry」（含壞掉的 symlink），再看型別對不對。
+  # symlink 一律中止，而且要先驗：`-d`／`-f` 會**跟隨**有效的 link，於是「指向別處的 link」
+  # 會被當成合法備份／標記，還原時從錯誤目標複製 —— 但 live 已經先被刪掉了。
+  # `-L` 對斷掉的 link 也為真，這一條同時涵蓋有效與斷掉兩種。
+  if [ -L "$b" ]; then echo "$n：ts=$ts 的備份是 symlink，中止（live 未變更）"; exit 1; fi
+  if [ -L "$a" ]; then echo "$n：ts=$ts 的 .absent 標記是 symlink，中止（live 未變更）"; exit 1; fi
+  # 先看「有沒有這個 directory entry」，再看型別對不對。
   # 順序很重要：若只比對「型別正確的存在」，當一邊有效、另一邊存在但型別錯時，
   # 兩個錯誤分支都不會觸發，於是走進「原本不存在」那條 —— live 被刪卻不還原。
-  if [ -e "$b" ] || [ -L "$b" ]; then eb=1; fi
-  if [ -e "$a" ] || [ -L "$a" ]; then ea=1; fi
+  if [ -e "$b" ]; then eb=1; fi
+  if [ -e "$a" ]; then ea=1; fi
   if [ "$k" = d ]; then if [ -d "$b" ]; then okb=1; fi; else if [ -f "$b" ]; then okb=1; fi; fi
   if [ -f "$a" ]; then oka=1; fi
 
@@ -276,6 +321,12 @@ precheck() { # 名稱 備份 標記 型別(d|f)
 precheck skill    "$sbak"   "$sbak.absent"   d
 precheck hook     "$hbak"   "$hbak.absent"   f
 precheck settings "$setbak" "$setbak.absent" f
+
+# live 端是 symlink 也停手（與 1b、與 Windows 版同一姿態）：還原會把 link 換成實體
+# 檔案／目錄，等於在使用者不知情下改掉他的佈局。
+for p in ~/.claude/skills/超級模式 ~/.claude/hooks/super-mode-consult-gate.js "$setf"; do
+  if [ -L "$p" ]; then echo "live 端 $p 是 symlink，中止（live 未變更）"; exit 1; fi
+done
 
 rm -rf ~/.claude/skills/超級模式
 [ -d "$sbak" ] && cp -R "$sbak" ~/.claude/skills/超級模式
@@ -291,11 +342,23 @@ Windows（settings 檔是 `settings.json`）:
 ```powershell
 $ErrorActionPreference = 'Stop'
 $ts = '<貼上 1b 印出的值>'        # 例：20260727-154409
+
+# ⚠️ ts 先驗形狀，下面再全程 -LiteralPath。這兩件缺一不可，實測（PowerShell 5.1.26100
+# 與 7.6.3 皆同）：含萬用字元的 ts（例 '20260727-15440?'）會讓 `Get-Item -LiteralPath`
+# 找不到、而會展開 pattern 的 `Test-Path` 卻比對到真正的備份 —— 於是 eb=0 但 okb=1，
+# 四道錯誤分支全部略過、預檢「通過」，接著 live 被刪除，再從萬用字元比對到的**錯誤備份**
+# 還原（實測：指定 -154409 卻還原成 -154400，然後才拋錯）。這正是本節「ts 給錯就完全
+# 不動 live」的保證被破的路徑。
+if ($ts -notmatch '^\d{8}-\d{6}$') { throw "ts 格式不對（應為 yyyyMMdd-HHmmss，例 20260727-154409），中止（live 未變更）" }
+
 $hook   = "$env:USERPROFILE\.claude\hooks\super-mode-consult-gate.js"
 $skill  = "$env:USERPROFILE\.claude\skills\超級模式"
 $sbak   = "$env:USERPROFILE\.claude\skills-backup\超級模式.bak-$ts"
 $setf   = "$env:USERPROFILE\.claude\settings.json"
 $hbak   = "$hook.bak-$ts"; $setbak = "$setf.bak-$ts"
+
+function Get-Entry($p) { Get-Item -LiteralPath $p -Force -ErrorAction SilentlyContinue }
+function Test-Reparse($e) { $null -ne $e -and (($e.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) }
 
 # 型別也要對：只驗「存在」的話，備份被換成別的型別時 precheck 會過，
 # 但還原什麼都不會複製，卻已經把 live 刪掉了。
@@ -303,12 +366,18 @@ function Test-Exactly1($name, $bak, $absent, $kind) {
   # 先看 directory entry 在不在（Get-Item -Force 比 Test-Path 誠實），再看型別。
   # 順序很重要：若只比對「型別正確的存在」，當一邊有效、另一邊存在但型別錯時，
   # 兩個錯誤分支都不會觸發，於是走進「原本不存在」那條 —— live 被刪卻不還原。
-  $eb = $null -ne (Get-Item -LiteralPath $bak -Force -ErrorAction SilentlyContinue)
-  $ea = $null -ne (Get-Item -LiteralPath $absent -Force -ErrorAction SilentlyContinue)
-  $okb = Test-Path $bak -PathType $kind          # Container = 目錄, Leaf = 一般檔
-  $oka = Test-Path $absent -PathType Leaf
-  if ($eb -and -not $okb) { throw "${name}：ts=$ts 的備份存在但型別不對，中止（live 未變更）" }
-  if ($ea -and -not $oka) { throw "${name}：ts=$ts 的 .absent 標記存在但型別不對，中止（live 未變更）" }
+  $b = Get-Entry $bak
+  $a = Get-Entry $absent
+  # link 一律中止：-PathType 會**跟隨**有效 link，會把「指向別處的 link」當成合法備份，
+  # 還原時從錯誤目標複製 —— 而 live 已經先被刪掉了。（與 1b 同一姿態。）
+  if (Test-Reparse $b) { throw "${name}：ts=$ts 的備份是 link／reparse point，中止（live 未變更）" }
+  if (Test-Reparse $a) { throw "${name}：ts=$ts 的 .absent 標記是 link／reparse point，中止（live 未變更）" }
+  # 型別判斷一律**掛在 entry 存在之上**，維持「型別正確 ⇒ entry 存在」這個不變量。
+  # 少了前半段的 `$null -ne`，-Path 的 pattern 展開就能讓兩者脫鉤（見上方 ts 說明）。
+  $okb = ($null -ne $b) -and (Test-Path -LiteralPath $bak -PathType $kind)     # Container = 目錄, Leaf = 一般檔
+  $oka = ($null -ne $a) -and (Test-Path -LiteralPath $absent -PathType Leaf)
+  if ($b -and -not $okb) { throw "${name}：ts=$ts 的備份存在但型別不對，中止（live 未變更）" }
+  if ($a -and -not $oka) { throw "${name}：ts=$ts 的 .absent 標記存在但型別不對，中止（live 未變更）" }
   if ($okb -and $oka) { throw "${name}：備份與 .absent 同時存在，狀態不明，中止（live 未變更）" }
   if (-not $okb -and -not $oka) { throw "${name}：找不到 ts=$ts 的有效備份或標記，中止（live 未變更）" }
 }
@@ -316,14 +385,20 @@ Test-Exactly1 'skill'    $sbak   "$sbak.absent"   'Container'
 Test-Exactly1 'hook'     $hbak   "$hbak.absent"   'Leaf'
 Test-Exactly1 'settings' $setbak "$setbak.absent" 'Leaf'
 
-if (Test-Path $skill) { Remove-Item -Recurse -Force $skill }
-if (Test-Path $sbak -PathType Container) { Copy-Item -Recurse $sbak $skill }
+# live 端是 link 也停手：`Remove-Item -Recurse` 對 link 的行為隨 PowerShell／Windows
+# 組建而異，不值得賭；1b 本來就會在 live 是 link 時中止，這裡維持同一姿態。
+if (Test-Reparse (Get-Entry $skill)) { throw "live 端 $skill 是 link／reparse point，中止（live 未變更）" }
+if (Test-Reparse (Get-Entry $hook))  { throw "live 端 $hook 是 link／reparse point，中止（live 未變更）" }
+if (Test-Reparse (Get-Entry $setf))  { throw "live 端 $setf 是 link／reparse point，中止（live 未變更）" }
 
-if (Test-Path $hbak -PathType Leaf) { Copy-Item $hbak $hook -Force }
-elseif (Test-Path $hook) { Remove-Item -Force $hook }
+if (Get-Entry $skill) { Remove-Item -LiteralPath $skill -Recurse -Force }
+if (Test-Path -LiteralPath $sbak -PathType Container) { Copy-Item -LiteralPath $sbak -Destination $skill -Recurse }
 
-if (Test-Path $setbak -PathType Leaf) { Copy-Item $setbak $setf -Force }
-elseif (Test-Path $setf) { Remove-Item -Force $setf }
+if (Test-Path -LiteralPath $hbak -PathType Leaf) { Copy-Item -LiteralPath $hbak -Destination $hook -Force }
+elseif (Get-Entry $hook) { Remove-Item -LiteralPath $hook -Force }
+
+if (Test-Path -LiteralPath $setbak -PathType Leaf) { Copy-Item -LiteralPath $setbak -Destination $setf -Force }
+elseif (Get-Entry $setf) { Remove-Item -LiteralPath $setf -Force }
 "已回滾。備份保留在 skills-backup\、hooks\*.bak-$ts、settings.json.bak-$ts，確認無誤後自行刪除"
 ```
 
