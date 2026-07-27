@@ -349,7 +349,8 @@ $ts = '<貼上 1b 印出的值>'        # 例：20260727-154409
 # 四道錯誤分支全部略過、預檢「通過」，接著 live 被刪除，再從萬用字元比對到的**錯誤備份**
 # 還原（實測：指定 -154409 卻還原成 -154400，然後才拋錯）。這正是本節「ts 給錯就完全
 # 不動 live」的保證被破的路徑。
-if ($ts -notmatch '^\d{8}-\d{6}$') { throw "ts 格式不對（應為 yyyyMMdd-HHmmss，例 20260727-154409），中止（live 未變更）" }
+# 用 \A…\z 而非 ^…$：.NET 的 `$` 會匹配「結尾換行之前」，'20260727-154409<換行>' 也算通過。
+if ($ts -notmatch '\A\d{8}-\d{6}\z') { throw "ts 格式不對（應為 yyyyMMdd-HHmmss，例 20260727-154409），中止（live 未變更）" }
 
 $hook   = "$env:USERPROFILE\.claude\hooks\super-mode-consult-gate.js"
 $skill  = "$env:USERPROFILE\.claude\skills\超級模式"
