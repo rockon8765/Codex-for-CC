@@ -39,44 +39,94 @@ node ".\windows\skills\超級模式\tests\matcher-contract.test.js" # hook 的�
 > 備份若留在 `~/.claude/skills/` 底下，Claude Code 的 skill loader 會把它**當成另一個 skill
 > 註冊**——名稱與 description 幾乎相同，會干擾 skill 選擇。（2026-07-27 實際踩過。）
 
-> 「安裝前本來就沒有 skill／hook」也會留下一個 `.absent` 標記——**回滾靠這個標記分辨「還原舊版」
-> 與「刪掉全新安裝」，不需要你記或填任何布林值**。兩者都沒有就代表 `ts` 給錯了，回滾會停手不動 live。
+備份三個東西：**hook、skill、settings 檔**。settings 也要備，因為步驟 2 會改它——不備的話
+回滾只能還原 skill/hook，settings 卻停在新版，變成「舊 hook + 新 matcher」的混版。
 
-macOS / Linux:
+> **每個元件都會留下「備份」或「`.absent` 標記」其中之一**（`.absent` = 安裝前本來就沒有這個東西）。
+> 回滾靠這個分辨「還原舊版」與「刪掉全新安裝」，**不需要你記或填任何布林值**。
+>
+> **這段是 fail-fast 的**：任何一步失敗就中止，不會印出 `ts`。所以「有印出 `ts`」才等於
+> 「三個備份都確實完成」。skill 的備份會與 live 做逐檔比對，避免部分複製被當成完整備份。
+
+macOS / Linux（Windows 的 settings 檔名不同，見下一段）:
 ```bash
+set -euo pipefail
 ts=$(date +%Y%m%d-%H%M%S)
-mkdir -p ~/.claude/skills-backup
+mkdir -p ~/.claude/skills-backup ~/.claude/skills ~/.claude/hooks
+
+hbak=~/.claude/hooks/super-mode-consult-gate.js.bak-$ts
+sbak=~/.claude/skills-backup/超級模式.bak-$ts
+setf=~/.claude/settings.local.json
+setbak=$setf.bak-$ts
+
+# 同一秒重跑會撞名，撞到就停（等一秒再跑），不要覆蓋既有備份
+for p in "$hbak" "$hbak.absent" "$sbak" "$sbak.absent" "$setbak" "$setbak.absent"; do
+  [ -e "$p" ] && { echo "已存在 ts=$ts 的備份產物（$p），等一秒後重跑，中止"; exit 1; }
+done
+
 if [ -e ~/.claude/hooks/super-mode-consult-gate.js ]; then
-  cp ~/.claude/hooks/super-mode-consult-gate.js ~/.claude/hooks/super-mode-consult-gate.js.bak-$ts
-else
-  : > ~/.claude/hooks/super-mode-consult-gate.js.bak-$ts.absent
-fi
+  cp ~/.claude/hooks/super-mode-consult-gate.js "$hbak"
+  cmp -s ~/.claude/hooks/super-mode-consult-gate.js "$hbak" || { echo "hook 備份不完整，中止"; exit 1; }
+else : > "$hbak.absent"; fi
+
 if [ -d ~/.claude/skills/超級模式 ]; then
-  cp -R ~/.claude/skills/超級模式 ~/.claude/skills-backup/超級模式.bak-$ts
-else
-  mkdir -p ~/.claude/skills-backup/超級模式.bak-$ts.absent
-fi
+  cp -R ~/.claude/skills/超級模式 "$sbak"
+  diff -r ~/.claude/skills/超級模式 "$sbak" >/dev/null || { echo "skill 備份與 live 不一致，中止"; exit 1; }
+else mkdir -p "$sbak.absent"; fi
+
+if [ -e "$setf" ]; then
+  cp "$setf" "$setbak"
+  cmp -s "$setf" "$setbak" || { echo "settings 備份不完整，中止"; exit 1; }
+else : > "$setbak.absent"; fi
+
 echo "backup ts=$ts"
 ```
-Windows:
+Windows（settings 檔是 `settings.json`，不是 `settings.local.json`）:
 ```powershell
-$ts = Get-Date -Format yyyyMMdd-HHmmss
-$hook = "$env:USERPROFILE\.claude\hooks\super-mode-consult-gate.js"
+$ErrorActionPreference = 'Stop'
+$ts     = Get-Date -Format yyyyMMdd-HHmmss
+$hook   = "$env:USERPROFILE\.claude\hooks\super-mode-consult-gate.js"
 $skill  = "$env:USERPROFILE\.claude\skills\超級模式"
 $bakDir = "$env:USERPROFILE\.claude\skills-backup"
-New-Item -ItemType Directory -Force -Path $bakDir | Out-Null
-if (Test-Path $hook) { Copy-Item $hook "$hook.bak-$ts" }
-else { New-Item -ItemType File -Path "$hook.bak-$ts.absent" | Out-Null }
-if (Test-Path $skill) { Copy-Item -Recurse $skill "$bakDir\超級模式.bak-$ts" }
-else { New-Item -ItemType Directory -Path "$bakDir\超級模式.bak-$ts.absent" | Out-Null }
+$setf   = "$env:USERPROFILE\.claude\settings.json"
+New-Item -ItemType Directory -Force -Path $bakDir, (Split-Path $hook), (Split-Path $skill) | Out-Null
+$hbak = "$hook.bak-$ts"; $sbak = "$bakDir\超級模式.bak-$ts"; $setbak = "$setf.bak-$ts"
+
+foreach ($p in @($hbak, "$hbak.absent", $sbak, "$sbak.absent", $setbak, "$setbak.absent")) {
+  if (Test-Path $p) { throw "已存在 ts=$ts 的備份產物（$p），等一秒後重跑，中止" }
+}
+
+function Get-TreeFingerprint($root) {
+  Get-ChildItem $root -Recurse -File -Force | ForEach-Object {
+    '{0}|{1}' -f $_.FullName.Substring($root.Length).TrimStart('\'), (Get-FileHash $_.FullName -Algorithm SHA256).Hash
+  } | Sort-Object
+}
+if (Test-Path $hook) {
+  Copy-Item $hook $hbak
+  if ((Get-FileHash $hook).Hash -ne (Get-FileHash $hbak).Hash) { throw "hook 備份不完整，中止" }
+} else { New-Item -ItemType File -Path "$hbak.absent" | Out-Null }
+
+if (Test-Path $skill) {
+  Copy-Item -Recurse $skill $sbak
+  if (((Get-TreeFingerprint (Resolve-Path $skill).Path) -join "`n") -ne ((Get-TreeFingerprint (Resolve-Path $sbak).Path) -join "`n")) {
+    throw "skill 備份與 live 不一致，中止"
+  }
+} else { New-Item -ItemType Directory -Path "$sbak.absent" | Out-Null }
+
+if (Test-Path $setf) {
+  Copy-Item $setf $setbak
+  if ((Get-FileHash $setf).Hash -ne (Get-FileHash $setbak).Hash) { throw "settings 備份不完整，中止" }
+} else { New-Item -ItemType File -Path "$setbak.absent" | Out-Null }
+
 "backup ts=$ts"
 ```
 
 **1c. 安裝（複製到 live）**
 
-> ℹ️ 複製是**合併**語意：**不會**動到 live 既有的其他檔案，也因此**不會**刪掉上游已經移除的檔案。
-> 前者是刻意的（安裝過程從不整個刪除 live，失敗最多留下部分更新，1b 的備份可還原）；
-> 後者要靠下面那行逐一清理——**只刪明確列名的已知路徑，不做整目錄刪除**。
+> ℹ️ 複製是**合併**語意：除了下面明列的清理項之外**不會**動到 live 既有的其他檔案，也因此
+> **不會**自動刪掉上游已經移除的檔案。前者是刻意的（安裝過程從不整個刪除 live，失敗最多留下
+> 部分更新，而 1b 已驗證過的備份可還原）；後者要靠下面那行逐一清理——**只刪明確列名的已知路徑，
+> 不做整目錄刪除**。
 
 macOS / Linux:
 ```bash
@@ -130,45 +180,72 @@ node "$env:USERPROFILE\.claude\skills\超級模式\tests\matcher-contract.test.j
 
 **任何 FAIL → 先回滾、再回報使用者、停止**（不要留一個壞掉的 live hook）：
 
-**只需要 1b 印出的 `ts`。** 是「還原舊版」還是「刪掉全新安裝」由 1b 留下的備份／`.absent` 標記決定，
-不用你判斷或填值；兩者都找不到就代表 `ts` 給錯，這段會**停手不動 live**。
-還原用**複製**而非搬移，備份留在原地——所以可以重複執行，重跑結果相同；複製中途失敗時備份仍在
-`~/.claude/skills-backup/`，重跑本段即可。
+**只需要 1b 印出的 `ts`。** hook、skill、settings 三者各自是「還原舊版」還是「刪掉全新安裝」，
+由 1b 留下的備份／`.absent` 標記決定，不用你判斷或填值。
+
+> **先預檢、全部通過才動 live。** 每個元件都必須**恰好**有備份或 `.absent` 其中一個：
+> 兩者都在（狀態不明）或兩者都無（`ts` 給錯、或備份被手動刪掉）**一律停手、完全不動 live**。
+> 這是為了避免「skill 還原了、hook 卻靜默略過」而做出舊 skill + 新 hook 的混版。
+>
+> 還原用**複製**而非搬移，備份留在原地——所以可以重複執行，重跑結果相同；中途失敗時備份仍在，
+> 重跑本段即可。
+>
+> ⚠️ settings 是**整檔還原**成 1b 當時的內容。若你在 1b 之後對 settings 做過與本安裝無關的修改，
+> 那些修改會一併被還原掉——回滾請緊接在步驟 3 失敗後執行。
 
 macOS / Linux:
 ```bash
-bak=~/.claude/skills-backup/超級模式.bak-$ts
+set -euo pipefail
+sbak=~/.claude/skills-backup/超級模式.bak-$ts
 hbak=~/.claude/hooks/super-mode-consult-gate.js.bak-$ts
-if [ -d "$bak" ]; then
-  rm -rf ~/.claude/skills/超級模式; cp -R "$bak" ~/.claude/skills/超級模式
-elif [ -d "$bak.absent" ]; then
-  rm -rf ~/.claude/skills/超級模式
-else
-  echo "找不到 ts=$ts 的備份或標記，停止（live 未變更），請回報使用者"; exit 1
-fi
-if   [ -e "$hbak" ];        then cp "$hbak" ~/.claude/hooks/super-mode-consult-gate.js
-elif [ -e "$hbak.absent" ]; then rm -f ~/.claude/hooks/super-mode-consult-gate.js
-fi
-```
-Windows:
-```powershell
-$hook  = "$env:USERPROFILE\.claude\hooks\super-mode-consult-gate.js"
-$skill = "$env:USERPROFILE\.claude\skills\超級模式"
-$bak   = "$env:USERPROFILE\.claude\skills-backup\超級模式.bak-$ts"
-if (Test-Path $bak) {
-  if (Test-Path $skill) { Remove-Item -Recurse -Force $skill }
-  Copy-Item -Recurse $bak $skill
-} elseif (Test-Path "$bak.absent") {
-  if (Test-Path $skill) { Remove-Item -Recurse -Force $skill }
-} else {
-  throw "找不到 ts=$ts 的備份或標記，停止（live 未變更），請回報使用者"
-}
-if (Test-Path "$hook.bak-$ts") { Copy-Item "$hook.bak-$ts" $hook -Force }
-elseif (Test-Path "$hook.bak-$ts.absent") { if (Test-Path $hook) { Remove-Item -Force $hook } }
-```
+setf=~/.claude/settings.local.json
+setbak=$setf.bak-$ts
 
-**若 hook 屬全新安裝（1b 留下的是 `.absent` 標記）**，還要**移除步驟 2 加進 settings 的 hook 區塊**——
-否則 settings 會指向一個已經不存在的 hook。
+precheck() { # 名稱 備份 標記
+  if [ -e "$2" ] && [ -e "$3" ]; then echo "$1：備份與 .absent 同時存在，狀態不明，中止（live 未變更）"; exit 1; fi
+  if [ ! -e "$2" ] && [ ! -e "$3" ]; then echo "$1：找不到 ts=$ts 的備份或標記，中止（live 未變更）"; exit 1; fi
+}
+precheck skill    "$sbak" "$sbak.absent"
+precheck hook     "$hbak" "$hbak.absent"
+precheck settings "$setbak" "$setbak.absent"
+
+rm -rf ~/.claude/skills/超級模式
+[ -d "$sbak" ] && cp -R "$sbak" ~/.claude/skills/超級模式
+
+if [ -e "$hbak" ]; then cp "$hbak" ~/.claude/hooks/super-mode-consult-gate.js
+else rm -f ~/.claude/hooks/super-mode-consult-gate.js; fi
+
+if [ -e "$setbak" ]; then cp "$setbak" "$setf"
+else rm -f "$setf"; fi
+echo "已回滾（備份保留在 skills-backup/ 與 hooks/，確認無誤後自行刪除）"
+```
+Windows（settings 檔是 `settings.json`）:
+```powershell
+$ErrorActionPreference = 'Stop'
+$hook   = "$env:USERPROFILE\.claude\hooks\super-mode-consult-gate.js"
+$skill  = "$env:USERPROFILE\.claude\skills\超級模式"
+$sbak   = "$env:USERPROFILE\.claude\skills-backup\超級模式.bak-$ts"
+$setf   = "$env:USERPROFILE\.claude\settings.json"
+$hbak   = "$hook.bak-$ts"; $setbak = "$setf.bak-$ts"
+
+function Test-Exactly1($name, $bak, $absent) {
+  if ((Test-Path $bak) -and (Test-Path $absent)) { throw "${name}：備份與 .absent 同時存在，狀態不明，中止（live 未變更）" }
+  if (-not (Test-Path $bak) -and -not (Test-Path $absent)) { throw "${name}：找不到 ts=$ts 的備份或標記，中止（live 未變更）" }
+}
+Test-Exactly1 'skill'    $sbak "$sbak.absent"
+Test-Exactly1 'hook'     $hbak "$hbak.absent"
+Test-Exactly1 'settings' $setbak "$setbak.absent"
+
+if (Test-Path $skill) { Remove-Item -Recurse -Force $skill }
+if (Test-Path $sbak)  { Copy-Item -Recurse $sbak $skill }
+
+if (Test-Path $hbak) { Copy-Item $hbak $hook -Force }
+elseif (Test-Path $hook) { Remove-Item -Force $hook }
+
+if (Test-Path $setbak) { Copy-Item $setbak $setf -Force }
+elseif (Test-Path $setf) { Remove-Item -Force $setf }
+"已回滾（備份保留，確認無誤後自行刪除）"
+```
 
 回滾後把失敗的測試輸出一併回報使用者，不要繼續下一步。
 
