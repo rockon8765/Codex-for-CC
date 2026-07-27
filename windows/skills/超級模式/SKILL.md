@@ -40,7 +40,7 @@ description: 重型工程協作工作流的「明確開關」——spec-first �
 
 ## 3. 指揮 Codex CLI（執行層）
 - **逾時與長跑（重要）**：`codex-consult.ps1` / `codex-check.ps1` 前景跑，工具 `timeout` 設 **360000ms（6 分鐘）**。`codex-exec.ps1` 派工一律 **`run_in_background: true`**（重任務常超過工具 10 分鐘上限，跑完會自動通知）。逐字輸出與最終回覆自動落地 `~/.claude/super-mode-logs/`。
-- **派工前先確認 Codex 版本與能力面**：跑 `scripts/codex-check.ps1`（查版本 + smoke test + 能力面 baseline 機器比對；24 小時內查過會用快取直接回報，`-Force` 強制重查；版本變更會自動作廢快取）。「有新版」是**中性情報、非更新指令**——更新屬選擇性系統變更且可能造成參數/外掛/行為漂移 → **先問使用者**；更新後必重跑 `-Force` 並檢視漂移警示。無 baseline 或確認漂移符合預期後，以 `-UpdateBaseline` 建立/接受（唯一更新途徑；等 smoke 通過才落檔，結果看輸出行 `UPDATE_BASELINE=OK/REFUSED/NOT_APPLIED`，被拒回 exit 2）。漂移警示屬提醒非閘門（姿態 A）。（baseline diff 目前 Windows 先行，mac/linux 待移植。）
+- **派工前先確認 Codex 版本與能力面**：跑 `scripts/codex-check.ps1`（查版本 + smoke test + 能力面 baseline 機器比對；24 小時內查過會用快取直接回報，`-Force` 強制重查；版本變更會自動作廢快取）。「有新版」是**中性情報、非更新指令**——更新屬選擇性系統變更且可能造成參數/外掛/行為漂移 → **先問使用者**；更新後必重跑 `-Force` 並檢視漂移警示。無 baseline 或確認漂移符合預期後，以 `-UpdateBaseline` 建立/接受（唯一更新途徑；等 smoke 通過才落檔，結果看輸出行 `UPDATE_BASELINE=OK/REFUSED/NOT_APPLIED`，被拒回 exit 2）。漂移警示屬提醒非閘門（姿態 A）。（baseline diff：Windows/macOS 已實作，linux 待移植。）
 - **派工也要先諮詢**：`codex-exec.ps1` 是 workspace-write 執行者，會實際改檔 → gate **不再無條件放行**，派工前必須有 20 分鐘內憑證（先做 §3.5 諮詢）。每步產一份自足任務簡報（規格依據 / 目標檔清單 / 要做什麼 / 驗收條件 / 限制：不得做架構決策、有疑慮回報），**用 Write 工具把簡報寫進 scratchpad**，用 PowerShell 工具跑 `scripts/codex-exec.ps1 -Dir <repo> -PromptFile <brief> -Quiet`（一律 `run_in_background: true`；`-Quiet` 讓 stdout 只回摘要不回灌逐字稿）。簡報格式見 `references/orchestration.md`。
 - Codex 交回後 **Claude 一定要 review**（正確性 / 符合 spec / 安全），不合格退回重做，別照單全收。**收工後只讀 `_last.txt`（最終回覆）＋ `git diff`**；逐字稿 log 只在退回重做 / 除錯時抽段讀（省 Claude context）。審查依 orchestration.md §5 分級：預設單線 diff，安全敏感 / 架構才開三鏡頭。Codex 派工失敗＝退回重派或回報使用者；Claude 不得未經使用者同意接手實作（額度耗盡 runbook 的一般化）。
 

@@ -383,7 +383,9 @@ function decide(input, testOpts) {
   return {
     allow: false,
     reason:
-      "[超級模式] 此動作(" + category + ": " + tool + ")需要 20 分鐘內的 Codex 諮詢憑證。步驟：" +
+      "[超級模式] 此動作(" + category + ": " + tool + ")需要 20 分鐘內的 Codex 諮詢憑證。" +
+      "若你是子代理(subagent / Workflow agent)：禁止自行諮詢或派工——把被擋的動作與本理由回報 orchestrator(主 Claude)後就停手，由主線統一處理。" +
+      "主線 Claude 的步驟：" +
       "①用 Write 工具把諮詢簡報寫進 scratchpad(豁免路徑，別用 shell 寫) " +
       "②用 PowerShell 工具(非 Bash 包 powershell -Command)跑 " +
       "~/.claude/skills/超級模式/scripts/codex-consult.ps1 -Dir <repo> -PromptFile <brief>(一律 -PromptFile) " +
