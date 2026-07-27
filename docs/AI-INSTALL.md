@@ -48,10 +48,25 @@ node ".\windows\skills\超級模式\tests\matcher-contract.test.js" # hook 的�
 > **這段是 fail-fast 的**：任何一步失敗就中止，不會印出 `ts`。所以「有印出 `ts`」才等於
 > 「三個備份都確實完成」。skill 的備份會與 live 做逐檔比對，避免部分複製被當成完整備份。
 >
-> **三個位置若有任何一個是 link（symlink／junction／mount point）一律中止**，不會嘗試備份；
-> **skill 目錄「底下」有 link 也一樣中止**。型別檢查會跟隨有效的 link，備走的是「別處的內容」，
-> 而複製會把 link **實體化成普通檔案／目錄**，回滾時就用那個普通版本蓋回去——等於在你不知情下
-> 改掉佈局，且原本的連結拓撲永久消失。要在這種佈局上安裝，請先自行確認並手動處理。
+> **偵測得到的 link 一律中止**，不會嘗試備份；skill 目錄「底下」的也一樣中止。
+> 理由：型別檢查會跟隨有效的 link，備走的是「別處的內容」，而複製會把 link
+> **實體化成普通檔案／目錄**，回滾時就用那個普通版本蓋回去——等於在你不知情下改掉佈局，
+> 且原本的連結拓撲永久消失。
+>
+> **各平台實際攔得到什麼（不要當成一致）**：
+>
+> | | Windows | macOS／Linux |
+> |---|---|---|
+> | symlink | ✅ 有效與斷掉的 junction 已實測；**斷掉的 symlink 未驗證**（見下方註解） | ✅ 有效與斷掉皆已實測 |
+> | junction／NTFS mount point | ✅（都帶 `ReparsePoint` 屬性）| 不適用 |
+> | **bind mount／掛載點** | ✅（同上）| ❌ **偵測不到**——它是目錄不是 symlink，`find -type l` 抓不到 |
+>
+> ⚠️ **macOS／Linux 的掛載點是已知缺口，且後果嚴重**：若 skill 樹底下有掛載點，1b 會照常
+> 備份（`cp -R` 把掛載內容實體化、`diff -r` 仍相等）並印出 `ts`；之後若需要回滾，
+> `rm -rf ~/.claude/skills/超級模式` 會**跨進掛載樹刪除裡面的真實資料**。
+> 這條路徑在本文件加入 link 守衛之前就存在（回滾一向用 `rm -rf`），**守衛並未縮小它**。
+> 若你的 `~/.claude/skills/超級模式` 底下有任何掛載點，**先卸載或改用手動安裝**，不要跑本流程。
+> 記在 [`backlog.md`](backlog.md)。
 
 macOS / Linux（Windows 的 settings 檔名不同，見下一段）:
 ```bash
@@ -91,6 +106,11 @@ if [ -L "$s" ]; then echo "$s 是 symlink，狀態不明，中止"; exit 1
 elif [ -d "$s" ]; then
   # 樹**內部**也要驗，不能只看頂層（與 Windows 版同一理由：內嵌 link 會在複製時被實體化，
   # 而目標為空時「只比對檔案」的驗證看不出差別）。
+  # ⚠️ 這只攔 symlink。**掛載點（bind mount 等）攔不到**——它是目錄不是 symlink。
+  #    後果見上方表格：回滾的 rm -rf 會跨進掛載樹刪掉裡面的真實資料。
+  #    `find -xdev` 與 `rm --one-file-system` 都不夠（同檔案系統的 bind mount 仍會漏），
+  #    可靠做法要讀平台的 mount table，Linux 與 macOS 寫法不同、本機無權限建立掛載點實測，
+  #    因此不放未經驗證的偵測碼進來。記在 docs/backlog.md。
   lnk=$(find "$s" -type l -print -quit 2>/dev/null)
   if [ -n "$lnk" ]; then echo "$s 底下有 symlink（$lnk），狀態不明，中止"; exit 1; fi
   cp -R "$s" "$sbak"; diff -r "$s" "$sbak" >/dev/null || { echo "skill 備份與 live 不一致，中止"; exit 1; }
