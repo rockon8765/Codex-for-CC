@@ -48,9 +48,10 @@ node ".\windows\skills\超級模式\tests\matcher-contract.test.js" # hook 的�
 > **這段是 fail-fast 的**：任何一步失敗就中止，不會印出 `ts`。所以「有印出 `ts`」才等於
 > 「三個備份都確實完成」。skill 的備份會與 live 做逐檔比對，避免部分複製被當成完整備份。
 >
-> **三個位置若有任何一個是 link（symlink／junction／mount point）一律中止**，不會嘗試備份。
-> 型別檢查會跟隨有效的 link，備走的是「別處的內容」，回滾時卻會把 link 本身換成實體檔案／
-> 目錄——等於在你不知情下改掉佈局。要在這種佈局上安裝，請先自行確認並手動處理。
+> **三個位置若有任何一個是 link（symlink／junction／mount point）一律中止**，不會嘗試備份；
+> **skill 目錄「底下」有 link 也一樣中止**。型別檢查會跟隨有效的 link，備走的是「別處的內容」，
+> 而複製會把 link **實體化成普通檔案／目錄**，回滾時就用那個普通版本蓋回去——等於在你不知情下
+> 改掉佈局，且原本的連結拓撲永久消失。要在這種佈局上安裝，請先自行確認並手動處理。
 
 macOS / Linux（Windows 的 settings 檔名不同，見下一段）:
 ```bash
@@ -63,9 +64,12 @@ sbak=~/.claude/skills-backup/超級模式.bak-$ts
 setf=~/.claude/settings.local.json
 setbak=$setf.bak-$ts
 
-# 同一秒重跑會撞名，撞到就停（等一秒再跑），不要覆蓋既有備份
+# 同一秒重跑會撞名，撞到就停（等一秒再跑），不要覆蓋既有備份。
+# `-L` 不可省：`-e` 對斷鏈 symlink 是 false，會讓 collision loop 以為路徑空著，
+# 接著 `: > "$p"` 會**跟隨** symlink 把檔案建到它的目標（可能在備份區之外），
+# 而 marker 路徑本身仍是 symlink —— 1b 照樣印出 ts，回滾卻會因 marker 是 link 而中止。
 for p in "$hbak" "$hbak.absent" "$sbak" "$sbak.absent" "$setbak" "$setbak.absent"; do
-  [ -e "$p" ] && { echo "已存在 ts=$ts 的備份產物（$p），等一秒後重跑，中止"; exit 1; }
+  if [ -e "$p" ] || [ -L "$p" ]; then echo "已存在 ts=$ts 的備份產物（$p），等一秒後重跑，中止"; exit 1; fi
 done
 
 # 型別要對才算「有」或「沒有」：skill 必須是目錄、hook/settings 必須是一般檔案。
@@ -85,6 +89,10 @@ else : > "$hbak.absent"; fi
 
 if [ -L "$s" ]; then echo "$s 是 symlink，狀態不明，中止"; exit 1
 elif [ -d "$s" ]; then
+  # 樹**內部**也要驗，不能只看頂層（與 Windows 版同一理由：內嵌 link 會在複製時被實體化，
+  # 而目標為空時「只比對檔案」的驗證看不出差別）。
+  lnk=$(find "$s" -type l -print -quit 2>/dev/null)
+  if [ -n "$lnk" ]; then echo "$s 底下有 symlink（$lnk），狀態不明，中止"; exit 1; fi
   cp -R "$s" "$sbak"; diff -r "$s" "$sbak" >/dev/null || { echo "skill 備份與 live 不一致，中止"; exit 1; }
 elif [ -e "$s" ]; then echo "$s 存在但不是目錄，狀態不明，中止"; exit 1
 else : > "$sbak.absent"; fi
@@ -120,9 +128,14 @@ foreach ($p in @($hbak, "$hbak.absent", $sbak, "$sbak.absent", $setbak, "$setbak
   if (Get-Entry $p) { throw "已存在 ts=$ts 的備份產物（$p），等一秒後重跑，中止" }
 }
 
+# 指紋涵蓋目錄與 link 狀態，不只檔案。只列檔案的話，空目錄與「junction 被複製成普通空目錄」
+# 兩邊都是零檔案 → 判定相等，備份會被當成完整。
 function Get-TreeFingerprint($root) {
-  Get-ChildItem -LiteralPath $root -Recurse -File -Force | ForEach-Object {
-    '{0}|{1}' -f $_.FullName.Substring($root.Length).TrimStart('\'), (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash
+  Get-ChildItem -LiteralPath $root -Recurse -Force | ForEach-Object {
+    $rel = $_.FullName.Substring($root.Length).TrimStart('\')
+    $lk  = if (($_.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { 'L' } else { '' }
+    if ($_.PSIsContainer) { "D$lk|$rel" }
+    else { "F$lk|$rel|$((Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash)" }
   } | Sort-Object
 }
 # 型別要對才算「有」或「沒有」：skill 必須是目錄、hook/settings 必須是一般檔案。
@@ -145,6 +158,14 @@ else { New-Item -ItemType File -Path "$hbak.absent" | Out-Null }
 $se = Get-Entry $skill
 if (Test-Reparse $se) { throw "$skill 是 link／reparse point，狀態不明，中止" }
 elseif (Test-Path -LiteralPath $skill -PathType Container) {
+  # 樹**內部**也要驗，不能只看頂層：實測 `Copy-Item -Recurse` 會把內嵌 junction
+  # **實體化成普通目錄**（不保留 reparse metadata）。若該 junction 的目標目前是空的，
+  # 來源與備份的檔案集合都是空的 —— 舊版只列檔案的指紋會判定相等、印出 ts，
+  # 於是回滾時 link 拓撲被普通空目錄取代而永久消失。
+  $badLink = Get-ChildItem -LiteralPath $skill -Recurse -Force |
+             Where-Object { ($_.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 } |
+             Select-Object -First 1
+  if ($badLink) { throw "$skill 底下有 link／reparse point（$($badLink.FullName)），狀態不明，中止" }
   Copy-Item -LiteralPath $skill -Destination $sbak -Recurse
   if (((Get-TreeFingerprint $se.FullName) -join "`n") -ne ((Get-TreeFingerprint (Get-Entry $sbak).FullName) -join "`n")) {
     throw "skill 備份與 live 不一致，中止"
