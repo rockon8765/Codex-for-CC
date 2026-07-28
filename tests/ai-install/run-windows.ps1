@@ -7,7 +7,11 @@ $ErrorActionPreference = 'Stop'
 $repo = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 $doc  = if ($Doc) { $Doc } else { Join-Path $repo 'docs\AI-INSTALL.md' }
 "受測文件：$doc"
-$work = Join-Path $env:TEMP 'ai-install-harness'
+# ⚠️ 不要用固定路徑。舊版寫死 $env:TEMP\ai-install-harness 並在開頭遞迴刪除 ——
+# 使用者剛好有同名資料、或兩個測試臺並行時，後啟動的會直接刪掉前者的資料
+# （實測撞過 Access Denied 而中止清理）。改成每次用 GUID 新建，
+# 清理只針對「本次建立且符合本前綴」的路徑。
+$work = Join-Path $env:TEMP ('ai-install-harness-' + [guid]::NewGuid().ToString('N'))
 
 # 抽取
 $lines = Get-Content -LiteralPath $doc -Encoding UTF8
@@ -78,7 +82,6 @@ function Check($name, $cond, $detail) {
   else { $script:fail++; "  FAIL  $name`n        $detail" }
 }
 
-if (Test-Path -LiteralPath $work) { Remove-Item -LiteralPath $work -Recurse -Force }
 New-Item -ItemType Directory -Force -Path $work | Out-Null
 Push-Location $repo
 try {
@@ -91,6 +94,10 @@ Check '1b 成功並印出 ts' ($r.Ok -and $ts) $r.Out
 $r = Invoke-Block $B1c $h
 Check '1c 安裝成功' ($r.Ok -and $r.Out -match 'install OK') $r.Out
 Check '安裝後 live 已換成新版' ((Get-Snapshot "$h\.claude\skills\超級模式") -ne $snap0) '安裝沒有改變 live'
+# 模擬步驟 2 把 hook 條目合併進 settings。**沒有這一步，下面的「settings 還原」斷言恆真**
+# ——settings 從頭到尾都是 OLD，就算把回滾的 settings 還原程式碼整段刪掉也照樣綠。
+Set-Content -LiteralPath "$h\.claude\settings.json" -Value '{"new":true,"hooks":{"PreToolUse":[]}}' -NoNewline
+Check '前置：settings 已被步驟 2 改動（否則還原斷言恆真）' ((Get-Content -LiteralPath "$h\.claude\settings.json" -Raw) -ne '{"old":true}') '注入失敗，本案的 settings 斷言無效'
 for ($i = 1; $i -le 3; $i++) {
   $r = Invoke-Rollback $ts $h
   Check "第 $i 次回滾成功" $r.Ok $r.Out
@@ -103,13 +110,23 @@ for ($i = 1; $i -le 3; $i++) {
 $h = New-FakeHome 'c2'
 $r = Invoke-Block $B1b $h; $ts = Get-Ts $r.Out
 Check '1b 成功' ($r.Ok -and $ts) $r.Out
-Check '.absent 標記已建立' (Test-Path -LiteralPath "$h\.claude\skills-backup\超級模式.bak-$ts.absent") '缺 .absent'
+# 三個 .absent 標記都要在——少一個就代表某個元件的「全新安裝」語義沒被記錄
+foreach ($m in @("skills-backup\超級模式.bak-$ts.absent",
+                 "hooks\super-mode-consult-gate.js.bak-$ts.absent",
+                 "settings.json.bak-$ts.absent")) {
+  Check ".absent 標記已建立：$m" (Test-Path -LiteralPath "$h\.claude\$m" -PathType Leaf) "缺 $m"
+}
 $r = Invoke-Block $B1c $h
 Check '1c 安裝成功' $r.Ok $r.Out
+# 模擬步驟 2 建立了原本不存在的 settings。**沒有這一步，「回滾後 settings 已刪除」
+# 就是恆真**（它從頭到尾都不存在），刪掉回滾的 settings 刪除程式碼也測不出來。
+Set-Content -LiteralPath "$h\.claude\settings.json" -Value '{"hooks":{"PreToolUse":[]}}' -NoNewline
+Check '前置：步驟 2 已建立 settings（否則刪除斷言恆真）' (Test-Path -LiteralPath "$h\.claude\settings.json") '注入失敗'
 $r = Invoke-Rollback $ts $h
 Check '回滾成功' $r.Ok $r.Out
 Check '回滾後 skill 已刪除' (-not (Test-Path -LiteralPath "$h\.claude\skills\超級模式")) 'skill 殘留'
 Check '回滾後 hook 已刪除' (-not (Test-Path -LiteralPath "$h\.claude\hooks\super-mode-consult-gate.js")) 'hook 殘留'
+Check '回滾後 settings 已刪除' (-not (Test-Path -LiteralPath "$h\.claude\settings.json")) 'settings 殘留'
 
 "`n[M1] 變異注入：ts 含萬用字元（第七輪 HIGH 回歸）"
 $h = New-FakeHome 'm1'; Add-ExistingInstall $h
@@ -231,7 +248,15 @@ $r = Invoke-Block $B1c $h
 $r = Invoke-Rollback $ts $h
 Check '正確 ts 的回滾必須成功（否則上面全是假通過）' $r.Ok $r.Out
 
-} finally { Pop-Location }
+} finally {
+  Pop-Location
+  # 只清理本次建立、且符合本前綴的路徑
+  if ($work -match 'ai-install-harness-[0-9a-f]{32}$' -and (Test-Path -LiteralPath $work)) {
+    Remove-Item -LiteralPath $work -Recurse -Force -ErrorAction SilentlyContinue
+  } else {
+    Write-Host "work 路徑不符預期前綴，不清理：$work"
+  }
+}
 
 "`n========================================"
 "$exe  PASS=$script:pass  FAIL=$script:fail"

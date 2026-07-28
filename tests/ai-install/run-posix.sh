@@ -5,8 +5,20 @@ set -uo pipefail
 
 REPO="${REPO:-$(cd "$(dirname "$0")/../.." && pwd)}"
 DOC="${DOC:-$REPO/docs/AI-INSTALL.md}"
-WORK="$HOME/ai-install-harness"
 PLACEHOLDER='<貼上 1b 印出的值>'
+
+# ⚠️ 不要用固定路徑。舊版寫死 "$HOME/ai-install-harness" 並在開頭 rm -rf ——
+# 使用者剛好有同名資料、或兩個測試臺並行時，後啟動的會直接刪掉前者的資料。
+# 改成每次 mktemp 新建，清理只針對「本次建立且符合本前綴」的路徑。
+WORK=$(mktemp -d "${TMPDIR:-/tmp}/ai-install-harness.XXXXXX") || {
+  echo "無法建立暫存工作目錄，中止" >&2; exit 2; }
+cleanup() {
+  case "$WORK" in
+    */ai-install-harness.??????) [ -d "$WORK" ] && rm -rf "$WORK" ;;
+    *) echo "WORK 路徑不符預期前綴，不清理：$WORK" >&2 ;;
+  esac
+}
+trap cleanup EXIT
 
 pass=0; fail=0
 check() { # name rc detail
@@ -15,7 +27,7 @@ check() { # name rc detail
   return 0
 }
 
-rm -rf "$WORK"; mkdir -p "$WORK/blocks"
+mkdir -p "$WORK/blocks"
 
 # 抽取（順便去掉 CR：Windows 工作目錄的檔可能是 CRLF，會讓 set -euo pipefail 假炸）
 tr -d '\r' < "$DOC" > "$WORK/doc.md"
@@ -76,6 +88,11 @@ run "$B1B" "$H"; rc=$?; TS=$(get_ts "$LAST_OUT")
 if [ $rc -eq 0 ] && [ ${#TS} -eq 15 ]; then check '1b 成功並印出 ts' 0; else check '1b 成功並印出 ts' 1 "$LAST_OUT"; fi
 run "$B1C" "$H"; check '1c 安裝成功' $? "$LAST_OUT"
 [ "$(snap "$H/.claude/skills/超級模式")" != "$SNAP0" ]; check '安裝後 live 已換成新版' $? '安裝沒有改變 live'
+# 模擬步驟 2 把 hook 條目合併進 settings。**沒有這一步，下面的「settings 還原」斷言恆真**
+# ——settings 從頭到尾都是 OLD，就算把回滾的 settings 還原程式碼整段刪掉也照樣綠。
+printf '{"new":true,"hooks":{"PreToolUse":[]}}' > "$H/.claude/settings.json"
+[ "$(cat "$H/.claude/settings.json")" != '{"old":true}' ]
+check '前置：settings 已被步驟 2 改動（否則還原斷言恆真）' $? '注入失敗，本案的 settings 斷言無效'
 for i in 1 2 3; do
   run_rollback "$TS" "$H"; check "第 $i 次回滾成功" $? "$LAST_OUT"
   [ "$(snap "$H/.claude/skills/超級模式")" = "$SNAP0" ]; check "第 $i 次回滾後 skill 等於安裝前" $? '還原內容不符'
@@ -87,11 +104,21 @@ echo; echo "[C2] 全新安裝 -> 回滾應刪除"
 H=$(new_home c2)
 run "$B1B" "$H"; rc=$?; TS=$(get_ts "$LAST_OUT")
 check '1b 成功' $rc "$LAST_OUT"
-[ -f "$H/.claude/skills-backup/超級模式.bak-$TS.absent" ]; check '.absent 標記已建立' $? '缺 .absent'
+# 三個 .absent 標記都要在——少一個就代表某個元件的「全新安裝」語義沒被記錄
+for m in "skills-backup/超級模式.bak-$TS.absent" \
+         "hooks/super-mode-consult-gate.js.bak-$TS.absent" \
+         "settings.json.bak-$TS.absent"; do
+  [ -f "$H/.claude/$m" ]; check ".absent 標記已建立：$m" $? "缺 $m"
+done
 run "$B1C" "$H"; check '1c 安裝成功' $? "$LAST_OUT"
+# 模擬步驟 2 建立了原本不存在的 settings。**沒有這一步，「回滾後 settings 已刪除」
+# 就是恆真**（它從頭到尾都不存在），刪掉回滾的 settings 刪除程式碼也測不出來。
+printf '{"hooks":{"PreToolUse":[]}}' > "$H/.claude/settings.json"
+[ -f "$H/.claude/settings.json" ]; check '前置：步驟 2 已建立 settings（否則刪除斷言恆真）' $? '注入失敗'
 run_rollback "$TS" "$H"; check '回滾成功' $? "$LAST_OUT"
 [ ! -e "$H/.claude/skills/超級模式" ]; check '回滾後 skill 已刪除' $? 'skill 殘留'
 [ ! -e "$H/.claude/hooks/super-mode-consult-gate.js" ]; check '回滾後 hook 已刪除' $? 'hook 殘留'
+[ ! -e "$H/.claude/settings.json" ]; check '回滾後 settings 已刪除' $? 'settings 殘留'
 
 echo; echo "[M1] 變異注入：ts 形狀不合"
 H=$(new_home m1); seed "$H"
