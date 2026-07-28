@@ -27,28 +27,35 @@ const hookPath = path.join(__dirname, "..", "..", "..", "hooks", "super-mode-con
 // .claude/settings.local.json」——`~/` 只出現在 `settings.json`，另兩者是**專案相對**。
 // 家目錄那份只有在「從家目錄啟動 Claude Code」時才生效（那時它剛好就是專案層的檔案）。
 // 把它列為候選，等於讓這支專門防假綠的測試自己變成假綠的來源。
-const settingsCandidates = [
-  path.join(__dirname, "..", "..", "..", "settings.snippet.json"),
-  path.join(os.homedir(), ".claude", "settings.json"),
-].filter((p) => fs.existsSync(p));
+const repoSnippet = path.join(__dirname, "..", "..", "..", "settings.snippet.json");
+const liveSettings = path.join(os.homedir(), ".claude", "settings.json");
 
-function hasOurHook(p) {
+// 四態分類，不用布林 —— 「檔案不存在」與「檔案壞掉／沒註冊 hook」必須分得開。
+// 舊寫法把 parse error 一律 catch 成 false，等於把「待出貨的 snippet 壞了」
+// 和「這裡沒有 snippet」混為一談。
+function classify(p) {
+  if (!fs.existsSync(p)) return { state: "missing" };
+  let raw;
   try {
-    const j = JSON.parse(fs.readFileSync(p, "utf8").replace(/^﻿/, ""));
-    const list = (j.hooks && j.hooks.PreToolUse) || [];
-    return list.some(
-      (e) =>
-        Array.isArray(e.hooks) &&
-        e.hooks.some((h) => String((h && h.command) || "").includes("super-mode-consult-gate"))
-    );
+    raw = fs.readFileSync(p, "utf8");
   } catch (e) {
-    return false;
+    return { state: "invalid", why: "讀取失敗：" + e.code };
   }
+  let j;
+  try {
+    j = JSON.parse(raw.replace(/^﻿/, ""));
+  } catch (e) {
+    return { state: "invalid", why: "JSON 解析失敗：" + e.message };
+  }
+  const list = (j.hooks && j.hooks.PreToolUse) || [];
+  const registered = list.some(
+    (e) =>
+      e &&
+      Array.isArray(e.hooks) &&
+      e.hooks.some((h) => String((h && h.command) || "").includes("super-mode-consult-gate"))
+  );
+  return registered ? { state: "ok" } : { state: "noHook" };
 }
-// 找不到「真的註冊了本 hook」的 settings 就直接 FAIL，**不 fallback**。
-// 舊寫法有 `|| settingsCandidates[0]`，會退而撿一份不相干的 settings 來比對而 PASS ——
-// 那正是假綠：matcher 根本沒合併進去，測試卻是綠的。
-const snippetPath = settingsCandidates.find(hasOurHook);
 
 const fail = (msg) => {
   console.error("FAIL: " + msg);
@@ -59,16 +66,42 @@ if (!fs.existsSync(hookPath)) {
   console.error("hook not found: " + hookPath);
   process.exit(1);
 }
-if (!snippetPath) {
-  console.error(
-    "FAIL: 找不到「已註冊本 hook」的 settings。已查的候選：\n  " +
-      (settingsCandidates.length ? settingsCandidates.join("\n  ") : "（候選檔都不存在）") +
-      "\n\nhook 必須註冊在 ~/.claude/settings.json（user scope）。" +
-      "\n⚠️ ~/.claude/settings.local.json 不是 user scope —— 只有從家目錄啟動 Claude Code 時" +
-      "\n   才會被當成專案層檔案讀到，從其他目錄啟動就完全不生效。" +
-      "\n若你剛照 AI-INSTALL 步驟 2 合併過，請確認合併的是 ~/.claude/settings.json。"
-  );
-  process.exit(1);
+
+// repo 佈局**排他**：只要 settings.snippet.json 存在，就一定驗它，
+// 不准因為它壞掉／沒註冊 hook 就退去讀家目錄的 settings ——
+// 那會讓「待出貨的 snippet 是壞的」被開發者自己機器上的舊設定掩蓋而 PASS。
+// 只有在 repo snippet **真的不存在**（= live 佈局）時，才改驗使用者的 settings.json。
+let snippetPath;
+const repo = classify(repoSnippet);
+if (repo.state !== "missing") {
+  if (repo.state !== "ok") {
+    console.error(
+      "FAIL: repo 的 settings.snippet.json " +
+        (repo.state === "invalid" ? repo.why : "沒有註冊本 hook") +
+        "\n  " + repoSnippet +
+        "\n這是待出貨的檔案，不能用家目錄的 settings 掩蓋它。"
+    );
+    process.exit(1);
+  }
+  snippetPath = repoSnippet;
+} else {
+  const live = classify(liveSettings);
+  if (live.state !== "ok") {
+    console.error(
+      "FAIL: " +
+        (live.state === "missing"
+          ? "找不到 " + liveSettings
+          : live.state === "invalid"
+            ? liveSettings + " " + live.why
+            : liveSettings + " 裡沒有註冊本 hook") +
+        "\n\nhook 必須註冊在 ~/.claude/settings.json（user scope）。" +
+        "\n⚠️ ~/.claude/settings.local.json 不是 user scope —— 只有從家目錄啟動 Claude Code 時" +
+        "\n   才會被當成專案層檔案讀到，從其他目錄啟動就完全不生效。" +
+        "\n若你剛照 AI-INSTALL 步驟 2 合併過，請確認合併的是 ~/.claude/settings.json。"
+    );
+    process.exit(1);
+  }
+  snippetPath = liveSettings;
 }
 
 const hookSrc = fs.readFileSync(hookPath, "utf8").replace(/^﻿/, "");
