@@ -47,8 +47,10 @@ git show <修正前的 commit>:docs/AI-INSTALL.md | Set-Content -LiteralPath $en
 
 ## 已知界線
 
-- **`run-posix.sh` 在 Linux（WSL2）跑過，macOS 未跑過。** 用到 GNU 專屬行為：
-  `find -printf`、`date -d`。macOS 上要跑得先換成 BSD 對應寫法。
+- **`run-posix.sh` 在 Linux（WSL2）跑過，macOS 尚未跑過。**
+  2026-07-28 已把三處 GNU 專屬寫法移植成可攜（`find -printf` → 在 shell 算型別與相對路徑、
+  `md5sum` → POSIX `cksum`、`date -d` → 忙等跨秒），因此**預期可直接在 macOS 執行**，
+  但「可攜」是推論，**尚未在 BSD userland 實際驗證**。
 - **抽取靠關鍵字定位**（`backup ts=`／`install OK`／`Test-Exactly1`／`precheck skill`）。
   命中數不等於 1 時直接 abort，不會猜。
 - **Windows 快照忽略** `AppData\Local\Microsoft\PowerShell\*`——`pwsh` 自己會在被重導的

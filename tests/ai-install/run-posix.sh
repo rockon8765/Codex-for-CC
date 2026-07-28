@@ -53,10 +53,19 @@ seed() { local h="$1"
   mkdir -p "$h/.claude/skills/超級模式"; printf 'OLD-SKILL' > "$h/.claude/skills/超級模式/SKILL.md"
   printf '{"old":true}' > "$h/.claude/settings.local.json"
 }
+# 可攜寫法：不用 GNU 的 `find -printf`，也不用 GNU coreutils 的 `md5sum`
+# （BSD/macOS 兩者皆無）。型別與相對路徑在 shell 裡算，雜湊用 POSIX 的 cksum。
 snap() {
   [ -e "$1" ] || { echo '<none>'; return; }
-  find "$1" \( -type f -o -type d -o -type l \) -printf '%y|%P|' -exec sh -c '
-    if [ -L "$1" ]; then readlink "$1"; elif [ -f "$1" ]; then md5sum < "$1" | cut -d" " -f1; else echo -; fi' _ {} \; 2>/dev/null | sort
+  find "$1" \( -type f -o -type d -o -type l \) -exec sh -c '
+    root="$1"; shift
+    for p in "$@"; do
+      rel=${p#"$root"}; rel=${rel#/}
+      if [ -L "$p" ]; then printf "l|%s|%s\n" "$rel" "$(readlink "$p")"
+      elif [ -f "$p" ]; then printf "f|%s|%s\n" "$rel" "$(cksum < "$p" | cut -d" " -f1)"
+      else printf "d|%s|-\n" "$rel"
+      fi
+    done' _ "$1" {} + 2>/dev/null | sort
 }
 get_ts() { echo "$1" | sed -n 's/.*backup ts=\([0-9]\{8\}-[0-9]\{6\}\).*/\1/p' | head -1; }
 
@@ -184,11 +193,19 @@ echo; echo "[M10] 變異注入：斷鏈 symlink 佔住 .absent 標記路徑（�
 H=$(new_home m10)
 BASE="$H/.claude/hooks/super-mode-consult-gate.js.bak"
 TARGET="$WORK/m10-should-not-be-created"
-for off in 0 1 2; do
-  t=$(date -d "+$off second" +%Y%m%d-%H%M%S)
-  ln -s "$TARGET" "$BASE-$t.absent"
-done
+# 要讓斷鏈剛好佔住 1b 即將採用的 ts。不用 GNU 的 `date -d`（BSD 沒有）：
+# 先忙等到跨秒，取得整整一秒的餘裕，再佈鏈並立刻跑 1b。
+prev=$(date +%S); while [ "$(date +%S)" = "$prev" ]; do :; done
+T10=$(date +%Y%m%d-%H%M%S)
+ln -s "$TARGET" "$BASE-$T10.absent"
 run "$B1B" "$H"; rc=$?
+# 若 1b 竟然採用了別的秒數，這一案就沒測到該測的東西——明確 FAIL，不可靜默通過
+GOT=$(get_ts "$LAST_OUT")
+if [ -n "$GOT" ] && [ "$GOT" != "$T10" ]; then
+  check '前置：斷鏈確實佔住 1b 採用的 ts' 1 "佈的是 $T10、1b 用了 $GOT（跨秒了，重跑本案）"
+else
+  check '前置：斷鏈確實佔住 1b 採用的 ts' 0
+fi
 [ $rc -ne 0 ]; check '1b 對被斷鏈佔住的 marker 路徑中止' $? "竟然成功：$LAST_OUT"
 [ -z "$(get_ts "$LAST_OUT")" ]; check '1b 未印出 ts' $? "竟印出 ts：$LAST_OUT"
 [ ! -e "$TARGET" ]; check '沒有跟隨 symlink 在備份區外建檔' $? "竟建立了 $TARGET"

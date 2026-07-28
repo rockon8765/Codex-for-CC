@@ -111,8 +111,13 @@ elif [ -d "$s" ]; then
   #    `find -xdev` 與 `rm --one-file-system` 都不夠（同檔案系統的 bind mount 仍會漏），
   #    可靠做法要讀平台的 mount table，Linux 與 macOS 寫法不同、本機無權限建立掛載點實測，
   #    因此不放未經驗證的偵測碼進來。記在 docs/backlog.md。
-  lnk=$(find "$s" -type l -print -quit 2>/dev/null)
-  if [ -n "$lnk" ]; then echo "$s 底下有 symlink（$lnk），狀態不明，中止"; exit 1; fi
+  # 不用 `-print -quit`（GNU 專屬）也不吞 stderr：實測若 find 因任何原因失敗，
+  # `2>/dev/null` 會把錯誤吃掉、變數變成空字串，這道守衛就**靜默失效**（fail-open）。
+  # 改成偵測 find 的退出碼，掃描失敗一律中止（fail-closed）。
+  if ! lnk=$(find "$s" -type l); then echo "掃描 $s 的 symlink 失敗，狀態不明，中止"; exit 1; fi
+  if [ -n "$lnk" ]; then
+    echo "$s 底下有 symlink（$(printf '%s\n' "$lnk" | head -n 1)），狀態不明，中止"; exit 1
+  fi
   cp -R "$s" "$sbak"; diff -r "$s" "$sbak" >/dev/null || { echo "skill 備份與 live 不一致，中止"; exit 1; }
 elif [ -e "$s" ]; then echo "$s 存在但不是目錄，狀態不明，中止"; exit 1
 else : > "$sbak.absent"; fi
