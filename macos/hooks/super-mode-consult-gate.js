@@ -23,7 +23,9 @@
  * 空內容 → 全域強制。旗標超過 8 小時視為上個 session 殘留 → 自動解除（自癒）。
  *
  * 部署位置：~/.claude/hooks/super-mode-consult-gate.js（I3 保護目錄，勿放 skill 內），
- * 由 ~/.claude/settings.local.json 的 PreToolUse 註冊。
+ * 由 ~/.claude/settings.json 的 PreToolUse 註冊。
+ * （2026-07-28 更正：家目錄的 settings.local.json 不是 user scope，只有從家目錄
+ *   啟動 Claude Code 時才生效——舊版指引寫錯，見 docs/verify-settings-scope.md。）
  * FAIL-OPEN：沒旗標、或任何錯誤 → 一律放行 (exit 0)，確保一般模式絕不被卡。
  * 被擋時 exit 2，stderr 訊息會回饋給 Claude。
  * testOpts.mcpPolicy/MCP_PATHLESS_ALLOW 一旦有內容即等於開放對應 MCP 放行；生產呼叫端只傳一個參數，勿讓任何 runtime/使用者輸入流入第二參數。

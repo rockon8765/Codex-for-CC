@@ -31,7 +31,7 @@
 | 執行腳本 | `*.ps1` | `*.sh` | `*.sh` |
 | Codex CLI 位置 | `C:\npm\codex.cmd`（寫死） | `PATH` 上的 `codex`（Homebrew npm global） | `PATH` 上的 `codex`（npm global） |
 | Gate 拒絕機制 | `permissionDecision` / exit 2 | stderr + exit 2 | stderr + exit 2 |
-| 接 hook 的設定檔 | `settings.json` | `settings.local.json` | `settings.local.json` |
+| 接 hook 的設定檔 | `settings.json` | `settings.json` | `settings.json` |
 | 修復／平台紀錄 | [`docs/history/FIX-PLAN-windows-2026-07-02.md`](docs/history/FIX-PLAN-windows-2026-07-02.md) | [`docs/history/FIX-PLAN-macos-2026-07-03.md`](docs/history/FIX-PLAN-macos-2026-07-03.md) | [`docs/linux-platform-notes.md`](docs/linux-platform-notes.md)（現行參考，非史料） |
 
 > **現況（據實）。** **Windows 版**是本 repo 的維護基準，原生稽核與對抗測試的覆蓋最廣。**macOS 與 Linux 版都曾對特定 revision／功能做過原生驗證**（例如 P0.1 realpath 縱深硬化 `351061a` 記載 Linux 在 WSL2/ext4/glibc 上原生跑過 gate-cases 98/98 ＋ 9 個 symlink 探針），**但各次的涵蓋範圍與時間點都不同——不能由歷史上某次 PASS 推定目前 tip 已達成三平台等價驗證**。要判斷「現在這批改動可不可信」，請以下方**「本次 delta 的驗證分布」**為準。各平台的分階段紀錄與回歸測試臺規格見上表「修復／平台紀錄」列（**2026-07-27 起這些文件都移出 skill payload**：已完成的過程放 [`docs/history/`](docs/history/)、Linux 的現行平台差異放 [`docs/linux-platform-notes.md`](docs/linux-platform-notes.md)——不再隨安裝被複製進 `~/.claude/skills/`）；案例數以各平台 `tests/gate-cases.json` 為準（三平台不同、且會隨修補變動）。
@@ -174,8 +174,10 @@ linux/                           # bash 版（GNU userland；每次 push 由 ubu
 # 1. Skill → ~/.claude/skills/    2. Hook → ~/.claude/hooks/
 cp -R "macos/skills/超級模式" ~/.claude/skills/
 cp    "macos/hooks/super-mode-consult-gate.js" ~/.claude/hooks/
-# 3. 把 hook 接到 ~/.claude/settings.local.json（見 macos/settings.snippet.json），
+# 3. 把 hook 接到 ~/.claude/settings.json（見 macos/settings.snippet.json），
 #    並把絕對路徑改成你自己家目錄的路徑。
+#    ⚠️ 不要用 settings.local.json —— 家目錄那份不是 user scope，只有從家目錄
+#    啟動 Claude Code 時才生效（見 docs/verify-settings-scope.md）。
 # 4. 驗證：
 node "$HOME/.claude/skills/超級模式/tests/run-gate-tests.js"        # 應全數 PASS（案例數見 gate-cases.json）
 node "$HOME/.claude/skills/超級模式/tests/matcher-contract.test.js" # ★ 必跑，見下方說明
@@ -187,9 +189,11 @@ bash "$HOME/.claude/skills/超級模式/tests/run-e2e.sh"               # 應全
 # 1. Skill → ~/.claude/skills/    2. Hook → ~/.claude/hooks/
 cp -R "linux/skills/超級模式" ~/.claude/skills/
 cp    "linux/hooks/super-mode-consult-gate.js" ~/.claude/hooks/
-# 3. 把 hook 接到 ~/.claude/settings.local.json（見 linux/settings.snippet.json），
+# 3. 把 hook 接到 ~/.claude/settings.json（見 linux/settings.snippet.json），
 #    絕對路徑改成你家目錄；若 node 不在系統 PATH（可攜式安裝），command 開頭的
 #    node 也要寫絕對路徑，否則 hook 會靜默不跑。
+#    ⚠️ 不要用 settings.local.json —— 家目錄那份不是 user scope，只有從家目錄
+#    啟動 Claude Code 時才生效（見 docs/verify-settings-scope.md）。
 # 4. 驗證（linux/ 每次 push 都跑 ubuntu-latest CI，這裡是驗你這台機器的安裝結果）：
 node "$HOME/.claude/skills/超級模式/tests/run-gate-tests.js"        # 應全數 PASS（案例數見 gate-cases.json）
 node "$HOME/.claude/skills/超級模式/tests/matcher-contract.test.js" # ★ 必跑，見下方說明
