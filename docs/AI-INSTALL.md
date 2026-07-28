@@ -295,6 +295,9 @@ if (Test-Path -LiteralPath $stale) { throw "安裝驗證失敗：FIX-PLAN.md 未
 > **若你的環境有工具會覆寫 `~/.claude/settings.json`**（例如 ECC 重新安裝）：那是真實的衝突，
 > 但把 hook 藏到一個不會被載入的檔案並不能解決它。正確做法是覆寫之後**重跑步驟 3 的
 > `matcher-contract`**——它現在找不到已註冊的 hook 會直接 FAIL，不再靜默通過。
+>
+> 📌 **2026-07-28 以前照舊指引裝過的人**：你的 hook 很可能一次都沒生效過。
+> 診斷與修復步驟見 [`MIGRATION-hook-settings-target.md`](MIGRATION-hook-settings-target.md)。
 
 hook 在啟用前是 fail-open 且停用的——安裝它不影響一般 session，只有 `super-mode.{sh,ps1} on` 之後才作用。
 
