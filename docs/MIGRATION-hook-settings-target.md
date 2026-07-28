@@ -20,19 +20,53 @@
 
 ### 1.1 看 hook 現在註冊在哪
 
+**用語意解析，不要用 `grep`。** 全文 `grep` 會命中 `_comment` 裡的說明字、其他 hook 事件、
+甚至無效 JSON 裡的殘骸，把受影響的人誤判成正常。下面這段直接解析
+`hooks.PreToolUse[].hooks[].command`（`node` 是 hook 本身的前置，一定有）：
+
 ```bash
-for f in ~/.claude/settings.json ~/.claude/settings.local.json; do
-  if [ -e "$f" ]; then
-    printf '%-40s super-mode 命中 %s 次\n' "$f" "$(grep -c 'super-mode-consult-gate' "$f" 2>/dev/null || echo 0)"
-  else
-    printf '%-40s (不存在)\n' "$f"
-  fi
-done
+node - <<'PROBE'
+const fs = require("fs"), os = require("os"), path = require("path");
+const NEEDLE = "super-mode-consult-gate";
+let unreadable = false;
+const count = (label, p) => {
+  let raw;
+  try { raw = fs.readFileSync(p, "utf8"); }
+  catch (e) {
+    if (e.code === "ENOENT") { console.log(label.padEnd(32) + "檔案不存在"); return 0; }
+    console.log(label.padEnd(32) + "讀取失敗：" + e.code); unreadable = true; return -1;
+  }
+  let j;
+  try { j = JSON.parse(raw.replace(/^﻿/, "")); }
+  catch (e) { console.log(label.padEnd(32) + "JSON 解析失敗：" + e.message); unreadable = true; return -1; }
+  let n = 0;
+  for (const entry of (j.hooks && j.hooks.PreToolUse) || [])
+    for (const h of (entry && Array.isArray(entry.hooks) ? entry.hooks : []))
+      if (String((h && h.command) || "").includes(NEEDLE)) n++;
+  console.log(label.padEnd(32) + "gate 條目：" + n + " 個");
+  return n;
+};
+const home = os.homedir();
+const main  = count("~/.claude/settings.json", path.join(home, ".claude", "settings.json"));
+const local = count("~/.claude/settings.local.json", path.join(home, ".claude", "settings.local.json"));
+console.log("");
+if (unreadable)                   console.log("判定：有檔案無法解析 —— 先修好 JSON 再重跑，不要往下做。");
+else if (main > 0 && local === 0) console.log("判定：正常，不用修。");
+else if (main > 0 && local > 0)   console.log("判定：兩邊都有 —— 要移除 local 那份，否則從家目錄啟動時會重複註冊。往下做第 2 節。");
+else if (main === 0 && local > 0) console.log("判定：受影響 —— gate 只在 local，從非家目錄啟動完全不生效。往下做第 2 節。");
+else                              console.log("判定：兩邊都沒有 gate —— 可能還沒安裝，或註冊在別處。照 AI-INSTALL 步驟 2 重做。");
+PROBE
 ```
 
-- `settings.json` 命中 ≥1 → **你沒事**，不用往下做
-- 只有 `settings.local.json` 命中 → **你受影響**，往下做
-- 兩邊都命中 → 也往下做（要把 local 那份移除，避免從家目錄啟動時重複註冊）
+判定表（上面那段會直接印出結論，這裡列出對應關係）：
+
+| `settings.json` | `settings.local.json` | 判定 |
+|---|---|---|
+| ≥1 | 0 | **正常**，不用往下做 |
+| ≥1 | ≥1 | 往下做——要移除 local 那份，否則從家目錄啟動時**重複註冊** |
+| 0 | ≥1 | **受影響**，往下做 |
+| 0 | 0 | 可能還沒安裝，或註冊在別處——照 `AI-INSTALL` 步驟 2 重做 |
+| 任一無法解析 | | **先修好 JSON**，不要往下做 |
 
 ### 1.2 快速看它到底有沒有跑過（**參考用，不是證明**）
 
@@ -55,12 +89,24 @@ ls ~/.claude/projects/ 2>/dev/null
 ### 2.1 先備份
 
 ```bash
+set -euo pipefail
 ts=$(date +%Y%m%d-%H%M%S)
 for f in ~/.claude/settings.json ~/.claude/settings.local.json; do
-  [ -e "$f" ] && cp "$f" "$f.bak-$ts"
+  [ -e "$f" ] || [ -L "$f" ] || continue
+  if [ -L "$f" ]; then echo "$f 是 symlink，狀態不明，中止"; exit 1; fi
+  if [ ! -f "$f" ]; then echo "$f 存在但不是一般檔案，中止"; exit 1; fi
+  b="$f.bak-$ts"
+  if [ -e "$b" ] || [ -L "$b" ]; then echo "已存在 $b，等一秒後重跑，中止"; exit 1; fi
+  cp "$f" "$b"
+  cmp -s "$f" "$b" || { echo "$b 備份不完整，中止"; exit 1; }
 done
 echo "backup ts=$ts"
 ```
+
+> 這段是 **fail-fast** 的：任何一步失敗就中止，**不會印出 `ts`**。
+> 所以「有印出 `ts`」才等於「該備份的都備份完成且逐位元組比對過」。
+> 舊版沒有 `set -e`、沒有撞名拒絕、也沒有 `cmp` 驗證——`cp` 失敗仍會一路跑到底印出
+> `backup ts=`，接著你就會在「以為有備份」的狀態下手動改 settings。
 
 ### 2.2 手動搬移（**刻意不提供自動腳本**，理由見下）
 
