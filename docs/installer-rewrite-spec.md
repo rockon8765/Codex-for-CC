@@ -181,7 +181,7 @@ node tools/install.js --dry-run
 | **legacy** | 缺件、型別錯、舊 settings 已變更、quarantine 復原 |
 
 沿用現行 `tests/ai-install/` 的兩條紀律：**變異注入**（錯誤分支不注入等於沒驗，
-且注入點要有「注入是否成功」的自我檢查）與**牙齒檢查**（新回歸案必須對修正前版本 FAIL）。
+且注入點要有「注入是否成功」的自我檢查）與**反向驗證**（新回歸案必須對修正前版本 FAIL）。
 
 ## 4. Shipping gate（分階段，不做大爆炸切換）
 

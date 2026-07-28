@@ -52,7 +52,7 @@ hook 來源的列舉字串兩版一字不差。**矛盾不存在，結論成立�
 
 **`matcher-contract` 的 fallback 是獨立的假綠來源**（Mac 端附帶發現）：即使拿掉 local 候選，
 舊的 `|| candidates[0]` 仍會退而撿一份不相干的 settings 比對而 PASS。
-牙齒檢查（重現 Mac 使用者的實際狀態：gate 只在 `settings.local.json`）——
+反向驗證（重現 Mac 使用者的實際狀態：gate 只在 `settings.local.json`）——
 **舊版 exit 0（假綠）、新版 exit 1 並印出可行動訊息**。
 
 ---
