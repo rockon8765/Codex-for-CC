@@ -1,7 +1,63 @@
-# 待驗證：`~/.claude/settings.local.json` 到底會不會被載入？
+# ✅ 已結案：`~/.claude/settings.local.json` **不是** user scope
 
-> 建立於 2026-07-28。**這是一個未定案的問題，不是結論。** 在真機測出結果之前，
-> 不要改動 `macos/settings.snippet.json`、`linux/settings.snippet.json` 或安裝指引。
+> 建立於 2026-07-28，**同日在 macOS 真機測出結論並已據以修正 repo**。
+> 下方保留完整程序作為方法紀錄；要重驗或驗別的版本時可照跑。
+
+## 結論（2026-07-28，macOS 26.5.2 arm64 / Claude Code 2.1.163）
+
+**`~/.claude/settings.local.json` 不是 user scope 的 hook 來源。**
+它只在「**從家目錄啟動** Claude Code」時生效——因為那時它剛好**就是**專案層的
+`.claude/settings.local.json`。從任何其他目錄啟動，hook 完全不會被註冊。
+
+四組實測（啟動目錄 × 註冊位置），marker 有無觸發：
+
+| 啟動目錄 | 註冊處 | 結果 |
+|---|---|---|
+| `/private/tmp/scope-nonhome` | `~/.claude/settings.local.json` | **沒有觸發** |
+| `/Users/<user>`（家目錄） | `~/.claude/settings.local.json` | 觸發 |
+| `/private/tmp/scope-projtest` | `<專案>/.claude/settings.local.json` | 觸發 |
+| `/private/tmp/scope-nonhome` | `~/.claude/settings.json` | 觸發（對照組） |
+
+**程序偏離（誠實記錄）**：原設計的探針掛 `PreToolUse`+Bash、需要互動式新 session。
+執行者從既有 session 開巢狀 `claude -p` 一律得到 `401 OAuth access token has been revoked`，
+但發現**認證失敗前 `SessionStart` hooks 已經跑完並寫進 transcript**，因此改用 `SessionStart`
+當觸發點，其餘照本文件（備份 → 探針 → A/B → 還原）。
+
+### 獨立旁證
+
+- 該機器現役的 gate **只註冊在 `settings.local.json`**。自 hook 建立以來的
+  **143 個 transcript、11 個不同啟動目錄、1,183 次 Bash 呼叫、14,477 次 hook 叫用**中，
+  gate 被叫用 **0 次**——那 11 個目錄沒有一個是家目錄，與上表完全自洽。
+- Claude Code 的 hook 來源列舉字串（**2.1.148 與 2.1.220 皆同**，Windows 端另行核對）：
+  `User-defined hooks from ~/.claude/settings.json, .claude/settings.json, and .claude/settings.local.json`
+  ——`~/` **只出現在 `settings.json`**，另兩者是專案相對。
+
+### 先前「證據矛盾」的澄清
+
+本檔原記載「執行檔裡有 `legacy settings.local.json` 字串，與官方文件矛盾」。
+**方向搞反了**：實際比對兩個版本——`2.1.148` 命中 **0** 次、`2.1.220` 命中 **14** 次，
+所以那些字串是**後來才加入**的（Mac 端的 2.1.163 早於它），不是「已被移除」。
+且它們是 read／transform／**revoke**，屬**權限**遷移，與 hook 來源無關；
+hook 來源的列舉字串兩版一字不差。**矛盾不存在，結論成立。**
+
+## 已據此修正（2026-07-28）
+
+| 位置 | 改動 |
+|---|---|
+| `macos/settings.snippet.json`、`linux/settings.snippet.json` | `_comment` 改指向 `~/.claude/settings.json`，並說明為何不能用 local |
+| `docs/AI-INSTALL.md` 步驟 2 | 三平台統一 `~/.claude/settings.json`，附實測證據與 ECC 覆寫的正確處理方式 |
+| `docs/AI-INSTALL.md` 1b／回滾 | POSIX 的 `setf` 一併改為 `settings.json`（否則備份的是沒在用的檔，回滾還原不到） |
+| 三平台 `matcher-contract.test.js` | 移除 `settings.local.json` 候選；**移除 `\|\| candidates[0]` fallback**，找不到已註冊的 hook 直接 FAIL |
+| `tests/ai-install/run-posix.sh` | seed 與斷言的 settings 檔名同步 |
+
+**`matcher-contract` 的 fallback 是獨立的假綠來源**（Mac 端附帶發現）：即使拿掉 local 候選，
+舊的 `|| candidates[0]` 仍會退而撿一份不相干的 settings 比對而 PASS。
+牙齒檢查（重現 Mac 使用者的實際狀態：gate 只在 `settings.local.json`）——
+**舊版 exit 0（假綠）、新版 exit 1 並印出可行動訊息**。
+
+---
+
+# 附錄：原始驗證程序（保留供重驗）
 
 ## 為什麼重要
 

@@ -20,11 +20,16 @@ const hookPath = path.join(__dirname, "..", "..", "..", "hooks", "super-mode-con
 
 // repo 佈局用 settings.snippet.json；安裝後(live)佈局沒有那個檔，改查真正生效的 settings —
 // live 的 settings 才是決定 hook 會不會被叫起的真值，所以裝到 ~/.claude 之後這支測試更有意義。
-// 優先挑「真的註冊了本 hook」的那一份，避免撿到不相干的 settings。
+// 只挑「真的註冊了本 hook」的那一份，避免撿到不相干的 settings。
+// ⚠️ 刻意**不列** `~/.claude/settings.local.json`。2026-07-28 在 macOS 實測確認它
+// **不是** user scope 的 hook 來源：Claude Code 2.1.148 與 2.1.220 的來源列舉字串同為
+// 「User-defined hooks from ~/.claude/settings.json, .claude/settings.json, and
+// .claude/settings.local.json」——`~/` 只出現在 `settings.json`，另兩者是**專案相對**。
+// 家目錄那份只有在「從家目錄啟動 Claude Code」時才生效（那時它剛好就是專案層的檔案）。
+// 把它列為候選，等於讓這支專門防假綠的測試自己變成假綠的來源。
 const settingsCandidates = [
   path.join(__dirname, "..", "..", "..", "settings.snippet.json"),
   path.join(os.homedir(), ".claude", "settings.json"),
-  path.join(os.homedir(), ".claude", "settings.local.json"),
 ].filter((p) => fs.existsSync(p));
 
 function hasOurHook(p) {
@@ -40,7 +45,10 @@ function hasOurHook(p) {
     return false;
   }
 }
-const snippetPath = settingsCandidates.find(hasOurHook) || settingsCandidates[0];
+// 找不到「真的註冊了本 hook」的 settings 就直接 FAIL，**不 fallback**。
+// 舊寫法有 `|| settingsCandidates[0]`，會退而撿一份不相干的 settings 來比對而 PASS ——
+// 那正是假綠：matcher 根本沒合併進去，測試卻是綠的。
+const snippetPath = settingsCandidates.find(hasOurHook);
 
 const fail = (msg) => {
   console.error("FAIL: " + msg);
@@ -52,7 +60,14 @@ if (!fs.existsSync(hookPath)) {
   process.exit(1);
 }
 if (!snippetPath) {
-  console.error("找不到任何 settings（repo settings.snippet.json 或 ~/.claude/settings*.json）");
+  console.error(
+    "FAIL: 找不到「已註冊本 hook」的 settings。已查的候選：\n  " +
+      (settingsCandidates.length ? settingsCandidates.join("\n  ") : "（候選檔都不存在）") +
+      "\n\nhook 必須註冊在 ~/.claude/settings.json（user scope）。" +
+      "\n⚠️ ~/.claude/settings.local.json 不是 user scope —— 只有從家目錄啟動 Claude Code 時" +
+      "\n   才會被當成專案層檔案讀到，從其他目錄啟動就完全不生效。" +
+      "\n若你剛照 AI-INSTALL 步驟 2 合併過，請確認合併的是 ~/.claude/settings.json。"
+  );
   process.exit(1);
 }
 

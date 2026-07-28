@@ -76,7 +76,7 @@ mkdir -p ~/.claude/skills-backup ~/.claude/skills ~/.claude/hooks
 
 hbak=~/.claude/hooks/super-mode-consult-gate.js.bak-$ts
 sbak=~/.claude/skills-backup/超級模式.bak-$ts
-setf=~/.claude/settings.local.json
+setf=~/.claude/settings.json
 setbak=$setf.bak-$ts
 
 # 同一秒重跑會撞名，撞到就停（等一秒再跑），不要覆蓋既有備份。
@@ -130,7 +130,7 @@ else : > "$setbak.absent"; fi
 
 echo "backup ts=$ts"
 ```
-Windows（settings 檔是 `settings.json`，不是 `settings.local.json`）:
+Windows:
 ```powershell
 $ErrorActionPreference = 'Stop'
 $ts     = Get-Date -Format yyyyMMdd-HHmmss
@@ -272,10 +272,29 @@ if (Test-Path -LiteralPath $stale) { throw "安裝驗證失敗：FIX-PLAN.md 未
 
 ## 2. 註冊 hook
 
-把對應平台 `settings.snippet.json` 的 `hooks` 區塊合併進使用者的設定檔（**合併，不要覆蓋既有設定**），並把 snippet 裡的絕對路徑改成使用者自己的家目錄：
+把對應平台 `settings.snippet.json` 的 `hooks` 區塊合併進 **`~/.claude/settings.json`**
+（**合併，不要覆蓋既有設定**），並把 snippet 裡的絕對路徑改成使用者自己的家目錄。
+**三平台都是這個檔。**
 
-- macOS / Linux → `~/.claude/settings.local.json`（Linux 注意：若 `node` 不在系統 PATH——例如可攜式安裝在 `~/.local/node/bin`——hook 指令開頭的 `node` 必須寫**絕對路徑**，否則 hook 會靜默不跑、gate 形同虛設）
-- Windows → `~/.claude/settings.json`
+- Linux 注意：若 `node` 不在系統 PATH——例如可攜式安裝在 `~/.local/node/bin`——
+  hook 指令開頭的 `node` 必須寫**絕對路徑**，否則 hook 會靜默不跑、gate 形同虛設。
+
+> ⚠️ **不要用 `~/.claude/settings.local.json`**（2026-07-27 以前本文件的 macOS／Linux 段是這樣寫的，**那是錯的**）。
+>
+> 2026-07-28 在 macOS 真機實測：`settings.local.json` **只在專案層**（相對於 Claude Code 的**啟動目錄**）
+> 被認得，家目錄那份**不是** user scope。它只有在「剛好從家目錄啟動」時才生效——因為那時
+> `~/.claude/settings.local.json` 恰好**就是**專案層的 `.claude/settings.local.json`。
+> 實測四組對照（啟動目錄 × 註冊位置）確認了這個規律；並在一台把 gate 只註冊在
+> `settings.local.json` 的機器上回溯 143 個 session、11 個不同啟動目錄、14,477 次 hook 叫用，
+> 該 gate **被叫用 0 次**。
+>
+> Claude Code 自己的說明字串也一致（2.1.148 與 2.1.220 皆同）：
+> 「User-defined hooks from `~/.claude/settings.json`, `.claude/settings.json`, and
+> `.claude/settings.local.json`」——`~/` **只出現在 `settings.json`**。
+>
+> **若你的環境有工具會覆寫 `~/.claude/settings.json`**（例如 ECC 重新安裝）：那是真實的衝突，
+> 但把 hook 藏到一個不會被載入的檔案並不能解決它。正確做法是覆寫之後**重跑步驟 3 的
+> `matcher-contract`**——它現在找不到已註冊的 hook 會直接 FAIL，不再靜默通過。
 
 hook 在啟用前是 fail-open 且停用的——安裝它不影響一般 session，只有 `super-mode.{sh,ps1} on` 之後才作用。
 
@@ -301,8 +320,9 @@ node "$env:USERPROFILE\.claude\skills\超級模式\tests\matcher-contract.test.j
 >
 > **它的界線（別高估）**：這是**靜態比對**——挑出 settings 裡註冊了本 hook 的那筆 entry，比對 `matcher` 與 hook 清單。
 > 它**不**驗證該 entry 的 `command` 路徑真的存在、也**不**證明 Claude Code runtime 真的載入了那份 settings
-> （例如 `settings.json` 的 matcher 正確但 `command` 指向不存在的檔、而實際生效的是 `settings.local.json` 的舊 entry，
-> 這支測試仍可能 PASS）。要確認端到端接上，唯一方法是**在新 session 實際觸發一次**：
+> （例如 matcher 正確但 `command` 指向不存在的檔，這支測試仍可能 PASS）。
+> 它現在**至少不會**在「hook 根本沒註冊」時假綠——2026-07-28 起找不到已註冊本 hook 的 settings 就直接 FAIL，
+> 不再 fallback 去撿一份不相干的 settings 來比對。要確認端到端接上，唯一方法是**在新 session 實際觸發一次**：
 > ⚠ hook 設定變更**下個 session 才生效**，所以請在下個 session 開超級模式、於無憑證狀態試一個會被攔的動作，確認真的 deny。
 
 **任何 FAIL → 先回滾、再回報使用者、停止**（不要留一個壞掉的 live hook）：
@@ -338,7 +358,7 @@ esac
 
 sbak=~/.claude/skills-backup/超級模式.bak-$ts
 hbak=~/.claude/hooks/super-mode-consult-gate.js.bak-$ts
-setf=~/.claude/settings.local.json
+setf=~/.claude/settings.json
 setbak=$setf.bak-$ts
 
 # 型別也要對：skill 備份必須是目錄、hook/settings 備份必須是一般檔案、標記必須是一般檔案。
@@ -382,7 +402,7 @@ else rm -f ~/.claude/hooks/super-mode-consult-gate.js; fi
 
 if [ -f "$setbak" ]; then cp "$setbak" "$setf"
 else rm -f "$setf"; fi
-echo "已回滾。備份保留在 ~/.claude/skills-backup/、~/.claude/hooks/*.bak-$ts、~/.claude/settings.local.json.bak-$ts，確認無誤後自行刪除"
+echo "已回滾。備份保留在 ~/.claude/skills-backup/、~/.claude/hooks/*.bak-$ts、~/.claude/settings.json.bak-$ts，確認無誤後自行刪除"
 ```
 Windows（settings 檔是 `settings.json`）:
 ```powershell
@@ -485,6 +505,8 @@ elseif (Get-Entry $setf) { Remove-Item -LiteralPath $setf -Force }
 5. 安裝留下的備份**不會自動清除**——確認不再需要回滾後自行刪除。共三處，別漏掉第三個：
    - `~/.claude/skills-backup/超級模式.bak-*`（含 `.absent` 標記）
    - `~/.claude/hooks/super-mode-consult-gate.js.bak-*`
-   - **settings 備份**：macOS/Linux 是 `~/.claude/settings.local.json.bak-*`、Windows 是 `~/.claude/settings.json.bak-*`。
+   - **settings 備份**：三平台都是 `~/.claude/settings.json.bak-*`。
+     （2026-07-27 以前 macOS／Linux 用的是 `settings.local.json`，若你當時裝過，
+     那份備份會是 `~/.claude/settings.local.json.bak-*`，一併確認。）
      這份可能含環境變數、API 端點等設定，留著比一般垃圾檔敏感。
    另外逐字稿在 `~/.claude/super-mode-logs/`，同樣不會自動清除。

@@ -51,7 +51,7 @@ new_home() { local h="$WORK/$1"; rm -rf "$h"; mkdir -p "$h/.claude/hooks" "$h/.c
 seed() { local h="$1"
   printf 'OLD-HOOK' > "$h/.claude/hooks/super-mode-consult-gate.js"
   mkdir -p "$h/.claude/skills/超級模式"; printf 'OLD-SKILL' > "$h/.claude/skills/超級模式/SKILL.md"
-  printf '{"old":true}' > "$h/.claude/settings.local.json"
+  printf '{"old":true}' > "$h/.claude/settings.json"
 }
 # 可攜寫法：不用 GNU 的 `find -printf`，也不用 GNU coreutils 的 `md5sum`
 # （BSD/macOS 兩者皆無）。型別與相對路徑在 shell 裡算，雜湊用 POSIX 的 cksum。
@@ -80,7 +80,7 @@ for i in 1 2 3; do
   run_rollback "$TS" "$H"; check "第 $i 次回滾成功" $? "$LAST_OUT"
   [ "$(snap "$H/.claude/skills/超級模式")" = "$SNAP0" ]; check "第 $i 次回滾後 skill 等於安裝前" $? '還原內容不符'
   [ "$(cat "$H/.claude/hooks/super-mode-consult-gate.js")" = 'OLD-HOOK' ]; check "第 $i 次回滾後 hook 還原" $? 'hook 未還原'
-  [ "$(cat "$H/.claude/settings.local.json")" = '{"old":true}' ]; check "第 $i 次回滾後 settings 還原" $? 'settings 未還原'
+  [ "$(cat "$H/.claude/settings.json")" = '{"old":true}' ]; check "第 $i 次回滾後 settings 還原" $? 'settings 未還原'
 done
 
 echo; echo "[C2] 全新安裝 -> 回滾應刪除"
