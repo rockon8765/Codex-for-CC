@@ -52,10 +52,12 @@ git show <修正前的 commit>:docs/AI-INSTALL.md | Set-Content -LiteralPath $en
 
 ## 已知界線
 
-- **`run-posix.sh` 在 Linux（WSL2）跑過，macOS 尚未跑過。**
-  2026-07-28 已把三處 GNU 專屬寫法移植成可攜（`find -printf` → 在 shell 算型別與相對路徑、
-  `md5sum` → POSIX `cksum`、`date -d` → 忙等跨秒），因此**預期可直接在 macOS 執行**，
-  但「可攜」是推論，**尚未在 BSD userland 實際驗證**。
+- **`run-posix.sh` 已在 Linux（WSL2）與 macOS 實測。**
+  2026-07-28 把三處 GNU 專屬寫法移植成可攜（`find -printf` → 在 shell 算型別與相對路徑、
+  `md5sum` → POSIX `cksum`、`date -d` → 忙等跨秒）。**BSD userland 已驗證，「可攜」不再是推論**：
+  macOS 26.5.2 arm64／內建 `bash 3.2.57(1)-release` 上，`53cbc5f` **59/59**（2026-07-28）、
+  分支尖端 `6f7839b` **64/64**（2026-07-31）；反向驗證 `6f7839b` 對 `53cbc5f` 的文件 **5 FAIL**
+  （settings-target 那批新斷言）、對 `06adac5` **12 FAIL**（5 + 原本 7 個 symlink 案）。
 - **抽取靠關鍵字定位**（`backup ts=`／`install OK`／`Test-Exactly1`／`precheck skill`）。
   命中數不等於 1 時直接 abort，不會猜。
 - **Windows 快照忽略** `AppData\Local\Microsoft\PowerShell\*`——`pwsh` 自己會在被重導的
