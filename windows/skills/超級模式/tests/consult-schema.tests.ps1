@@ -65,4 +65,11 @@ TStream "c5-deprecation-not-terminating (WarningPreference=Stop)" $consult "`$Wa
 Remove-Item -LiteralPath $pct, $amp, $bad -Force -ErrorAction SilentlyContinue
 Write-Output ""
 Write-Output ("CONSULT-SCHEMA {0}/{1}" -f $pass, ($pass + $fail))
-if ($fail -gt 0) { exit 1 }
+# else 分支不可省。實測三種呼叫方式的差別：
+#   `pwsh -File 本檔`（獨立行程）—— 舊版也回 0/1，這條路徑本來就是對的
+#   `& 本檔` / dot-source（同一個 PowerShell process 內）—— 舊版成功時回**非零**，
+#     因為不呼叫 exit 時 $LASTEXITCODE 沿用本檔最後一個 native 指令
+#     （TStream 裡的 cmd /c，那條「刻意期望非零」）的值
+# 修的是後者：讓 in-process 呼叫端（例如把多支測試包成一輪的聚合腳本）也拿到 0/1。
+# POSIX 版靠末行 `[ "$fail" -eq 0 ]` 天然沒這問題；同目錄 codex-check.tests.ps1 已是此寫法。
+if ($fail -gt 0) { exit 1 } else { exit 0 }
