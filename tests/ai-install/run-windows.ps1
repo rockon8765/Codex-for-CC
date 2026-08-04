@@ -164,6 +164,14 @@ New-Item -ItemType Directory -Force -Path $elsewhere | Out-Null
 Set-Content -LiteralPath "$elsewhere\SKILL.md" -Value 'WRONG-TARGET' -NoNewline
 Remove-Item -LiteralPath $sbak -Recurse -Force
 cmd /c "mklink /J `"$sbak`" `"$elsewhere`"" | Out-Null
+$mkRc = $LASTEXITCODE
+# 注入成功與否要自己驗：mklink 失敗時備份只是「不見了」，rollback 會改用
+# 「找不到有效備份」這個**不相干的理由**拒絕 —— 一樣非零，本案於是永遠不會紅。
+# rc 與型別兩個都驗（規劃書 B1 §3 明列）：型別擋「根本沒建成」，
+# rc 擋「建立失敗但原地剛好有殘留 reparse point」——後者只驗型別會漏。
+# （實測：link 路徑被佔時 mklink 回 1；指向不存在目標回 0，那是 /J 的正常行為。）
+$bakItem = Get-Item -LiteralPath $sbak -Force -ErrorAction SilentlyContinue
+Check '前置：junction 備份確實建立' ($mkRc -eq 0 -and $null -ne $bakItem -and ($bakItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) "mklink rc=$mkRc 或不是 reparse point，本案等於沒測"
 $after = Get-Snapshot "$h\.claude\skills"
 $r = Invoke-Rollback $ts $h
 Check 'junction 備份被拒' (-not $r.Ok) "竟然成功：$($r.Out)"
@@ -175,6 +183,11 @@ $elsewhere = Join-Path $work 'm4-elsewhere'
 New-Item -ItemType Directory -Force -Path $elsewhere | Out-Null
 Set-Content -LiteralPath "$elsewhere\SKILL.md" -Value 'ELSEWHERE' -NoNewline
 cmd /c "mklink /J `"$h\.claude\skills\超級模式`" `"$elsewhere`"" | Out-Null
+$mkRc = $LASTEXITCODE
+# 同上：mklink 失敗時 live 位置根本不存在，1b 會走「原本沒安裝」那條分支——
+# 中止與否的理由就換了一個，前置不驗的話本案的區辨性是假的。
+$liveItem = Get-Item -LiteralPath "$h\.claude\skills\超級模式" -Force -ErrorAction SilentlyContinue
+Check '前置：live junction 確實建立' ($mkRc -eq 0 -and $null -ne $liveItem -and ($liveItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) "mklink rc=$mkRc 或不是 reparse point，本案等於沒測"
 $r = Invoke-Block $B1b $h
 Check '1b 對 junction live 中止' (-not $r.Ok) "竟然成功：$($r.Out)"
 # 1b 依序處理 hook -> skill -> settings，hook 那步會先建 .absent 才輪到 skill 中止。

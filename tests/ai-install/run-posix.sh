@@ -137,7 +137,13 @@ run "$B1B" "$H"; TS=$(get_ts "$LAST_OUT")
 run "$B1C" "$H"
 mkdir -p "$WORK/m2-elsewhere"; printf 'WRONG-TARGET' > "$WORK/m2-elsewhere/SKILL.md"
 rm -rf "$H/.claude/skills-backup/超級模式.bak-$TS"
-ln -s "$WORK/m2-elsewhere" "$H/.claude/skills-backup/超級模式.bak-$TS"
+ln -s "$WORK/m2-elsewhere" "$H/.claude/skills-backup/超級模式.bak-$TS"; ln_rc=$?
+# 注入成功與否要自己驗：`ln -s` 失敗時備份只是「不見了」，rollback 會改用
+# 「找不到有效備份」這個**不相干的理由**拒絕 —— 一樣非零，本案於是永遠不會紅。
+# rc 與型別兩個都驗（規劃書 B1 §3 明列）：型別擋「根本沒建成」，
+# rc 擋「建立失敗但原地剛好有殘留 link」——後者只驗型別會漏。
+[ "$ln_rc" -eq 0 ] && [ -L "$H/.claude/skills-backup/超級模式.bak-$TS" ]
+check '前置：symlink 備份確實建立' $? "ln rc=$ln_rc 或不是 symlink，本案等於沒測"
 AFTER=$(snap "$H/.claude/skills")
 run_rollback "$TS" "$H"; rc=$?
 [ $rc -ne 0 ]; check 'symlink 備份被拒' $? "竟然成功：$LAST_OUT"
@@ -146,7 +152,11 @@ run_rollback "$TS" "$H"; rc=$?
 echo; echo "[M3] 變異注入：live skill 是有效 symlink"
 H=$(new_home m3)
 mkdir -p "$WORK/m3-elsewhere"; printf 'ELSEWHERE' > "$WORK/m3-elsewhere/SKILL.md"
-ln -s "$WORK/m3-elsewhere" "$H/.claude/skills/超級模式"
+ln -s "$WORK/m3-elsewhere" "$H/.claude/skills/超級模式"; ln_rc=$?
+# 同上：`ln -s` 失敗時 live 位置根本不存在，1b 會走「原本沒安裝」那條分支，
+# 中止與否的理由就換了一個 —— 前置不驗，本案的區辨性是假的。
+[ "$ln_rc" -eq 0 ] && [ -L "$H/.claude/skills/超級模式" ]
+check '前置：live symlink 確實建立' $? "ln rc=$ln_rc 或不是 symlink，本案等於沒測"
 run "$B1B" "$H"; rc=$?
 [ $rc -ne 0 ]; check '1b 對 symlink live 中止' $? "竟然成功：$LAST_OUT"
 [ -z "$(get_ts "$LAST_OUT")" ]; check '1b 中止時未印出 ts' $? "竟印出 ts：$LAST_OUT"
@@ -224,7 +234,12 @@ TARGET="$WORK/m10-should-not-be-created"
 # 先忙等到跨秒，取得整整一秒的餘裕，再佈鏈並立刻跑 1b。
 prev=$(date +%S); while [ "$(date +%S)" = "$prev" ]; do :; done
 T10=$(date +%Y%m%d-%H%M%S)
-ln -s "$TARGET" "$BASE-$T10.absent"
+ln -s "$TARGET" "$BASE-$T10.absent"; ln_rc=$?
+# 佈鏈本身也要驗（下面只驗了「有沒有佔到正確的 ts」）。注意本案與 M2／M3 不同：
+# 鏈沒建起來時既有斷言「1b 竟然成功」本來就會紅，所以這不是新取得的區辨性，
+# 而是把失敗訊息從「1b 竟然成功」導正成「鏈沒佈成」，避免排查方向被帶偏。
+[ "$ln_rc" -eq 0 ] && [ -L "$BASE-$T10.absent" ]
+check '前置：斷鏈 symlink 確實建立' $? "ln rc=$ln_rc 或不是 symlink，本案等於沒測"
 run "$B1B" "$H"; rc=$?
 # 若 1b 竟然採用了別的秒數，這一案就沒測到該測的東西——明確 FAIL，不可靜默通過
 GOT=$(get_ts "$LAST_OUT")
