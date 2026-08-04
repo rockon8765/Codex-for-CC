@@ -41,7 +41,7 @@
 > **本次 delta 的驗證分布（2026-08-04，`67a7ae6..HEAD`：測試臺注入點補 rc＋型別前置檢查、`consult-schema` 退出契約、consult-gate 攔截面宣稱收斂）。**
 > **Windows**：`tests/ai-install/run-windows.ps1` **69/69**，**pwsh 7 與 Windows PowerShell 5.1 兩種 shell 各跑一次**皆 exit 0；gate-cases 109/109、`matcher-contract`、`class-b-8dot3`、`consult-schema` 10/10（in-process 與 `-File` 兩種呼叫皆 exit 0）。
 > **Linux**：WSL2（ext4 家目錄、完整 repo 複製）`run-posix.sh` **68/68**。⚠️ **CI 不覆蓋這個 delta**——[`linux.yml`](.github/workflows/linux.yml) 只跑 `linux/` 內的測試，**不含頂層 `tests/ai-install/`**，所以 badge 綠燈不能拿來當本批的證據。
-> **macOS**：已在 macOS 26.6 (25G72) arm64／內建 `bash 3.2.57(1)-release`（`which -a bash` 只有 `/bin/bash`，確認非 Homebrew 5.x）**對 `e1ec53f` 原生跑過 `run-posix.sh` 68/68 exit 0**（其後的 commit 只動 README，`run-posix.sh` 的 blob 未再變動，故該驗證對目前 tip 仍成立）。中途的 `9491719` 另跑過 67/67，並做過**帶對照組**的變異注入牙齒檢查（斷鏈 symlink 佔位 → 只有 rc 項抓得到；拿掉 rc 項則假綠 PASS）。兩次比對確認 67→68 的 +1 全部落在 `[M5]`，其餘 10 個區塊案數逐項相同、無非預期漂移。
+> **macOS**：已在 macOS 26.6 (25G72) arm64／內建 `bash 3.2.57(1)-release`（`which -a bash` 只有 `/bin/bash`，確認非 Homebrew 5.x）**對 `e1ec53f` 原生跑過 `run-posix.sh` 68/68 exit 0**（其後的 commit 只動 README，`run-posix.sh` 的 blob 未再變動，故該驗證對目前 tip 仍成立）。中途的 `9491719` 另跑過 67/67，並做過**帶對照組**的變異注入牙齒檢查（斷鏈 symlink 佔位 → 只有 rc 項抓得到；拿掉 rc 項則假綠 PASS）。兩次比對確認 67→68 的 +1 全部落在 `[M5]`：`run-posix.sh` 共 **13 個具名區塊**（`C1`／`C2`／`M1`–`M10`／`C3`），其餘 **12 個**案數逐項相同、無非預期漂移。
 > 本批未改動 hook、腳本與 payload 機制（三平台 SKILL.md 的變更為純文件），故未重跑 `run-e2e.sh`／`codex-check` 測試臺。
 >
 > **前一次 delta 的驗證分布（2026-07-27，context-engineering 整理：矛盾修正 ＋ 三層去重 ＋ 參數互斥 ＋ FIX-PLAN 移出 payload）。**

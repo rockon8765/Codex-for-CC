@@ -70,7 +70,8 @@ git show <修正前的 commit>:docs/AI-INSTALL.md | Set-Content -LiteralPath $en
   ⚠️ 佔位**必須用斷鏈** symlink：若用指向現存目錄的有效 symlink，`ln` 會跟隨進去
   在裡面建檔而回 0，隔離不出 rc 項（Linux 上第一次構造即踩此坑）。
   其後 `[M5]` 也補了同型前置檢查，案數增為 **68**，已在同一台 Mac 對 `e1ec53f`
-  複跑 **68/68 exit 0**；兩次比對確認 +1 全部落在 `[M5]`，其餘 10 個區塊逐項相同。
+  複跑 **68/68 exit 0**；兩次比對確認 +1 全部落在 `[M5]` —— 本檔共 **13 個具名區塊**
+  （`C1`／`C2`／`M1`–`M10`／`C3`），其餘 **12 個**案數逐項相同。
 - **抽取靠關鍵字定位**（`backup ts=`／`install OK`／`Test-Exactly1`／`precheck skill`）。
   命中數不等於 1 時直接 abort，不會猜。
 - **Windows 快照忽略** `AppData\Local\Microsoft\PowerShell\*`——`pwsh` 自己會在被重導的
