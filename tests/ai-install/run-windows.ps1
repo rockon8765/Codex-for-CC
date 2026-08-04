@@ -167,7 +167,7 @@ cmd /c "mklink /J `"$sbak`" `"$elsewhere`"" | Out-Null
 $mkRc = $LASTEXITCODE
 # 注入成功與否要自己驗：mklink 失敗時備份只是「不見了」，rollback 會改用
 # 「找不到有效備份」這個**不相干的理由**拒絕 —— 一樣非零，本案於是永遠不會紅。
-# rc 與型別兩個都驗（規劃書 B1 §3 明列）：型別擋「根本沒建成」，
+# rc 與型別兩個都驗：型別擋「根本沒建成」，
 # rc 擋「建立失敗但原地剛好有殘留 reparse point」——後者只驗型別會漏。
 # （實測：link 路徑被佔時 mklink 回 1；指向不存在目標回 0，那是 /J 的正常行為。）
 $bakItem = Get-Item -LiteralPath $sbak -Force -ErrorAction SilentlyContinue
@@ -202,6 +202,11 @@ $r = Invoke-Block $B1c $h
 $sbak = "$h\.claude\skills-backup\超級模式.bak-$ts"
 Remove-Item -LiteralPath $sbak -Recurse -Force
 Set-Content -LiteralPath $sbak -Value 'not-a-dir' -NoNewline
+# 與 M3／M4 同一形狀（注入手法換成寫檔而已）：寫檔沒成功時備份只是「不見了」，
+# rollback 會改用「找不到有效備份」這個**不相干的理由**拒絕 —— 一樣非零，本案照樣綠。
+# 要驗到「是一般檔案、且不是 reparse point」才算真的走到 precheck 的型別分支。
+$m5Item = Get-Item -LiteralPath $sbak -Force -ErrorAction SilentlyContinue
+Check '前置：一般檔案備份確實建立' ($null -ne $m5Item -and -not $m5Item.PSIsContainer -and ($m5Item.Attributes -band [IO.FileAttributes]::ReparsePoint) -eq 0) '不是一般檔案，本案等於沒測'
 $after = Get-Snapshot "$h\.claude\skills"
 $r = Invoke-Rollback $ts $h
 Check '型別錯的備份被拒' (-not $r.Ok) "竟然成功：$($r.Out)"

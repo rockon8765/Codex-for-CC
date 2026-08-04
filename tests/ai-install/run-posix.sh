@@ -140,7 +140,7 @@ rm -rf "$H/.claude/skills-backup/超級模式.bak-$TS"
 ln -s "$WORK/m2-elsewhere" "$H/.claude/skills-backup/超級模式.bak-$TS"; ln_rc=$?
 # 注入成功與否要自己驗：`ln -s` 失敗時備份只是「不見了」，rollback 會改用
 # 「找不到有效備份」這個**不相干的理由**拒絕 —— 一樣非零，本案於是永遠不會紅。
-# rc 與型別兩個都驗（規劃書 B1 §3 明列）：型別擋「根本沒建成」，
+# rc 與型別兩個都驗：型別擋「根本沒建成」，
 # rc 擋「建立失敗但原地剛好有殘留 link」——後者只驗型別會漏。
 [ "$ln_rc" -eq 0 ] && [ -L "$H/.claude/skills-backup/超級模式.bak-$TS" ]
 check '前置：symlink 備份確實建立' $? "ln rc=$ln_rc 或不是 symlink，本案等於沒測"
@@ -176,7 +176,13 @@ echo; echo "[M5] 變異注入：skill 備份被換成一般檔案"
 H=$(new_home m5); seed "$H"
 run "$B1B" "$H"; TS=$(get_ts "$LAST_OUT")
 run "$B1C" "$H"
-rm -rf "$H/.claude/skills-backup/超級模式.bak-$TS"; printf 'not-a-dir' > "$H/.claude/skills-backup/超級模式.bak-$TS"
+rm -rf "$H/.claude/skills-backup/超級模式.bak-$TS"; printf 'not-a-dir' > "$H/.claude/skills-backup/超級模式.bak-$TS"; wr_rc=$?
+# 與 M2／M3 同一形狀（注入手法換成寫檔而已）：寫檔沒成功時備份只是「不見了」，
+# rollback 會改用「找不到有效備份」這個**不相干的理由**拒絕 —— 一樣非零，本案照樣綠。
+# 要驗到「是一般檔案、且不是 link」才算真的走到 precheck 的型別分支。
+BK5="$H/.claude/skills-backup/超級模式.bak-$TS"
+[ "$wr_rc" -eq 0 ] && [ -f "$BK5" ] && [ ! -L "$BK5" ]
+check '前置：一般檔案備份確實建立' $? "寫檔 rc=$wr_rc 或不是一般檔案，本案等於沒測"
 AFTER=$(snap "$H/.claude/skills")
 run_rollback "$TS" "$H"; rc=$?
 [ $rc -ne 0 ]; check '型別錯的備份被拒' $? "竟然成功：$LAST_OUT"
