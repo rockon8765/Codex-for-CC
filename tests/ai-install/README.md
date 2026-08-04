@@ -69,9 +69,8 @@ git show <修正前的 commit>:docs/AI-INSTALL.md | Set-Content -LiteralPath $en
   措辭不同但 rc 同為 1，測試臺不 match 訊息字串，故不受影響。
   ⚠️ 佔位**必須用斷鏈** symlink：若用指向現存目錄的有效 symlink，`ln` 會跟隨進去
   在裡面建檔而回 0，隔離不出 rc 項（Linux 上第一次構造即踩此坑）。
-  ⚠️ **這次 macOS 驗的是 `9491719`（67 案）**。其後 `[M5]` 也補了同型前置檢查（→**68 案**），
-  該筆**尚未在 macOS 跑過** —— 目前 tip 的 `run-posix.sh` 已不是 Mac 驗過的那份 blob。
-  要宣稱目前 tip 在 macOS 已驗，須複跑一次（應為 68/68）。
+  其後 `[M5]` 也補了同型前置檢查，案數增為 **68**，已在同一台 Mac 對 `e1ec53f`
+  複跑 **68/68 exit 0**；兩次比對確認 +1 全部落在 `[M5]`，其餘 10 個區塊逐項相同。
 - **抽取靠關鍵字定位**（`backup ts=`／`install OK`／`Test-Exactly1`／`precheck skill`）。
   命中數不等於 1 時直接 abort，不會猜。
 - **Windows 快照忽略** `AppData\Local\Microsoft\PowerShell\*`——`pwsh` 自己會在被重導的
