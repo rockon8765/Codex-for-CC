@@ -4,7 +4,7 @@
   "hooks": {
     "PreToolUse": [
       {
-        "matcher": "^(?!(?:Read|Glob|Grep|ToolSearch|TodoWrite|TaskGet|TaskList|TaskOutput)$)",
+        "matcher": "^(?!(?:Read|Glob|Grep|ToolSearch|TaskGet|TaskList|TaskOutput)$)",
         "hooks": [
           {
             "type": "command",

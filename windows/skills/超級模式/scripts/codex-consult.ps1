@@ -41,6 +41,9 @@ param(
 
 $codexCmd = "C:\npm\codex.cmd"
 
+# 憑證鑄造判準（純函式，見該檔說明）。與本腳本同目錄。
+. (Join-Path $PSScriptRoot 'consult-answer.lib.ps1')
+
 # $Dir / $SchemaFile 會拼進 cmd /c 字串執行 → 進 cmd 前必須擋注入面(fail-closed)。
 # cmd 即使在雙引號內也會展開 %VAR%(! 可能延遲展開；& | < > ^ 為運算子)；合法 repo/schema 路徑不含這些字元。
 function Assert-CmdSafePath([string]$value, [string]$name) {
@@ -126,40 +129,35 @@ finally {
 # --- 憑證鑄造條件（2026-08）---------------------------------------------------
 # 舊版只看 `exit 0` 就發憑證：codex 回空字串、回拒絕、答非所問，一樣解鎖後續 20 分鐘的
 # 所有動作。exit code 只證明「進程沒掛」，不證明「諮詢真的發生過」——而 codex 的事件迴圈
-# 在沒有 fatal error 時本來就會正常返回。這裡把鑄造條件從「進程成功」改成「回答可用」：
-#   (1) 非空、且長度過得了門檻（擋空回覆/單行錯誤訊息）
-#   (2) 首行符合 SKILL §3.5 的裁決格式 ^(ALLOW|BLOCK):（-SchemaFile 模式除外，那時輸出是 JSON）
+# 在沒有 fatal error 時本來就會正常返回。判準抽在 consult-answer.lib.ps1（純函式、可單元測試）。
 # BLOCK 仍然鑄造憑證：憑證證明的是「諮詢發生過」，不是「Codex 批准了」；裁決本身由 Claude
 # 依 §3.5 遵守（BLOCK 就不做）。若 BLOCK 不鑄造，連「照 Codex 意見改做別的」都會被自己擋死。
-$MIN_ANSWER_CHARS = 40
-$answerText = ($answerLines -join "`n").Trim()
-$firstLine = ''
-foreach ($l in $answerLines) { if ($l -and $l.Trim()) { $firstLine = $l.Trim(); break } }
-$verdictOk = [bool]$SchemaFile -or ($firstLine -match '^(ALLOW|BLOCK)\s*:')
-$answerOk = $answerText.Length -ge $MIN_ANSWER_CHARS
-
 if ($code -eq 0) {
-  if (-not $answerOk) {
-    Write-Warning ("CONSULT_UNUSABLE_ANSWER: codex exit 0 但回覆過短/空白(" + $answerText.Length +
-      " 字元 < $MIN_ANSWER_CHARS)，未鑄造憑證。這通常代表諮詢實際上沒發生(額度、認證、或 prompt 沒送到)。" +
-      "請檢查 transcript 後重問，不要當成已諮詢。transcript: $log")
-    exit 43
+  $check = Test-ConsultAnswer -Lines $answerLines -NoCredential:$NoCredential -SchemaFile $SchemaFile
+  if (-not $check.Ok) {
+    Write-Warning ($check.Reason + " transcript: $log")
+    exit $check.Code
   }
   if ($NoCredential) {
     # Discussion-partner mode: no credential, so a casual consult can never
     # unlock super-mode gated actions in a concurrent session on this repo.
-    # 討論模式不驗首行格式：全域規則的日常諮詢沒有強制裁決格式，這裡只保證回覆非空。
     Write-Output "consult OK -- no credential (discussion mode); transcript: $log"
-  } elseif (-not $verdictOk) {
-    Write-Warning ("CONSULT_NO_VERDICT: 首行不是 ^(ALLOW|BLOCK): 格式，依 SKILL §3.5 視為 BLOCK，未鑄造憑證。" +
-      "首行實際內容: '" + $firstLine + "'。請在簡報結尾明確要求首行裁決後重問一次。transcript: $log")
-    exit 43
   } else {
     $token = Join-Path $env:USERPROFILE ".claude\.super-mode-consult-ok"
     # 憑證決策範圍：綁定本次諮詢的 repo(-Dir)。hook 會比對後續動作路徑是否在此 repo 下。
     $cred = @{ repo = $Dir; ts = (Get-Date -Format o) } | ConvertTo-Json -Compress
-    Set-Content -LiteralPath $token -Value $cred -Encoding utf8
-    if ($firstLine -match '^BLOCK\s*:') {
+    # 寫入必須 fail-closed 並讀回驗證：Set-Content 的 non-terminating error(唯讀/權限/磁碟滿)
+    # 會被預設 EAP 吞掉，於是印出 "credential written" 卻其實沒有憑證(或留著上一次的舊憑證)。
+    try {
+      Set-Content -LiteralPath $token -Value $cred -Encoding utf8 -ErrorAction Stop
+      $readBack = [System.IO.File]::ReadAllText($token)
+      if ($readBack -notmatch '"ts"') { throw "讀回內容不含 ts 欄位" }
+    } catch {
+      Write-Warning ("CONSULT_TOKEN_WRITE_FAILED: 諮詢完成但憑證寫入/讀回失敗，未取得憑證: " +
+        $_.Exception.Message + "。請檢查 $token 的權限後重跑。transcript: $log")
+      exit 44
+    }
+    if ($check.Verdict -ceq 'BLOCK') {
       Write-Output "consult OK -- credential written, but Codex 裁決為 BLOCK：依 §3.5 不得執行原動作，先向使用者回報。transcript: $log"
     } else {
       Write-Output "consult OK -- credential written; transcript: $log"

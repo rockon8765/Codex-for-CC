@@ -199,24 +199,37 @@ for (const name of UNKNOWN_SAMPLES) {
   }
 }
 
-// --- 反向：被 matcher 排除的，必須是 hook 也認定唯讀的 ---
-// 被排除者永遠進不了 hook，所以排除清單只能是 KNOWN_READONLY_BUILTIN 的子集；
-// 少了這條，改 matcher 就能悄悄把一個會改狀態的工具挖出 hook 的視野。
+// --- 反向：matcher 必須「剛好」等於由 MATCHER_EXCLUDED 生成的形式（exact equality）---
+// ⚠️ 為什麼是 exact equality 而不是抽樣比對：
+//    抽樣（拿幾個未知工具名去 test）擋不住「在 matcher 的排除組多塞一個名字」——
+//    只要那個名字不在 required、不在 KNOWN_BENIGN_BUILTIN、也不在樣本清單裡，
+//    抽樣式測試就會 PASS，而該工具實際上**永遠進不了 hook**。
+//    唯一能證明「任意未知工具都進得了 hook」的方法，是讓排除集只有一個真相來源
+//    （hook 的 MATCHER_EXCLUDED），並要求 matcher 字面上就是它生成出來的那一個。
 const matcherExcluded = extractArray("MATCHER_EXCLUDED");
-const knownReadonly = new Set(extractSet("KNOWN_READONLY_BUILTIN"));
+const knownBenign = new Set(extractSet("KNOWN_BENIGN_BUILTIN"));
 if (!matcherExcluded.length) fail("hook 原始碼裡的 MATCHER_EXCLUDED 是空的");
-for (const name of matcherExcluded) {
-  if (matches(name)) {
-    fail("hook 宣告 " + name + " 被 matcher 排除，但 matcher 實際會匹配它 → 兩邊不一致");
-  }
-  if (!knownReadonly.has(name)) {
-    fail(name + " 在 MATCHER_EXCLUDED 卻不在 KNOWN_READONLY_BUILTIN → 被排除的工具必須是已分類唯讀");
-  }
+
+const expectedMatcher = "^(?!(?:" + matcherExcluded.join("|") + ")$)";
+if (matcher !== expectedMatcher) {
+  fail(
+    "matcher 不等於由 hook 的 MATCHER_EXCLUDED 生成的形式 → 有人只改了一邊。\n" +
+      "  expected: " + expectedMatcher + "\n" +
+      "  actual:   " + matcher
+  );
 }
-// 反向的反向：matcher 排除的名單不得多於 hook 宣告的（matcher 偷偷多排除 = 挖洞）
-for (const name of [...knownReadonly]) {
-  if (!matches(name) && !matcherExcluded.includes(name)) {
-    fail("matcher 排除了 " + name + "，但 hook 的 MATCHER_EXCLUDED 沒宣告它");
+
+// 排除者必須是 hook 已分類為良性的（被排除 = 永久盲區，不能是未分類或會改狀態的工具）
+for (const name of matcherExcluded) {
+  if (!knownBenign.has(name)) {
+    fail(name + " 在 MATCHER_EXCLUDED 卻不在 KNOWN_BENIGN_BUILTIN → 被排除的工具必須先分類為良性");
+  }
+  if (matches(name)) fail("宣告排除的 " + name + " 實際仍被 matcher 匹配 → 生成式與語義不一致");
+}
+// 會改狀態的工具絕不可出現在排除集（即使有人同時改了兩邊）
+for (const name of [...mutatingFileTools, ...mutatingBuiltin, ...SHELL_TOOLS]) {
+  if (matcherExcluded.includes(name)) {
+    fail(name + " 是會改狀態的工具，卻被列進 MATCHER_EXCLUDED → 會被永久排除在 hook 之外");
   }
 }
 

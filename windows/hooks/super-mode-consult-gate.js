@@ -12,6 +12,12 @@
  *   - Bash / PowerShell：唯讀白名單自動放行；其餘一律需要 20 分鐘內的 Codex 諮詢
  *     憑證（default-deny，未知指令視同要憑證）
  *   - mcp__* 寫入/外發類工具（create/update/delete/submit/send/click/type/...）
+ *   - **未知內建工具（2026-08）**：matcher 已改為 catch-all 減去少數高頻唯讀工具，
+ *     harness 新增的工具一律進得了 hook；不在 KNOWN_BENIGN_BUILTIN / MUTATING_BUILTIN 的
+ *     工具 → 拒絕，且**既有憑證對它不生效**（first-use deny），必須先分類一次。
+ *     殘餘缺口（刻意保留）：被 matcher 排除的唯讀工具、以及 tool_name 空/欄位改名的
+ *     畸形 payload 仍 fail-open —— 後者若也 default-deny，harness 一改欄位名就會
+ *     把超級模式下的所有動作全面擋死。
  *
  * 憑證 = ~/.claude/.super-mode-consult-ok（codex-consult.ps1 成功時寫入）。
  * 收尾動作（git commit/push/merge、publish、deploy）放行後把憑證「降為只剩 3 分鐘」，
@@ -61,7 +67,7 @@ const CONSUMING_BUILTIN = new Set(["Artifact"]);
 //   - 忘了把某個「唯讀」的新工具加進這裡 → 代價只是被擋一次 + 一次分類，不是安全缺口。
 // 只放真正無外部副作用者。會扇出子代理(Agent/Workflow)、外送檔案(SendUserFile)、
 // 發佈/排程者一律**不**放這裡——那些正是要先諮詢的動作。
-const KNOWN_READONLY_BUILTIN = new Set([
+const KNOWN_BENIGN_BUILTIN = new Set([
   "Read",
   "Glob",
   "Grep",
@@ -73,7 +79,6 @@ const KNOWN_READONLY_BUILTIN = new Set([
   "EnterPlanMode",
   "ExitPlanMode",
   "ReportFindings",
-  "TodoWrite",
   "TaskGet",
   "TaskList",
   "TaskOutput",
@@ -81,9 +86,9 @@ const KNOWN_READONLY_BUILTIN = new Set([
 ]);
 // settings.json 的 matcher 用負向前瞻把這幾支「最高頻」的唯讀工具排除在 hook 之外，
 // 省掉每次工具呼叫都 spawn node 的固定成本。被 matcher 排除者**永遠進不了 hook**，
-// 所以這份子集只能放絕對唯讀的工具，且必須是 KNOWN_READONLY_BUILTIN 的子集
+// 所以這份子集只能放絕對唯讀的工具，且必須是 KNOWN_BENIGN_BUILTIN 的子集
 // （由 tests/matcher-contract.test.js 釘住雙向一致）。
-const MATCHER_EXCLUDED = ["Read", "Glob", "Grep", "ToolSearch", "TodoWrite", "TaskGet", "TaskList", "TaskOutput"];
+const MATCHER_EXCLUDED = ["Read", "Glob", "Grep", "ToolSearch", "TaskGet", "TaskList", "TaskOutput"];
 
 // 只有唯讀的諮詢/查版/開關腳本可無條件放行（否則死鎖）。codex-exec 是 workspace-write
 // 執行者，故意排除 → 派工也要先有憑證（落到 decide 的 default-deny）。錨定在指令開頭、
@@ -362,7 +367,7 @@ function decide(input, testOpts) {
     }
     gated = true;
     category = mcpIsWrite ? "MCP 寫入/外發" : (mcpForceGate ? "MCP 已知副作用(讀名誤導)" : "MCP 未知工具(default-deny)");
-  } else if (KNOWN_READONLY_BUILTIN.has(tool)) {
+  } else if (KNOWN_BENIGN_BUILTIN.has(tool)) {
     return { allow: true };
   } else if (!tool) {
     // 空工具名 = hook 收到的 payload 壞掉/欄位改名，**不是**「不認得的工具」。
@@ -382,6 +387,16 @@ function decide(input, testOpts) {
   }
 
   if (!gated) return { allow: true };
+
+  // **未知工具：憑證不予採認（first-use deny）。**
+  // 未知工具是 pathless(沒有可信路徑欄位) → 憑證的 repo 綁定對它完全不生效，
+  // 於是「在 repo A 為了別的事諮詢 → 拿到 20 分鐘憑證 → 期間第一次用到新工具」
+  // 會直接放行，整個分類事件從未發生 = 漂移仍然無聲，等於這次改動白做。
+  // 這裡刻意讓未知工具**不能**被任何既有憑證滿足：一定要有人（使用者/Claude）
+  // 把它分類進 KNOWN_BENIGN_BUILTIN 或 MUTATING_BUILTIN，漂移才會真的自曝一次。
+  // 代價：超級模式期間第一次用到新工具會被硬擋 → 拒絕訊息已寫明兩條出路，
+  // 且 super-mode.ps1 -Off 隨時可解除（姿態 A：這是提醒機制，不是牢籠）。
+  if (unknownTool) return { allow: false, reason: buildDenyReason(category, tool, true) };
 
   if (fs.existsSync(token) && Date.now() - fs.statSync(token).mtimeMs < WINDOW_MS) {
     // 憑證決策範圍：諮詢時綁定的 repo。舊格式(純時間戳)→ credRepo 空 → 只驗時間(相容)。
@@ -430,9 +445,15 @@ function decide(input, testOpts) {
     return { allow: true };
   }
 
-  return {
-    allow: false,
-    reason:
+  return { allow: false, reason: buildDenyReason(category, tool, unknownTool) };
+  } catch (e) {
+    return { allow: true };
+  }
+}
+
+// 拒絕訊息（未知工具的 first-use deny 與一般 gated 動作共用同一份措辭，避免兩套漂移）
+function buildDenyReason(category, tool, unknownTool) {
+  return (
       "[超級模式] 此動作(" + category + ": " + tool + ")需要 20 分鐘內的 Codex 諮詢憑證。" +
       "若你是子代理(subagent / Workflow agent)：禁止自行諮詢或派工——把被擋的動作與本理由回報 orchestrator(主 Claude)後就停手，由主線統一處理。" +
       "主線 Claude 的步驟：" +
@@ -442,14 +463,13 @@ function decide(input, testOpts) {
       "③成功後重試此動作。若超級模式其實已結束，用 PowerShell 工具跑 scripts/super-mode.ps1 -Off 解除。" +
       "（連續諮詢失敗 ≥2 次、或看到 CONSULT_UNAVAILABLE_QUOTA，請直接向使用者回報，勿再重試。）" +
       (unknownTool
-        ? " ※ 這個工具 hook 不認得（harness 新增或改名）。若它其實**不會改變狀態**，" +
-          "請回報使用者、把工具名加進 hook 的 KNOWN_READONLY_BUILTIN 後再重試；" +
-          "若它會改狀態，照上面流程諮詢即可（必要時另加進 MUTATING_BUILTIN 以取得正確分類與憑證消耗語義）。"
-        : ""),
-  };
-  } catch (e) {
-    return { allow: true };
-  }
+        ? " ※ 這個工具 hook 不認得（harness 新增或改名），**既有憑證對它一律不生效**——" +
+          "必須先分類一次，這次漂移才會真的被看見。兩條出路：" +
+          "①它不會改變狀態 → 回報使用者、把工具名加進 hook 的 KNOWN_BENIGN_BUILTIN；" +
+          "②它會改狀態 → 加進 MUTATING_BUILTIN（取得正確的分類與憑證消耗語義）後再依上述流程諮詢。" +
+          "改完 hook 需同步 ~/.claude/hooks/。急用可跑 super-mode.ps1 -Off 退出超級模式。"
+        : "")
+  );
 }
 
 function readScope(flag) {
