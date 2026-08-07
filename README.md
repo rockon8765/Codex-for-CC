@@ -135,8 +135,9 @@ windows/                         # PowerShell 版（已稽核、已部署）
   hooks/super-mode-consult-gate.js
   skills/超級模式/
     SKILL.md  references/orchestration.md  references/review-output.schema.json
-    scripts/  super-mode.ps1  codex-consult.ps1  codex-exec.ps1  codex-check.ps1
+    scripts/  super-mode.ps1  codex-consult.ps1  codex-exec.ps1  codex-check.ps1  consult-answer.lib.ps1
     tests/    run-gate-tests.js  run-gate-tests.ps1  matcher-contract.test.js  gate-cases.json
+              consult-answer.tests.ps1  consult-schema.tests.ps1  class-b-8dot3.test.js
 
 macos/                           # bash 版（平台移植版；本次 delta 的驗證狀態見上方狀態矩陣）
   settings.snippet.json
