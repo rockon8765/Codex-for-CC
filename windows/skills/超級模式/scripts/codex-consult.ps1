@@ -20,7 +20,13 @@
 #             43 = consult ran but the answer is unusable (empty/too short, or no
 #                  ^(ALLOW|BLOCK): verdict line) -> NO credential. Re-ask once with an
 #                  explicit verdict-line request; never treat 43 as "already consulted".
+#             44 = CONSULT_TOKEN_WRITE_FAILED: consult was fine but the credential could
+#                  not be written/read back -> you do NOT have a credential.
+#             45 = CONSULT_LIB_MISSING/BROKEN: consult-answer.lib.ps1 absent or damaged
+#                  (incomplete deployment) -> nothing ran.
 #             other = codex's own exit code
+# Codex may in principle reuse these numbers, so branch on the CONSULT_* marker in the
+# message, not on the number alone.
 #   -SchemaFile  Optional (T2b): JSON schema path; constrains Codex's final reply
 #                shape via --output-schema. read-only + ephemeral unchanged. Fails
 #                fast (before invoking codex) if the file is missing or invalid JSON.
@@ -42,7 +48,20 @@ param(
 $codexCmd = "C:\npm\codex.cmd"
 
 # 憑證鑄造判準（純函式，見該檔說明）。與本腳本同目錄。
-. (Join-Path $PSScriptRoot 'consult-answer.lib.ps1')
+# ⚠ 必須 fail-closed：dot-source 缺檔在 PowerShell 是 **non-terminating**（腳本照樣往下跑），
+#   之後 Test-ConsultAnswer 也只是 non-terminating error → $check = $null → `exit $check.Code`
+#   等同 `exit $null`，pwsh7 與 PS5.1 實測都回 **0**。也就是「部署漏檔/檔案損壞」會偽裝成
+#   諮詢成功。這裡明確斷言檔案存在且函式真的載進來了。
+$consultLib = Join-Path $PSScriptRoot 'consult-answer.lib.ps1'
+if (-not (Test-Path -LiteralPath $consultLib)) {
+  Write-Error "CONSULT_LIB_MISSING: 找不到 $consultLib（部署不完整？）。憑證鑄造判準無法載入，拒絕執行。"
+  exit 45
+}
+. $consultLib
+if (-not (Get-Command Test-ConsultAnswer -ErrorAction SilentlyContinue)) {
+  Write-Error "CONSULT_LIB_BROKEN: $consultLib 載入後仍找不到 Test-ConsultAnswer（檔案損壞？）。拒絕執行。"
+  exit 45
+}
 
 # $Dir / $SchemaFile 會拼進 cmd /c 字串執行 → 進 cmd 前必須擋注入面(fail-closed)。
 # cmd 即使在雙引號內也會展開 %VAR%(! 可能延遲展開；& | < > ^ 為運算子)；合法 repo/schema 路徑不含這些字元。

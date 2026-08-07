@@ -79,6 +79,9 @@ const KNOWN_BENIGN_BUILTIN = new Set([
   "EnterPlanMode",
   "ExitPlanMode",
   "ReportFindings",
+  // TodoWrite：寫的是 session 內的待辦清單，無專案/外部副作用 → 良性放行。
+  // 但**不**放進 MATCHER_EXCLUDED：它畢竟是寫入語義，留在 hook 視野內比較誠實。
+  "TodoWrite",
   "TaskGet",
   "TaskList",
   "TaskOutput",
@@ -86,7 +89,7 @@ const KNOWN_BENIGN_BUILTIN = new Set([
 ]);
 // settings.json 的 matcher 用負向前瞻把這幾支「最高頻」的唯讀工具排除在 hook 之外，
 // 省掉每次工具呼叫都 spawn node 的固定成本。被 matcher 排除者**永遠進不了 hook**，
-// 所以這份子集只能放絕對唯讀的工具，且必須是 KNOWN_BENIGN_BUILTIN 的子集
+// 所以這份子集只能放**無實質外部副作用**的工具(不是字面唯讀——ToolSearch 會改變 session 的工具面)，且必須是 KNOWN_BENIGN_BUILTIN 的子集
 // （由 tests/matcher-contract.test.js 釘住雙向一致）。
 const MATCHER_EXCLUDED = ["Read", "Glob", "Grep", "ToolSearch", "TaskGet", "TaskList", "TaskOutput"];
 

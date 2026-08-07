@@ -4,7 +4,7 @@
 
 一個 **Claude Code** skill：讓 Claude 當**指揮（orchestrator）**、**OpenAI Codex CLI** 當**執行（worker）**，把繁重的實作工作外包給 Codex（藉此節省 Claude Code 用量），而 Claude 專注在規劃、審查、並以 spec 當作合約。
 
-一個 `PreToolUse` 的 **consult-gate** hook 負責推動這套紀律：超級模式啟用期間，會改變狀態的工具呼叫（寫檔、shell、MCP 寫入、外發型內建工具）在**沒有** 20 分鐘內、由「先跑一次唯讀 Codex 諮詢」換來的「第二意見」憑證時會被攔下，要求先諮詢。**攔截面以 `settings.json` 的 PreToolUse matcher 為界**——沒列到的內建工具（例如 `TaskCreate`，刻意不納管）與已放行程序「內部」衍生的動作根本不會進 hook，**攔不到不等於規則允許**。
+一個 `PreToolUse` 的 **consult-gate** hook 負責推動這套紀律：超級模式啟用期間，會改變狀態的工具呼叫（寫檔、shell、MCP 寫入、外發型內建工具）在**沒有** 20 分鐘內、由「先跑一次唯讀 Codex 諮詢」換來的「第二意見」憑證時會被攔下，要求先諮詢。**2026-08 起 matcher 改為「catch-all 減去少數高頻唯讀工具」**——harness 新增的內建工具一律進得了 hook，未分類者一律拒絕且既有憑證對它不生效（first-use deny），逼出一次分類。殘餘缺口（刻意保留）：被 matcher 排除的少數唯讀工具、已放行程序「內部」衍生的動作（test runner 子程序等）、以及 `tool_name` 空／欄位改名的畸形 payload（維持 fail-open，否則 harness 一改欄位就全面擋死）。**攔不到不等於規則允許**。
 
 > ⚠️ **定位與界線（請先讀）：這道 gate 是「諮詢紀律提醒」，不是安全邊界。**
 > 它的用途是讓一個**合作的** Claude 在動手前先諮詢、避免不小心跳過流程——**不是**用來圍堵一個蓄意繞過、或被 prompt-injection 挾持的 agent。具體來說，它：
@@ -38,7 +38,11 @@
 >
 > **例外：Linux 自 2026-07-26 起有持續性的原生覆蓋。** [`.github/workflows/linux.yml`](.github/workflows/linux.yml) 讓每次 push／PR 都在 `ubuntu-latest` 上跑完整 `linux/` 回歸（含一道變異測試守住平台語義）。所以 linux 的「目前 tip 是否原生驗證過」不必再靠人工回想——看 CI 狀態即可。Windows 與 macOS 目前**沒有** CI，仍靠人工原生驗證。
 >
-> **本次 delta 的驗證分布（2026-08-04，`67a7ae6..HEAD`：測試臺注入點補 rc＋型別前置檢查、`consult-schema` 退出契約、consult-gate 攔截面宣稱收斂）。**
+> **本次 delta 的驗證分布（2026-08-07，未知工具 default-deny ＋ matcher 改 catch-all ＋ 憑證鑄造條件）。**
+> **Windows**：gate-cases **121/121**、`matcher-contract`、`class-b-8dot3`、`consult-schema` 10/10、新增 `consult-answer` **18/18**；三支 .ps1 保留 BOM 且 `Parser::ParseFile` 全 PARSE OK。變異注入 **6/6 有牙齒**（matcher 偷加排除項、拿掉 first-use deny、`-cmatch` 改回 `-match`、拿掉零寬剝除、`MATCHER_EXCLUDED` 混入 Artifact、未知工具改回放行）。真實 codex 端到端跑過 5 條路徑（短回覆／無裁決首行／ALLOW 鑄證／討論模式／缺 lib fail-closed）。
+> **macOS／Linux**：**完全未同步，仍是舊語義（列舉式 matcher ＋ 只憑 exit 0 鑄證）**。故本批**不得併 main**——Linux CI 會對舊語義全綠，構成另一個錯誤保證。要併 main 必須先同步兩平台並原生驗證，或明確把本批發布為 Windows-only 並在支援矩陣撤下其他平台的新保證。
+>
+> **前一批 delta 的驗證分布（2026-08-04，`67a7ae6..HEAD`：測試臺注入點補 rc＋型別前置檢查、`consult-schema` 退出契約、consult-gate 攔截面宣稱收斂）。**
 > **Windows**：`tests/ai-install/run-windows.ps1` **69/69**，**pwsh 7 與 Windows PowerShell 5.1 兩種 shell 各跑一次**皆 exit 0；gate-cases 109/109、`matcher-contract`、`class-b-8dot3`、`consult-schema` 10/10（in-process 與 `-File` 兩種呼叫皆 exit 0）。
 > **Linux**：WSL2（ext4 家目錄、完整 repo 複製）`run-posix.sh` **68/68**。⚠️ **CI 不覆蓋這個 delta**——[`linux.yml`](.github/workflows/linux.yml) 只跑 `linux/` 內的測試，**不含頂層 `tests/ai-install/`**，所以 badge 綠燈不能拿來當本批的證據。
 > **macOS**：已在 macOS 26.6 (25G72) arm64／內建 `bash 3.2.57(1)-release`（`which -a bash` 只有 `/bin/bash`，確認非 Homebrew 5.x）**對 `e1ec53f` 原生跑過 `run-posix.sh` 68/68 exit 0**（其後的 commit 只動 README，`run-posix.sh` 的 blob 未再變動，故該驗證對目前 tip 仍成立）。中途的 `9491719` 另跑過 67/67，並做過**帶對照組**的變異注入牙齒檢查（斷鏈 symlink 佔位 → 只有 rc 項抓得到；拿掉 rc 項則假綠 PASS）。兩次比對確認 67→68 的 +1 全部落在 `[M5]`：`run-posix.sh` 共 **13 個具名區塊**（`C1`／`C2`／`M1`–`M10`／`C3`），其餘 **12 個**案數逐項相同、無非預期漂移。

@@ -233,6 +233,30 @@ for (const name of [...mutatingFileTools, ...mutatingBuiltin, ...SHELL_TOOLS]) {
   }
 }
 
+// 上面那條只認得「hook 目前已列為 mutating」的工具，所以擋不住這條路徑：
+// 把某個 stateful 工具**同時**加進 KNOWN_BENIGN_BUILTIN + MATCHER_EXCLUDED + settings matcher
+// → 三邊一致、測試全綠，但該工具從此永久看不見。這裡用一份獨立的「絕不可排除」清單，
+// 讓「重新分類成良性」這個動作本身也要過一關。清單漏列只是少一層保護，
+// 主要防線仍是「未知工具 default-deny」。
+const NEVER_EXCLUDE = [
+  "TodoWrite", "TaskCreate", "TaskUpdate", "TaskStop",
+  "Agent", "Workflow", "SendUserFile", "SendMessage",
+  "Artifact", "ScheduleWakeup", "CronCreate", "CronDelete",
+  "RemoteTrigger", "PushNotification", "EnterWorktree", "ExitWorktree",
+  "Edit", "Write", "MultiEdit", "NotebookEdit", "Bash", "PowerShell", "Monitor",
+];
+for (const name of NEVER_EXCLUDE) {
+  if (matcherExcluded.includes(name)) {
+    fail(
+      name + " 出現在 MATCHER_EXCLUDED，但它在 NEVER_EXCLUDE 清單上（會改變狀態或會扇出）→ " +
+      "把它排除等於讓它永久進不了 hook。若真要重新分類，必須先改 NEVER_EXCLUDE 並說明理由。"
+    );
+  }
+  if (!matches(name)) {
+    fail(name + " 不被 matcher 匹配 → 進不了 hook（NEVER_EXCLUDE 的工具必須看得見）");
+  }
+}
+
 if (process.exitCode) {
   console.error(
     "\nmatcher 現值: " + matcher +

@@ -65,6 +65,26 @@ Check 'schema-short-json-accepted' ($r.Ok -and $r.Verdict -eq 'SCHEMA') ("Ok=$($
 $r = Test-ConsultAnswer -Lines @("這不是 JSON，只是四十個字以上的散文說明文字，用來確認 -SchemaFile 不能當免驗金牌。") -SchemaFile 'C:\some\schema.json'
 Check 'schema-non-json-rejected' ((-not $r.Ok) -and $r.Reason -match 'NOT_JSON') $r.Reason
 
+# --- Codex 第二輪審查抓到的三個缺陷（回歸案）---
+# R1: schema 模式必須驗**原始**輸出。清理後再 parse 等於幫非法輸出修好再放行。
+$badJson = '{"ok":tru' + $zw + 'e}'
+$r = Test-ConsultAnswer -Lines @($badJson) -SchemaFile 'C:\dummy\schema.json'
+Check 'R1-schema-validates-raw-not-cleaned' ((-not $r.Ok) -and $r.Reason -match 'NOT_JSON') ("Ok=$($r.Ok)")
+
+# R2: 空行/空白湊長度。'ALLOW:' + 34 個空行 + 'x' 曾達 42 字元而過關。
+$r = Test-ConsultAnswer -Lines (@('ALLOW:') + (@('') * 34) + @('x'))
+Check 'R2-blank-line-padding-rejected' (-not $r.Ok) ("Ok=$($r.Ok) Reason=$($r.Reason)")
+
+# R2b: variation selector (U+FE0F) 屬 \p{Mn} 而非 \p{Cf}，剝除式做法漏得掉
+$vs = [string][char]0xFE0F
+$r = Test-ConsultAnswer -Lines @(("ALLOW:" + ($vs * 60)))
+Check 'R2b-variation-selector-padding-rejected' (-not $r.Ok) ("Ok=$($r.Ok)")
+
+# R2c: 正常的短中文回覆(>=40 個字母/數字)仍須通過，確認新判準沒有誤殺
+$zh = "本次變更的風險集中在憑證鑄造條件，建議先在單機驗證後再考慮同步其他平台，理由如下所述"
+$r = Test-ConsultAnswer -Lines @("ALLOW: 可以", $zh)
+Check 'R2d-normal-cjk-answer-still-accepted' ($r.Ok -and $r.Verdict -ceq 'ALLOW') ("Ok=$($r.Ok)")
+
 Write-Output ""
 Write-Output "CONSULT-ANSWER $script:pass/$($script:pass + $script:fail)"
 if ($script:fail -gt 0) { exit 1 } else { exit 0 }
