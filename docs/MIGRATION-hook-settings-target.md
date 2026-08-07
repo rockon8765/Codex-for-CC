@@ -3,6 +3,35 @@
 > 2026-07-28。**只影響 macOS 與 Linux**，且只影響 **2026-07-28 以前**照舊版
 > `AI-INSTALL.md` 安裝的人。Windows 一直都是對的，不受影響。
 
+> ## ⛔ 2026-08-08：本文件目前**只可用於診斷**，第 2 節請先不要執行
+>
+> 2026-08-08 的複查在本文件裡找到三個缺陷。修好之前，請**只讀第 1 節，不要執行第 2 節**。
+>
+> **1. 第 1 節的 probe 對「JSON 合法但形狀不對」不 fail-closed。**
+> `hooks.PreToolUse` 是**字串**時，probe 會 **exit 0**、把 gate 數成 **0**，
+> 於是判定成「兩邊都沒有 gate —— 可能還沒安裝……照 `AI-INSTALL` 步驟 2 重做」。
+> 那是**假陰性，而且會把你導去重裝**——重裝正是可能造成重複註冊的動作。
+> （`PreToolUse` 是 `null` 或物件時則直接以 `TypeError` 中斷；退出碼非零，但只印 stack trace。）
+> **所以：只有在兩個檔的 `hooks.PreToolUse` 確實是「陣列」時，第 1 節的判定才可信。**
+>
+> **2. 判定表的「兩邊都有」在第 2 節沒有對應分支，照做會變成重複註冊。**
+> 判定表對 `≥1 ／ ≥1` 寫的是「要**移除** local 那份」，但第 2 節只有 2.2 一條路，
+> 而 2.2 是**無條件**的「整個條目**搬**進 `settings.json`，再從 `settings.local.json` 刪掉」。
+> `settings.json` 已經有一筆時照做就會變成**兩筆**。
+> **這種情況正確做法是：只從 `settings.local.json` 刪掉，不要搬。**
+>
+> **3. 2.2 的「整個條目」可能夾帶不相關的 hook。**
+> 若那個 `PreToolUse` 條目底下除了 gate 還掛著別的 handler，整筆搬移會把它們一起升到 user scope；
+> 整筆刪除則會把它們一起移除。**遇到這種情況請停手。**
+>
+> **正確的後置條件**（可拿來自我檢查）：
+> `~/.claude/settings.json` 的 gate handler **恰 1 個**、`~/.claude/settings.local.json` **0 個**。
+>
+> ⚠️ **證據範圍**：以上是 2026-08-08 對 `main` 的靜態檢視，加上把第 1 節的 probe 原樣抽出、
+> 以假 `HOME` 餵四種 `settings.json`（`null`／物件／字串／正常陣列，最後一種為對照組）
+> 在 Node v24.16.0 實跑的結果。**未**在真實受影響的 macOS／Linux 環境端到端驗證。
+> 追蹤見 [`backlog.md`](backlog.md)。
+
 ## 症狀
 
 舊版安裝指引叫你把 hook 註冊進 `~/.claude/settings.local.json`。
