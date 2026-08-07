@@ -397,6 +397,31 @@ for p in ~/.claude/skills/超級模式 ~/.claude/hooks/super-mode-consult-gate.j
   if [ -L "$p" ]; then echo "live 端 $p 是 symlink，中止（live 未變更）"; exit 1; fi
 done
 
+# 頂層不是 link 還不夠 —— 備份或 live 的**子樹裡**若藏著 symlink，`cp -R`（GNU 與 BSD
+# 都保留 symlink）會照著錯誤的拓撲還原，而 live 已經先被刪掉了。
+# 1b 驗的是「建立備份當下」的 live；備份放在那裡到真正被使用之間可能已經漂移，
+# 兩者之間沒有 manifest、也沒有完整性證明。所以這裡要重驗，兩棵樹都必須在任何 mutation 之前掃完。
+scan_no_link() { # 用途名 路徑
+  local _lnk
+  # 路徑不存在＝「沒有子樹可掃」，**不是**掃描失敗。全新安裝只有 .absent、沒有 $sbak；
+  # live 也可能已被手動移除。把這兩種情況當成 fail-closed，會讓合法的回滾永遠失敗
+  # ——那和它要防的資料損失是同一形狀的 bug，一起犯就一起修。
+  [ -e "$2" ] || return 0
+  # 偵測退出碼：find 真的掃不動（權限等）一律中止（fail-closed）。不吞 stderr，
+  # 也不用 GNU 專屬的 `-print -quit`（BSD 沒有）。
+  if ! _lnk=$(find "$2" -type l); then
+    echo "掃描 $1（$2）失敗，狀態不明，中止（live 未變更）"; exit 1
+  fi
+  if [ -n "$_lnk" ]; then
+    echo "$1（$2）底下有 symlink（$(printf '%s\n' "$_lnk" | head -n 1)），狀態不明，中止（live 未變更）"
+    exit 1
+  fi
+}
+# $sbak 只在 precheck 選中它時才掃：全新安裝走 .absent 分支，$sbak 根本不存在，
+# 無條件掃會讓那條合法路徑永遠失敗。
+if [ -d "$sbak" ]; then scan_no_link 'skill 備份' "$sbak"; fi
+scan_no_link 'live skill' ~/.claude/skills/超級模式
+
 rm -rf ~/.claude/skills/超級模式
 [ -d "$sbak" ] && cp -R "$sbak" ~/.claude/skills/超級模式
 
@@ -460,6 +485,27 @@ Test-Exactly1 'settings' $setbak "$setbak.absent" 'Leaf'
 if (Test-Reparse (Get-Entry $skill)) { throw "live 端 $skill 是 link／reparse point，中止（live 未變更）" }
 if (Test-Reparse (Get-Entry $hook))  { throw "live 端 $hook 是 link／reparse point，中止（live 未變更）" }
 if (Test-Reparse (Get-Entry $setf))  { throw "live 端 $setf 是 link／reparse point，中止（live 未變更）" }
+
+# 頂層不是 link 還不夠 —— 備份或 live 的**子樹裡**若藏著 junction／symlink，
+# `Remove-Item -Recurse` 對 link 的行為隨組建而異，而 `Copy-Item -Recurse` 會把 junction 的
+# 目標**實體化**，於是還原出來的是錯誤的拓撲。
+# 1b 驗的是「建立備份當下」的 live；備份放在那裡到真正被使用之間可能已經漂移，
+# 兩者之間沒有 manifest、也沒有完整性證明。所以這裡要重驗，兩棵樹都必須在任何 mutation 之前掃完。
+function Assert-NoReparseUnder($name, $path) {
+  # 路徑不存在＝「沒有子樹可掃」，**不是**掃描失敗。全新安裝只有 .absent、沒有 $sbak；
+  # live 也可能已被手動移除。把這兩種情況當成 fail-closed，會讓合法的回滾永遠失敗
+  # ——那和它要防的資料損失是同一形狀的 bug，一起犯就一起修。
+  if (-not (Get-Entry $path)) { return }
+  # 本區塊開頭的 $ErrorActionPreference = 'Stop' 讓真正的列舉失敗（權限等）直接拋出＝fail-closed。
+  $bad = Get-ChildItem -LiteralPath $path -Recurse -Force |
+         Where-Object { ($_.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 } |
+         Select-Object -First 1
+  if ($bad) { throw "$name（$path）底下有 link／reparse point（$($bad.FullName)），狀態不明，中止（live 未變更）" }
+}
+# $sbak 只在 precheck 選中它時才掃：全新安裝走 .absent 分支，$sbak 根本不存在，
+# 無條件掃會讓那條合法路徑永遠失敗。
+if (Test-Path -LiteralPath $sbak -PathType Container) { Assert-NoReparseUnder 'skill 備份' $sbak }
+Assert-NoReparseUnder 'live skill' $skill
 
 if (Get-Entry $skill) { Remove-Item -LiteralPath $skill -Recurse -Force }
 if (Test-Path -LiteralPath $sbak -PathType Container) { Copy-Item -LiteralPath $sbak -Destination $skill -Recurse }

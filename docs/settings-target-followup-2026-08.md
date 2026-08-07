@@ -125,7 +125,7 @@
 |---|---|---|
 | 0 | MIGRATION 檔頭 containment 警告 ＋ backlog 追蹤列 | ✅ `b7b34c4` |
 | 1 | 三台唯讀 installed census（Windows／macOS／Linux）——釘 OS、Claude Code 版本、installed `matcher-contract` 的 blob、`settings.json`／`settings.local.json` 的 gate handler 數 | ☐ **需 Mac／Linux 持有者執行**；只當具名樣本，不外推 |
-| 2 | B1：兩處回滾加子樹掃描（`$sbak` **僅在選中時**掃；live 不存在＝**無子樹可掃**，不得當掃描失敗）＋ 五類測試 | ☐ |
+| 2 | B1：兩處回滾加子樹掃描（`$sbak` **僅在選中時**掃；live 不存在＝**無子樹可掃**，不得當掃描失敗）＋ 針對性測試 | ✅ Windows／Linux；**macOS 待原生驗證** |
 | 3 | A2：probe 逐層驗形狀並 fail-closed；第 2 節改 handler 粒度＋補「main 已有一筆」分支；11 處註冊入口改冪等／衝突停手 | ☐ |
 | 4 | A1：`--repo`／`--live` 顯式模式、印出實際受驗路徑、修 §1.1 的 4 處相對路徑 | ☐ |
 | 5 | C：泛化為「任何 `settings.json` 寫入者」並具名 plugin manager | ☐ |
@@ -134,12 +134,32 @@
 | 8 | 把 legacy backup **子樹**掃描補進 `installer-rewrite-spec.md` 的 legacy 回滾節與驗收表 | ☐ |
 | 9 | 刪除舊分支（**最後一步**：successor 進 main ＋ 遠端 tag 可取回之後）| ☐ |
 
-## 4. 未決的決策點
+## 4. 已拍板的決策
 
-- **B1 要硬化現行回滾，還是先停用危險回滾、等 `tools/install.js`？**
-  `tools/` 目前不存在、`installer-rewrite-spec.md` 的 12 項驗收全空，
+- **B1＝硬化現行回滾**（2026-08-08 定案，維護者拍板）。
+  理由：`tools/` 目前不存在、`installer-rewrite-spec.md` 的 12 項驗收全空，
   且該 spec 自己規定「三平台原生綠之前舊 markdown 繼續服役」——
-  所以 rewrite **不是**現行 B1 的 mitigation。需要拍板。
+  所以 rewrite **不是**現行 B1 的 mitigation，讓一條真實資料損失路徑無限期等下去不划算。
+
+## 4.1 B1 的驗證紀錄（2026-08-08）
+
+新增 `[M11]`（回滾期內嵌 link，備份子樹／live 子樹兩個變體）與
+`[M12]`（live 不存在時回滾仍須成功——防 fail-closed 寫過頭）。
+
+| 執行 | 結果 |
+|---|---|
+| Windows pwsh 7 | **86/86** exit 0（基準 69）|
+| Windows：測試臺跑 pwsh、**受測區塊跑 PS 5.1** | **86/86** exit 0 |
+| Linux WSL2／ext4 | **85/85** exit 0（基準 68）|
+| 反向驗證（兩平台各自對 `1aeb010` 的 `AI-INSTALL.md`）| 各 **4 FAIL**，且完全是 M11 的四條斷言；M12 在修正前也 PASS（它是守護不是修復）|
+| macOS | **未驗證**（本機無 Mac，走 handoff）|
+
+> ⚠️ **v4 §8 的 PS 5.1 指令是錯的。** 它寫 `powershell -File .\tests\ai-install\run-windows.ps1 -Shell powershell`，
+> 但 `-Shell` 選的是「執行**被抽出的區塊**」用哪個 shell，測試臺本身必須跑在 pwsh 下。
+> 把測試臺本身跑在 5.1，`Invoke-Block` 的 `& $exe … 2>&1` 會在 `$ErrorActionPreference='Stop'`
+> 之下把子程序的 stderr 變成終止性 `NativeCommandError`，在 `[M1]` 就中斷。
+> 實測 `1aeb010` 的乾淨 worktree 同樣如此，**與本批改動無關**。正確寫法：
+> `pwsh -File .\tests\ai-install\run-windows.ps1 -Shell powershell`。
 
 ## 5. 沿用 v4 的紀律（這幾條仍然有效）
 
