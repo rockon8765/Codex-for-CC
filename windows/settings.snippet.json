@@ -1,9 +1,10 @@
 {
   "_comment": "把這個 PreToolUse 條目合併進 ~/.claude/settings.json 的 hooks.PreToolUse。請把 hook 的絕對路徑改成你自己機器的路徑。",
+  "_matcher_note": "matcher 是『catch-all 減去高頻唯讀工具』的負向前瞻，不是工具名列舉——harness 新增的工具一律進得了 hook，由 hook 的 KNOWN_READONLY_BUILTIN / default-deny 決定去留（舊的列舉式 matcher 漏列新工具 = 無聲放行，且所有測試照樣全綠）。排除清單必須與 hook 的 MATCHER_EXCLUDED 一致，由 tests/matcher-contract.test.js 釘住。",
   "hooks": {
     "PreToolUse": [
       {
-        "matcher": "Edit|Write|MultiEdit|NotebookEdit|Bash|PowerShell|Monitor|RemoteTrigger|PushNotification|CronCreate|CronDelete|Artifact|ScheduleWakeup|EnterWorktree|ExitWorktree|mcp__.*",
+        "matcher": "^(?!(?:Read|Glob|Grep|ToolSearch|TodoWrite|TaskGet|TaskList|TaskOutput)$)",
         "hooks": [
           {
             "type": "command",

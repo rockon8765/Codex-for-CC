@@ -14,6 +14,13 @@
 #                now a hard error instead of silently preferring the file.
 #   -NoCredential  Discussion-partner mode (outside super-mode): same read-only
 #                consult, but do NOT mint the consult-gate credential.
+#
+# Exit codes: 0 = consult done (credential minted unless -NoCredential)
+#             42 = CONSULT_UNAVAILABLE_QUOTA (quota/auth) -- stop, report to user
+#             43 = consult ran but the answer is unusable (empty/too short, or no
+#                  ^(ALLOW|BLOCK): verdict line) -> NO credential. Re-ask once with an
+#                  explicit verdict-line request; never treat 43 as "already consulted".
+#             other = codex's own exit code
 #   -SchemaFile  Optional (T2b): JSON schema path; constrains Codex's final reply
 #                shape via --output-schema. read-only + ephemeral unchanged. Fails
 #                fast (before invoking codex) if the file is missing or invalid JSON.
@@ -90,6 +97,7 @@ Assert-CmdSafePath $Dir 'Dir'   # $Dir 也進 cmd /c 字串(既有注入面)，�
 $brief = Join-Path $env:TEMP ("codex_brief_{0}.txt" -f ([guid]::NewGuid().ToString('N')))
 $errFile = Join-Path $env:TEMP ("codex_err_{0}.txt" -f ([guid]::NewGuid().ToString('N')))
 [System.IO.File]::WriteAllText($brief, $p, (New-Object System.Text.UTF8Encoding $false))
+$answerLines = New-Object System.Collections.Generic.List[string]
 try {
   # stderr 導到獨立檔(編號佔位符 {3})；不可用 2>&1(會回灌 stdout)。$LASTEXITCODE 仍是 codex 退出碼。
   # 5.2：--ephemeral 讓短命唯讀諮詢不落地 Codex session 檔(下游不 resume 此 session，留著純浪費)
@@ -98,7 +106,12 @@ try {
   # generate_memories=false 斷寫出(否則簡報進全域 memories，下次 consult 又讀到，形成自我強化閉環)。
   # 0.144.1 實測：加這兩個 -c 後 MEMORIES: NO_MEMORIES_VISIBLE、exit 0、MCP 工具面/沙箱邊界皆不受影響。
   $inner = ('"{0}" exec --sandbox read-only --ephemeral --skip-git-repo-check -c memories.use_memories=false -c memories.generate_memories=false -C "{1}" ' + $schemaArg + '< "{2}" 2> "{3}"') -f $codexCmd, $Dir, $brief, $errFile, $SchemaFile
-  & cmd.exe /d /s /c $inner | ForEach-Object { $_; Add-Content -LiteralPath $log -Value $_ -Encoding utf8 }
+  # 逐行留一份在記憶體：憑證不能只憑 exit code 就發(見下方「憑證鑄造條件」)。
+  & cmd.exe /d /s /c $inner | ForEach-Object {
+    $_
+    $answerLines.Add([string]$_)
+    Add-Content -LiteralPath $log -Value $_ -Encoding utf8
+  }
   $code = $LASTEXITCODE
   if (Test-Path $errFile) {
     Add-Content -LiteralPath $log -Value "===== STDERR =====" -Encoding utf8
@@ -110,17 +123,47 @@ finally {
   Remove-Item -LiteralPath $errFile -Force -ErrorAction SilentlyContinue
 }
 
+# --- 憑證鑄造條件（2026-08）---------------------------------------------------
+# 舊版只看 `exit 0` 就發憑證：codex 回空字串、回拒絕、答非所問，一樣解鎖後續 20 分鐘的
+# 所有動作。exit code 只證明「進程沒掛」，不證明「諮詢真的發生過」——而 codex 的事件迴圈
+# 在沒有 fatal error 時本來就會正常返回。這裡把鑄造條件從「進程成功」改成「回答可用」：
+#   (1) 非空、且長度過得了門檻（擋空回覆/單行錯誤訊息）
+#   (2) 首行符合 SKILL §3.5 的裁決格式 ^(ALLOW|BLOCK):（-SchemaFile 模式除外，那時輸出是 JSON）
+# BLOCK 仍然鑄造憑證：憑證證明的是「諮詢發生過」，不是「Codex 批准了」；裁決本身由 Claude
+# 依 §3.5 遵守（BLOCK 就不做）。若 BLOCK 不鑄造，連「照 Codex 意見改做別的」都會被自己擋死。
+$MIN_ANSWER_CHARS = 40
+$answerText = ($answerLines -join "`n").Trim()
+$firstLine = ''
+foreach ($l in $answerLines) { if ($l -and $l.Trim()) { $firstLine = $l.Trim(); break } }
+$verdictOk = [bool]$SchemaFile -or ($firstLine -match '^(ALLOW|BLOCK)\s*:')
+$answerOk = $answerText.Length -ge $MIN_ANSWER_CHARS
+
 if ($code -eq 0) {
+  if (-not $answerOk) {
+    Write-Warning ("CONSULT_UNUSABLE_ANSWER: codex exit 0 但回覆過短/空白(" + $answerText.Length +
+      " 字元 < $MIN_ANSWER_CHARS)，未鑄造憑證。這通常代表諮詢實際上沒發生(額度、認證、或 prompt 沒送到)。" +
+      "請檢查 transcript 後重問，不要當成已諮詢。transcript: $log")
+    exit 43
+  }
   if ($NoCredential) {
     # Discussion-partner mode: no credential, so a casual consult can never
     # unlock super-mode gated actions in a concurrent session on this repo.
+    # 討論模式不驗首行格式：全域規則的日常諮詢沒有強制裁決格式，這裡只保證回覆非空。
     Write-Output "consult OK -- no credential (discussion mode); transcript: $log"
+  } elseif (-not $verdictOk) {
+    Write-Warning ("CONSULT_NO_VERDICT: 首行不是 ^(ALLOW|BLOCK): 格式，依 SKILL §3.5 視為 BLOCK，未鑄造憑證。" +
+      "首行實際內容: '" + $firstLine + "'。請在簡報結尾明確要求首行裁決後重問一次。transcript: $log")
+    exit 43
   } else {
     $token = Join-Path $env:USERPROFILE ".claude\.super-mode-consult-ok"
     # 憑證決策範圍：綁定本次諮詢的 repo(-Dir)。hook 會比對後續動作路徑是否在此 repo 下。
     $cred = @{ repo = $Dir; ts = (Get-Date -Format o) } | ConvertTo-Json -Compress
     Set-Content -LiteralPath $token -Value $cred -Encoding utf8
-    Write-Output "consult OK -- credential written; transcript: $log"
+    if ($firstLine -match '^BLOCK\s*:') {
+      Write-Output "consult OK -- credential written, but Codex 裁決為 BLOCK：依 §3.5 不得執行原動作，先向使用者回報。transcript: $log"
+    } else {
+      Write-Output "consult OK -- credential written; transcript: $log"
+    }
   }
 } else {
   # 配額/認證類失敗 → 明確標記 + 專屬 exit 42，讓上層 fail-fast、別在額度最稀缺時空轉重試

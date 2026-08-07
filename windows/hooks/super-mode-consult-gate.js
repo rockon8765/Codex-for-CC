@@ -53,6 +53,38 @@ const MUTATING_BUILTIN = [
 // 排程（ScheduleWakeup ≈ Cron*）與 worktree 進出（≈ rm：破壞性但不是收尾）**不**消耗憑證。
 const CONSUMING_BUILTIN = new Set(["Artifact"]);
 
+// 已分類為「不改變狀態」的內建工具 → 放行。這份清單存在的理由**不是**列舉安全工具，
+// 而是讓「未知內建工具 = default-deny」（見 decide() 末段 else）不會把日常唯讀動作擋死。
+// ⚠ 與 MUTATING_BUILTIN 的維護語義相反：
+//   - 忘了把某個「會改狀態」的新工具加進 MUTATING_BUILTIN → **不再是無聲漏放行**，
+//     它會落到 default-deny 被擋下來（付費點從「每版追清單」變成「第一次用到時分類一次」）。
+//   - 忘了把某個「唯讀」的新工具加進這裡 → 代價只是被擋一次 + 一次分類，不是安全缺口。
+// 只放真正無外部副作用者。會扇出子代理(Agent/Workflow)、外送檔案(SendUserFile)、
+// 發佈/排程者一律**不**放這裡——那些正是要先諮詢的動作。
+const KNOWN_READONLY_BUILTIN = new Set([
+  "Read",
+  "Glob",
+  "Grep",
+  "ToolSearch",
+  "WebSearch",
+  "WebFetch",
+  "Skill",
+  "AskUserQuestion",
+  "EnterPlanMode",
+  "ExitPlanMode",
+  "ReportFindings",
+  "TodoWrite",
+  "TaskGet",
+  "TaskList",
+  "TaskOutput",
+  "CronList",
+]);
+// settings.json 的 matcher 用負向前瞻把這幾支「最高頻」的唯讀工具排除在 hook 之外，
+// 省掉每次工具呼叫都 spawn node 的固定成本。被 matcher 排除者**永遠進不了 hook**，
+// 所以這份子集只能放絕對唯讀的工具，且必須是 KNOWN_READONLY_BUILTIN 的子集
+// （由 tests/matcher-contract.test.js 釘住雙向一致）。
+const MATCHER_EXCLUDED = ["Read", "Glob", "Grep", "ToolSearch", "TodoWrite", "TaskGet", "TaskList", "TaskOutput"];
+
 // 只有唯讀的諮詢/查版/開關腳本可無條件放行（否則死鎖）。codex-exec 是 workspace-write
 // 執行者，故意排除 → 派工也要先有憑證（落到 decide 的 default-deny）。錨定在指令開頭、
 // 路徑段不得含分隔字元/替換字元，杜絕 v1 的 /codex/i 誤放行（如 git commit -m "codex"）。
@@ -191,6 +223,7 @@ function decide(input, testOpts) {
 
   let gated = false;
   let consuming = false;
+  let unknownTool = false; // 未知內建工具：拒絕訊息要多給一條「其實是唯讀就來分類」的出口
   let category = "";
   let mcpAuth = null;
   let actionPath = ""; // 本動作綁定的路徑(檔案 file_path / shell cwd)，供憑證範圍比對
@@ -329,6 +362,23 @@ function decide(input, testOpts) {
     }
     gated = true;
     category = mcpIsWrite ? "MCP 寫入/外發" : (mcpForceGate ? "MCP 已知副作用(讀名誤導)" : "MCP 未知工具(default-deny)");
+  } else if (KNOWN_READONLY_BUILTIN.has(tool)) {
+    return { allow: true };
+  } else if (!tool) {
+    // 空工具名 = hook 收到的 payload 壞掉/欄位改名，**不是**「不認得的工具」。
+    // 這裡必須維持 fail-open（姿態 A）：若哪天 harness 把 tool_name 改名，
+    // default-deny 會變成「超級模式下每個動作都被擋」，那是全面性 brick，
+    // 遠比漏攔一次嚴重。真正的未知工具（有名字）仍走下面的 default-deny。
+    return { allow: true };
+  } else {
+    // **未知內建工具 → default-deny。** 這一條是本 hook 唯一「不依賴工具目錄」的不變量：
+    // harness 之後新增什麼工具都自動落在這裡，不必逐版追 MUTATING_BUILTIN/matcher。
+    // 歷史教訓：Artifact / ScheduleWakeup / Monitor / Enter·ExitWorktree 曾經工具面有、
+    // 兩份清單都沒列 = 無聲放行，而 109 個 gate-cases 與 matcher-contract 照樣全綠。
+    // pathless：未知工具沒有可信路徑欄位 → 憑證只做時間綁定（同 MUTATING_BUILTIN 的取捨）。
+    gated = true;
+    unknownTool = true;
+    category = "未知內建工具(default-deny)";
   }
 
   if (!gated) return { allow: true };
@@ -390,7 +440,12 @@ function decide(input, testOpts) {
       "②用 PowerShell 工具(非 Bash 包 powershell -Command)跑 " +
       "~/.claude/skills/超級模式/scripts/codex-consult.ps1 -Dir <repo> -PromptFile <brief>(一律 -PromptFile) " +
       "③成功後重試此動作。若超級模式其實已結束，用 PowerShell 工具跑 scripts/super-mode.ps1 -Off 解除。" +
-      "（連續諮詢失敗 ≥2 次、或看到 CONSULT_UNAVAILABLE_QUOTA，請直接向使用者回報，勿再重試。）",
+      "（連續諮詢失敗 ≥2 次、或看到 CONSULT_UNAVAILABLE_QUOTA，請直接向使用者回報，勿再重試。）" +
+      (unknownTool
+        ? " ※ 這個工具 hook 不認得（harness 新增或改名）。若它其實**不會改變狀態**，" +
+          "請回報使用者、把工具名加進 hook 的 KNOWN_READONLY_BUILTIN 後再重試；" +
+          "若它會改狀態，照上面流程諮詢即可（必要時另加進 MUTATING_BUILTIN 以取得正確分類與憑證消耗語義）。"
+        : ""),
   };
   } catch (e) {
     return { allow: true };

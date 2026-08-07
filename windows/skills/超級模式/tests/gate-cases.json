@@ -300,7 +300,7 @@
   {"name":"T5 builtin: ExitWorktree without token denies","flagContent":"","tokenAgeMs":null,"input":{"tool_name":"ExitWorktree","tool_input":{"action":"remove"}},"expect":"deny"},
   {"name":"T5 builtin regression: RemoteTrigger without token denies (先前零覆蓋)","flagContent":"","tokenAgeMs":null,"input":{"tool_name":"RemoteTrigger","tool_input":{}},"expect":"deny"},
   {"name":"T5 builtin regression: CronCreate without token denies (先前零覆蓋)","flagContent":"","tokenAgeMs":null,"input":{"tool_name":"CronCreate","tool_input":{}},"expect":"deny"},
-  {"name":"T5 builtin: 未納管 builtin (TaskCreate) 仍放行 (刻意不攔，非遺漏)","flagContent":"","tokenAgeMs":null,"input":{"tool_name":"TaskCreate","tool_input":{}},"expect":"allow"},
+  {"name":"T5 builtin: 未分類 builtin (TaskCreate) 改為 default-deny (2026-08 翻轉：舊版刻意放行=無聲漏放行的入口)","flagContent":"","tokenAgeMs":null,"input":{"tool_name":"TaskCreate","tool_input":{}},"expect":"deny"},
 
   {"name":"T5 Monitor: 唯讀 tail|grep allows","flagContent":"","tokenAgeMs":null,"input":{"tool_name":"Monitor","tool_input":{"command":"tail -f app.log | grep --line-buffered ERROR"}},"expect":"allow"},
   {"name":"T5 Monitor: 非唯讀指令 denies","flagContent":"","tokenAgeMs":null,"input":{"tool_name":"Monitor","tool_input":{"command":"npm run deploy"}},"expect":"deny"},
@@ -310,5 +310,16 @@
   {"name":"T5 Monitor: 空 tool_input denies","flagContent":"","tokenAgeMs":null,"input":{"tool_name":"Monitor","tool_input":{}},"expect":"deny"},
   {"name":"T5 Monitor: 唯讀 runner 指向 scratchpad denies (與 Bash 分支同判準)","flagContent":"","tokenAgeMs":null,"input":{"tool_name":"Monitor","tool_input":{"command":"pytest \"__TMP__\\claude\\scratchpad\""}},"expect":"deny"},
   {"name":"T5 Monitor: 命令替換 denies","flagContent":"","tokenAgeMs":null,"input":{"tool_name":"Monitor","tool_input":{"command":"tail -f $(cat target.txt)"}},"expect":"deny"},
-  {"name":"A2: deny 訊息必含子代理分支(否則子代理會照主線指令自行諮詢→燒額度+mint全機憑證)","flagContent":"","tokenAgeMs":null,"input":{"tool_name":"Write","tool_input":{"file_path":"C:\\proj\\a.js"}},"expect":"deny","expectReasonIncludes":"若你是子代理"}
+  {"name":"A2: deny 訊息必含子代理分支(否則子代理會照主線指令自行諮詢→燒額度+mint全機憑證)","flagContent":"","tokenAgeMs":null,"input":{"tool_name":"Write","tool_input":{"file_path":"C:\\proj\\a.js"}},"expect":"deny","expectReasonIncludes":"若你是子代理"},
+
+  {"name":"U1 未知工具: harness 新增的工具(SendUserFile)在無憑證下 deny","flagContent":"","tokenAgeMs":null,"input":{"tool_name":"SendUserFile","tool_input":{"files":["a.png"]}},"expect":"deny"},
+  {"name":"U2 未知工具: Workflow(扇出背景代理)無憑證 deny","flagContent":"","tokenAgeMs":null,"input":{"tool_name":"Workflow","tool_input":{"script":"..."}},"expect":"deny"},
+  {"name":"U3 未知工具: Agent(派子代理)無憑證 deny","flagContent":"","tokenAgeMs":null,"input":{"tool_name":"Agent","tool_input":{"prompt":"x"}},"expect":"deny"},
+  {"name":"U4 未知工具不變量: 完全不存在的未來工具名也必須 deny(判準不得依賴硬編清單)","flagContent":"","tokenAgeMs":null,"input":{"tool_name":"ZzzFutureToolThatDoesNotExistYet","tool_input":{}},"expect":"deny"},
+  {"name":"U5 未知工具: deny 訊息要給『其實是唯讀就來分類』的出口","flagContent":"","tokenAgeMs":null,"input":{"tool_name":"ZzzAnotherUnknownTool","tool_input":{}},"expect":"deny","expectReasonIncludes":"KNOWN_READONLY_BUILTIN"},
+  {"name":"U6 未知工具: 有新鮮憑證則放行(pathless=只做時間綁定，同 MUTATING_BUILTIN)","flagContent":"","tokenAgeMs":60000,"input":{"tool_name":"ZzzFutureToolThatDoesNotExistYet","tool_input":{}},"expect":"allow"},
+  {"name":"U7 已分類唯讀 builtin: Read 放行","flagContent":"","tokenAgeMs":null,"input":{"tool_name":"Read","tool_input":{"file_path":"C:\\proj\\a.js"}},"expect":"allow"},
+  {"name":"U8 已分類唯讀 builtin: WebFetch 放行","flagContent":"","tokenAgeMs":null,"input":{"tool_name":"WebFetch","tool_input":{"url":"https://example.com"}},"expect":"allow"},
+  {"name":"U9 已分類唯讀 builtin: Skill 放行(進得了 hook 但不 gate)","flagContent":"","tokenAgeMs":null,"input":{"tool_name":"Skill","tool_input":{"skill":"x"}},"expect":"allow"},
+  {"name":"U10 未知工具: 非超級模式(無旗標)不受影響，照樣放行","flagContent":null,"tokenAgeMs":null,"input":{"tool_name":"ZzzFutureToolThatDoesNotExistYet","tool_input":{}},"expect":"allow"}
 ]

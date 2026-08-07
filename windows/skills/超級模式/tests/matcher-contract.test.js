@@ -1,14 +1,18 @@
 #!/usr/bin/env node
 /*
- * matcher-contract 測試
+ * matcher-contract 測試（matcher ↔ hook 覆蓋面契約）
  *
- * 為什麼需要這支：hook 裡的 MUTATING_BUILTIN 清單**只有在 settings.json 的 PreToolUse
- * matcher 也列到該工具名時才會生效**——matcher 不匹配，hook 根本不會被叫起，清單加了也是白加。
+ * 為什麼需要這支：hook 的判定**只有在 settings.json 的 PreToolUse matcher 匹配該工具名時
+ * 才會生效**——matcher 不匹配，hook 根本不會被叫起，hook 裡寫什麼都是白寫。
  * 這兩處分屬不同檔案、沒有任何機制把它們綁在一起，歷史上就漂移過（Artifact / ScheduleWakeup /
- * Monitor / Enter·ExitWorktree 一度只存在於工具面、兩邊都沒有）。
+ * Monitor / Enter·ExitWorktree 一度只存在於工具面、matcher 與 hook 兩邊都沒有）。
  *
- * 本測試把兩邊釘死：hook 認為要攔的每個工具名，都必須出現在 settings 的 matcher 裡；
- * 反向也檢查 matcher 沒有多出 hook 不認識的字面工具名（避免只改 matcher 卻忘了改 hook）。
+ * ⚠️ 這支測試舊版（列舉式 matcher 時代）保證的只是「**兩份手寫清單彼此一致**」，
+ *    不是「治理覆蓋完整」——兩份清單一起漏列同一個新工具時，它照樣 PASS。
+ *    2026-08 起 matcher 改為「catch-all 減去高頻唯讀工具」，本測試的主要不變量隨之改成：
+ *    **任意未知工具名都必須進得了 hook**（見 UNKNOWN_SAMPLES），
+ *    以及「被 matcher 排除的工具必須是 hook 已分類為唯讀的」。
+ *    覆蓋面是否完整，最終仍取決於 hook 的 default-deny，而不是這份 matcher。
  *
  * 用法：node tests/matcher-contract.test.js   （exit 0 = 通過、非 0 = 失敗）
  */
@@ -117,6 +121,15 @@ function extractArray(name) {
   return (m[1].match(/"([^"]+)"/g) || []).map((s) => s.slice(1, -1));
 }
 
+function extractSet(name) {
+  const m = hookSrc.match(new RegExp("const\\s+" + name + "\\s*=\\s*new Set\\(\\[([\\s\\S]*?)\\]\\)"));
+  if (!m) {
+    fail("在 hook 原始碼裡找不到 " + name + " 集合");
+    return [];
+  }
+  return (m[1].match(/"([^"]+)"/g) || []).map((s) => s.slice(1, -1));
+}
+
 const mutatingFileTools = extractArray("MUTATING_FILE_TOOLS");
 const mutatingBuiltin = extractArray("MUTATING_BUILTIN");
 
@@ -141,32 +154,82 @@ const entry =
       e.hooks.some((h) => String((h && h.command) || "").includes("super-mode-consult-gate"))
   ) || entries[0];
 const matcher = String(entry.matcher || "");
-const alternatives = matcher.split("|").map((s) => s.trim()).filter(Boolean);
 
-// --- 正向：hook 要攔的，matcher 必須列到 ---
+// matcher 已從「工具名列舉」改為「catch-all 減去高頻唯讀工具」的負向前瞻，
+// 所以不能再用 split("|") 拆項比對——改成**語義**比對：拿真正的 RegExp 去 test 工具名。
+// 官方語義：matcher 含字母/數字/_/-/空白/,/| 以外的字元 → 當成 unanchored 的 JS 正則。
+let matcherRe;
+try {
+  matcherRe = new RegExp(matcher);
+} catch (e) {
+  console.error("FAIL: matcher 不是合法正則：" + matcher + "（" + e.message + "）");
+  process.exit(1);
+}
+const matches = (name) => matcherRe.test(name);
+
+// --- 正向：hook 要攔的，matcher 必須放進來 ---
 const required = [...mutatingFileTools, ...mutatingBuiltin, ...SHELL_TOOLS];
 for (const name of required) {
-  if (!alternatives.includes(name)) {
-    fail("matcher 缺少 " + name + " → hook 不會被叫起，該工具的攔截等於沒生效");
+  if (!matches(name)) {
+    fail("matcher 不匹配 " + name + " → hook 不會被叫起，該工具的攔截等於沒生效");
   }
 }
-if (!alternatives.includes("mcp__.*")) {
-  fail("matcher 缺少 mcp__.* → 所有 MCP 工具都不會進 hook");
+for (const name of ["mcp__whatever__do_thing", "mcp__github__create_pull_request"]) {
+  if (!matches(name)) fail("matcher 不匹配 MCP 工具 " + name + " → 該 MCP 工具不會進 hook");
 }
 
-// --- 反向：matcher 不該出現 hook 不認識的字面工具名 ---
-const known = new Set([...required, "mcp__.*"]);
-for (const alt of alternatives) {
-  if (!known.has(alt)) {
-    fail("matcher 多出 hook 不認識的項目 " + alt + " → 只改了 matcher 卻沒改 hook？");
+// --- 核心不變量：**未知**工具名必須進得了 hook ---
+// 這條才是這支測試現在的主要價值。舊版只驗「兩份手寫清單一致」，
+// 兩份清單一起漏列新工具時照樣 PASS（Artifact/ScheduleWakeup/Monitor/Enter·ExitWorktree 就這樣漏過）。
+// 名字刻意取成「未來可能長這樣」但今天不存在的，確保判準不是靠硬編清單。
+const UNKNOWN_SAMPLES = [
+  "SendUserFile",
+  "Workflow",
+  "Agent",
+  "PublishSomething",
+  "ZzzFutureToolThatDoesNotExistYet",
+  "TaskCreate",
+];
+for (const name of UNKNOWN_SAMPLES) {
+  if (!matches(name)) {
+    fail(
+      "matcher 不匹配未知工具 " + name +
+      " → 它永遠進不了 hook，等於無聲放行（這正是舊列舉式 matcher 的漏洞）"
+    );
+  }
+}
+
+// --- 反向：被 matcher 排除的，必須是 hook 也認定唯讀的 ---
+// 被排除者永遠進不了 hook，所以排除清單只能是 KNOWN_READONLY_BUILTIN 的子集；
+// 少了這條，改 matcher 就能悄悄把一個會改狀態的工具挖出 hook 的視野。
+const matcherExcluded = extractArray("MATCHER_EXCLUDED");
+const knownReadonly = new Set(extractSet("KNOWN_READONLY_BUILTIN"));
+if (!matcherExcluded.length) fail("hook 原始碼裡的 MATCHER_EXCLUDED 是空的");
+for (const name of matcherExcluded) {
+  if (matches(name)) {
+    fail("hook 宣告 " + name + " 被 matcher 排除，但 matcher 實際會匹配它 → 兩邊不一致");
+  }
+  if (!knownReadonly.has(name)) {
+    fail(name + " 在 MATCHER_EXCLUDED 卻不在 KNOWN_READONLY_BUILTIN → 被排除的工具必須是已分類唯讀");
+  }
+}
+// 反向的反向：matcher 排除的名單不得多於 hook 宣告的（matcher 偷偷多排除 = 挖洞）
+for (const name of [...knownReadonly]) {
+  if (!matches(name) && !matcherExcluded.includes(name)) {
+    fail("matcher 排除了 " + name + "，但 hook 的 MATCHER_EXCLUDED 沒宣告它");
   }
 }
 
 if (process.exitCode) {
   console.error(
     "\nmatcher 現值: " + matcher +
-    "\nhook 清單:   " + required.join("|") + "|mcp__.*"
+    "\nhook 要攔:   " + required.join(", ") +
+    "\nmatcher 排除: " + matcherExcluded.join(", ")
   );
 } else {
-  console.log("PASS matcher-contract (" + required.length + " 個工具名 + mcp__.* 兩邊一致)");
+  console.log(
+    "PASS matcher-contract (" + required.length + " 個要攔的工具進得了 hook、" +
+    UNKNOWN_SAMPLES.length + " 個未知工具進得了 hook、" +
+    matcherExcluded.length + " 個排除項與 hook 宣告一致)"
+  );
 }
