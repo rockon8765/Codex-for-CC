@@ -159,6 +159,37 @@ check("symlink-refused-and-no-partial", (a) => {
   a(baks(h).length === 0, "產生了 " + baks(h).length + " 個備份（預檢應在動手前就中止）");
 });
 
+// 複製階段失敗 → 必須回收本次已建立的備份（不變量：全部成功或什麼都沒留下）。
+// 變異注入：把第二個來源檔 chmod 000，讓它通過 lstat 預檢、卻在 copyFileSync 失敗。
+// ⚠️ 注入是否成功要自我檢查：以 root 執行時 chmod 擋不住讀取，那時 copy 會成功——
+// 那是「沒驗到」，必須標 SKIP，不能當成通過。
+check("copy-phase-failure-rolls-back", (a) => {
+  const h = newHome("rollback");
+  fs.writeFileSync(path.join(h, ".claude", "settings.json"), MAIN);
+  const second = path.join(h, ".claude", "settings.local.json");
+  fs.writeFileSync(second, LOCAL);
+  try {
+    fs.chmodSync(second, 0o000);
+    fs.readFileSync(second); // 注入自我檢查：讀得到就代表沒注入成功
+    skipped.push("copy-phase-failure-rolls-back（chmod 000 擋不住讀取，可能是 root 或 Windows）");
+    pass--;
+    return;
+  } catch (e) {
+    if (e.code !== "EACCES" && e.code !== "EPERM") {
+      skipped.push("copy-phase-failure-rolls-back（注入未生效：" + e.code + "）");
+      pass--;
+      return;
+    }
+  }
+  const r = run(h);
+  a(r.status === 1, "退出碼 " + r.status + "（預期 1）");
+  a(!r.out.includes("backup ts="), "中止了卻仍印出 backup ts=");
+  a(!r.out.includes("未產生任何備份"), "複製階段失敗卻宣稱『未產生任何備份』——那正是要修掉的假宣稱");
+  a(r.out.includes("已回收本次建立的備份"), "沒有回報回收動作");
+  fs.chmodSync(second, 0o600); // 讓後續清理刪得掉
+  a(baks(h).length === 0, "回收後仍留下 " + baks(h).length + " 個備份");
+});
+
 fs.rmSync(work, { recursive: true, force: true });
 
 const total = pass + failed.length + skipped.length;

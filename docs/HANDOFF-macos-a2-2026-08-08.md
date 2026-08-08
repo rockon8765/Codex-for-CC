@@ -41,9 +41,9 @@ done
 | 檔 | 期望 blob（前 12 碼）|
 |---|---|
 | `tools/probe-gate-registration.js` | `6280f96028fc` |
-| `tools/backup-settings.js` | `255de1d69811` |
+| `tools/backup-settings.js` | `97530902820d` |
 | `tests/probe-gate-registration.test.js` | `5a8777c57b88` |
-| `tests/backup-settings.test.js` | `c56127de93bd` |
+| `tests/backup-settings.test.js` | `e5fea081a2c2` |
 | `docs/MIGRATION-hook-settings-target.md` | `63e38d6d4628` |
 | `docs/AI-INSTALL.md` | `3852df2607d3` |
 | `macos/settings.snippet.json` | `a903d6aac575` |
@@ -65,12 +65,18 @@ done
 | **A-4** | `bash tests/ai-install/run-posix.sh` | `PASS=68 FAIL=0`（**基準值，本批不該改變它**）|
 | **A-5** | 反向驗證，見下方 §3 | `TOTAL 42  PASS 7  FAIL 35` |
 | **A-6** | `node -e 'for (const p of ["windows","macos","linux"]) JSON.parse(require("fs").readFileSync(p+"/settings.snippet.json","utf8"))'` | 無輸出、exit 0 |
-| **A-7** | `node tests/backup-settings.test.js` | `TOTAL 7  PASS 7  FAIL 0  SKIP 0`，exit 0 |
+| **A-7** | `node tests/backup-settings.test.js` | `TOTAL 8  PASS 8  FAIL 0  SKIP 0`，exit 0 |
 
-> ⚠️ **A-7 的 SKIP 數是重點。** 在 Windows（非管理員）上 `symlink-refused-and-no-partial`
-> 會因為建不了 symlink 而標 SKIP —— 那條守衛在該平台**沒有被驗到**。
-> macOS 建得出 symlink，所以你這一趟**必須是 `SKIP 0`**。
-> 若你也看到 SKIP，請把原因貼回來，不要當成通過。
+> ⚠️ **A-7 的 SKIP 數是重點，這一趟必須是 `SKIP 0`。**
+> 有兩個案子在 Windows 上會標 SKIP，也就是那兩條守衛在該平台**沒有被驗到**：
+>
+> - `symlink-refused-and-no-partial` —— Windows 非管理員建不出 symlink
+> - `copy-phase-failure-rolls-back` —— 靠 `chmod 000` 做變異注入，Windows 上擋不住讀取
+>
+> macOS 兩者都做得到（WSL2 上實測 `8 PASS / SKIP 0`），**所以你看到任何 SKIP 都要回報原因**，
+> 不要當成通過。特別是第二條：它驗的是「複製階段失敗時會把本次建立的備份回收掉」，
+> 也就是「全部成功，或什麼都沒留下」這個不變量。
+> 若你是以 root 執行，`chmod 000` 擋不住讀取、注入會失效並自動標 SKIP —— 請改用一般帳號重跑。
 
 > `node` 在你的機器上若不在 PATH（可攜式安裝），請用絕對路徑。回報時附 `node -v`。
 

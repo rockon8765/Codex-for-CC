@@ -28,8 +28,30 @@ const os = require("os");
 const path = require("path");
 const crypto = require("crypto");
 
+// 預檢階段的中止：此時什麼都還沒建立，所以「未產生任何備份」是真的。
 const die = (msg) => {
   console.error(msg + "，中止（未產生任何備份）");
+  process.exit(1);
+};
+
+// 複製階段的中止：前面的檔案可能已經備好了，所以**不能**照抄上面那句話。
+// 這裡把本次已建立的備份刪掉再中止，讓「全部成功，或什麼都沒留下」成為固定不變量
+// ——刪掉是安全的：來源檔完全沒被動過，這些備份是本次剛建的。
+const dieAfterCopy = (msg, created) => {
+  const removed = [];
+  const stuck = [];
+  for (const p of created) {
+    try {
+      fs.unlinkSync(p);
+      removed.push(p);
+    } catch (e) {
+      stuck.push(p + "（" + e.code + "）");
+    }
+  }
+  console.error(msg + "，中止");
+  if (removed.length) console.error("  已回收本次建立的備份：" + removed.join("、"));
+  if (stuck.length) console.error("  ⚠️ 這些備份刪不掉，請自行處理：" + stuck.join("、"));
+  if (!removed.length && !stuck.length) console.error("  （未產生任何備份）");
   process.exit(1);
 };
 
@@ -84,13 +106,17 @@ if (!plan.length) {
 }
 
 // ── 第二段：複製並逐位元組比對 ────────────────────────────────────────
+// 不變量：**要嘛全部備份成功，要嘛什麼都沒留下。** 中途失敗會回收本次建立的備份。
+const created = [];
 for (const item of plan) {
   try {
+    // COPYFILE_EXCL：預檢到這裡之間若有人搶先建了同名檔，這裡會 EEXIST 而不是覆蓋掉它。
     fs.copyFileSync(item.src, item.bak, fs.constants.COPYFILE_EXCL);
   } catch (e) {
-    die("複製 " + item.src + " 失敗：" + e.code);
+    dieAfterCopy("複製 " + item.src + " 失敗：" + e.code, created);
   }
-  if (sha(item.src) !== sha(item.bak)) die(item.bak + " 備份不完整（雜湊不符）");
+  created.push(item.bak);
+  if (sha(item.src) !== sha(item.bak)) dieAfterCopy(item.bak + " 備份不完整（雜湊不符）", created);
   console.log(item.bak + "  OK");
 }
 
