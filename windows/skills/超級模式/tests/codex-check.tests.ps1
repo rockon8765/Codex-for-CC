@@ -700,6 +700,37 @@ function t_b_hooks_removed_after_baseline {  # baseline 有 hook → 使用者�
   # 最關鍵：hooks 從 1 筆變 0 筆**必須被報成漂移**。舊版會把它藏進 UNKNOWN 段而不報。
   AssertMatch 'b_hooks_gone' 'hooks 消失必須報成漂移' 'hooks -: myhook'
 }
+function t_b_hooks_alt_serializations {  # TOML 的其他寫法不得被洗白成「0 筆」
+  # 收窄「有無 hooks」的判斷式很容易開出洗白路徑。同一份 hook 資料在 TOML 至少三種寫法：
+  #   表頭   [hooks.state."id"]          ← 認得，會解析成 items
+  #   dotted hooks.state.id = { ... }    ← 舊版靠字面比對抓得到；只看表頭的版本會漏（本次一度弄丟）
+  #   inline [hooks] / state = { ... }   ← **舊版也漏**（字面 hooks.state 不出現），順手補
+  # 三者只要解析不出 items，就必須 UNPARSEABLE——把有 hook 誤報成零，代價比誤報格式變更高得多。
+  foreach ($c in @(
+    @{ n = 'dotted-key'; toml = "hooks.state.myhook = { trusted = true }" },
+    @{ n = 'inline-table'; toml = "[hooks]`r`nstate = { `"myhook:abc`" = { trusted = true } }" }
+  )) {
+    $script:currentTest = "b_hooks_alt_$($c.n)"
+    Setup
+    $codexDir = Join-Path $script:fakeHome '.codex'
+    New-Item -ItemType Directory -Path $codexDir -Force | Out-Null
+    Set-Content -LiteralPath (Join-Path $codexDir 'config.toml') -Value $c.toml -Encoding utf8
+    Run-Check @{ CODEX_STUB_PLUGINS = 'alpha' }
+    AssertMatch "b_hooks_alt_$($c.n)" "[$($c.n)] 必須 UNPARSEABLE，不得洗白成 0 筆" '受信任 hooks: \(UNPARSEABLE'
+    AssertNoMatch "b_hooks_alt_$($c.n)" "[$($c.n)] 不得報 0 筆" '受信任 hooks: 0 筆'
+    # 且必須拒絕寫進 baseline（洗白進 baseline 之後就再也不會被報成漂移）
+    Invoke-Check -Mode update -Overrides @{ CODEX_STUB_PLUGINS = 'alpha' }
+    if ($script:rc -eq 2) { Assert "b_hooks_alt_$($c.n)" "[$($c.n)] 拒寫 baseline exit 2" 0 } else { Assert "b_hooks_alt_$($c.n)" "[$($c.n)] 拒寫 baseline exit 2（實際 $($script:rc)）" 1 }
+  }
+  # 對照組：純註解的空表仍須判為合法零筆（證明上面的斷言不是「一律 UNPARSEABLE」）
+  $script:currentTest = 'b_hooks_alt_ctrl'
+  Setup
+  $codexDir = Join-Path $script:fakeHome '.codex'
+  New-Item -ItemType Directory -Path $codexDir -Force | Out-Null
+  Set-Content -LiteralPath (Join-Path $codexDir 'config.toml') -Value "[hooks.state]`r`n# nothing here`r`n`r`n[shell]`r`nA = 'b'" -Encoding utf8
+  Run-Check @{ CODEX_STUB_PLUGINS = 'alpha' }
+  AssertMatch 'b_hooks_alt_ctrl' '對照組：空表+註解仍是 0 筆' '受信任 hooks: 0 筆'
+}
 function t_b_flag_incompat_cache_not_trusted {  # 命中側對稱守衛：本次盤點旗標不相容 → 舊綠快取不採信
   $script:currentTest = 'b_flag_nohit'
   Setup; Invoke-Check -Mode force
@@ -722,7 +753,7 @@ $allTests = @(
   't_b_empty_ambiguous_unknown','t_b_query_fail_unknown_update_refused','t_b_unparseable_blocks_update','t_b_corrupt_baseline',
   't_b_flag_missing_no_cache','t_b_near_flag_not_matched','t_b_version_empty_no_cache_hit','t_b_cache_version_mismatch_miss',
   't_b_probe_stderr_immune','t_b_boilerplate_zero_is_empty','t_b_mcp_drift_and_fail','t_b_mcp_all_unknown_unparseable',
-  't_b_marketplace_identity_drift','t_b_hooks_unparseable','t_b_hooks_empty_table_is_zero','t_b_hooks_removed_after_baseline','t_b_flag_incompat_cache_not_trusted'
+  't_b_marketplace_identity_drift','t_b_hooks_unparseable','t_b_hooks_empty_table_is_zero','t_b_hooks_removed_after_baseline','t_b_hooks_alt_serializations','t_b_flag_incompat_cache_not_trusted'
 )
 
 try {

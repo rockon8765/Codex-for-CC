@@ -164,14 +164,19 @@ collect_capability_snapshot() {
       # hooks 是 read-only 心智模型之外的執行面，「洗白成無 hooks」代價最高，所以只有在
       # **確實看不到任何條目形跡**時才判為零。
       if [ -z "$cap_hooks_items" ]; then
+        # 「條目形跡」四個訊號，任一成立就 UNPARSEABLE。涵蓋 TOML 對同一份資料的不同寫法。
         hooks_evidence="$(printf '%s\n' "$cfg_raw" | tr -d '\r' | awk '
           /^[[:space:]]*\[/ {
-            inbare = 0
-            if ($0 ~ /^[[:space:]]*\[hooks\.state\./) { print "sub"; next }
-            if ($0 ~ /^[[:space:]]*\[hooks\.state\][[:space:]]*$/) { inbare = 1 }
+            inbare = 0; inhooks = 0
+            if ($0 ~ /^[[:space:]]*\[hooks\.state\.\"[^\"]+\"\][[:space:]]*$/) { next }
+            if ($0 ~ /^[[:space:]]*\[hooks\.state\][[:space:]]*$/) { inbare = 1; next }
+            if ($0 ~ /hooks\.state/) { print "hdr"; next }
+            if ($0 ~ /^[[:space:]]*\[hooks\][[:space:]]*$/) { inhooks = 1 }
             next
           }
-          inbare && $0 !~ /^[[:space:]]*$/ && $0 !~ /^[[:space:]]*#/ { print "body" }
+          inbare && $0 !~ /^[[:space:]]*$/ && $0 !~ /^[[:space:]]*#/ { print "body"; next }
+          /hooks\.state/ { print "dotted"; next }
+          inhooks && $0 ~ /^[[:space:]]*state[[:space:]]*=/ { print "inline" }
         ')"
         [ -n "$hooks_evidence" ] && cap_hooks_status="UNPARSEABLE"
       fi

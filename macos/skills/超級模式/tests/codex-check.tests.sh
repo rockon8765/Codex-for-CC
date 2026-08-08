@@ -370,6 +370,33 @@ t_b_hooks_removed_after_baseline() {  # baseline 有 hook → 移除該外掛 �
   # 最關鍵：hooks 從 1 筆變 0 筆**必須被報成漂移**。舊版會把它藏進 UNKNOWN 段而不報。
   printf '%s' "$out" | grep -qF 'hooks -: myhook'; assert b_hooks_gone "hooks 消失必須報成漂移" $?
 }
+t_b_hooks_alt_serializations() {  # TOML 的其他寫法不得被洗白成「0 筆」
+  # 同一份 hook 資料在 TOML 至少三種寫法：表頭 [hooks.state."id"]（認得）、
+  # dotted key（舊版靠字面比對抓得到，只看表頭會漏——本次一度弄丟）、
+  # inline table（**舊版也漏**，字面 hooks.state 不出現）。
+  # 三者只要解析不出 items 就必須 UNPARSEABLE：把有 hook 誤報成零，代價比誤報格式變更高得多。
+  setup; mkdir -p "$fake_home/.codex"
+  printf 'hooks.state.myhook = { trusted = true }\n' > "$fake_home/.codex/config.toml"
+  run_check CODEX_STUB_PLUGINS=alpha
+  printf '%s' "$out" | grep -qF '受信任 hooks: (UNPARSEABLE'; assert b_hooks_alt "[dotted-key] 必須 UNPARSEABLE" $?
+  if printf '%s' "$out" | grep -qF '受信任 hooks: 0 筆'; then assert b_hooks_alt "[dotted-key] 不得報 0 筆" 1; else assert b_hooks_alt "[dotted-key] 不得報 0 筆" 0; fi
+  invoke_check update CODEX_STUB_PLUGINS=alpha
+  if [ "$rc" -eq 2 ]; then assert b_hooks_alt "[dotted-key] 拒寫 baseline exit 2" 0; else assert b_hooks_alt "[dotted-key] 拒寫 baseline exit 2（實際 $rc）" 1; fi
+
+  setup; mkdir -p "$fake_home/.codex"
+  printf '[hooks]\nstate = { "myhook:abc" = { trusted = true } }\n' > "$fake_home/.codex/config.toml"
+  run_check CODEX_STUB_PLUGINS=alpha
+  printf '%s' "$out" | grep -qF '受信任 hooks: (UNPARSEABLE'; assert b_hooks_alt "[inline-table] 必須 UNPARSEABLE" $?
+  if printf '%s' "$out" | grep -qF '受信任 hooks: 0 筆'; then assert b_hooks_alt "[inline-table] 不得報 0 筆" 1; else assert b_hooks_alt "[inline-table] 不得報 0 筆" 0; fi
+  invoke_check update CODEX_STUB_PLUGINS=alpha
+  if [ "$rc" -eq 2 ]; then assert b_hooks_alt "[inline-table] 拒寫 baseline exit 2" 0; else assert b_hooks_alt "[inline-table] 拒寫 baseline exit 2（實際 $rc）" 1; fi
+
+  # 對照組：純註解的空表仍須判為合法零筆（證明上面不是「一律 UNPARSEABLE」）
+  setup; mkdir -p "$fake_home/.codex"
+  printf "[hooks.state]\n# nothing here\n\n[shell]\nA = 'b'\n" > "$fake_home/.codex/config.toml"
+  run_check CODEX_STUB_PLUGINS=alpha
+  printf '%s' "$out" | grep -qF '受信任 hooks: 0 筆'; assert b_hooks_alt "對照組：空表+註解仍是 0 筆" $?
+}
 t_b_flag_incompat_cache_not_trusted() {  # 命中側對稱守衛：本次盤點旗標不相容 → 舊綠快取不採信
   setup; invoke_check force
   invoke_check noforce CODEX_STUB_HELP_DROP_FLAG=--ephemeral
@@ -378,7 +405,7 @@ t_b_flag_incompat_cache_not_trusted() {  # 命中側對稱守衛：本次盤點�
   assert b_flag_nohit "exit 0" "$rc"
 }
 
-all_tests="t_happy_path t_offline_unknown t_fake_pass_rejected t_ansi_stripped t_h1_leading_warning t_h1_warning_has_version t_h1_no_version t_h5_multiline t_h5_blank_second_line t_h5_junk t_h5_prerelease_current t_h3_npm_hang t_h3_partial_stdout_discarded t_h3_print_then_fail t_h4_empty_cache_miss t_h4_oldformat_cache_miss t_h4_truncated_line_miss t_h4_future_mtime_miss t_h4_newformat_cache_hit t_h2_exact_ok t_h2_not_ok_rejected t_h2_refusal_rejected t_h2_no_flag_when_unsupported t_h4_missing_latest_field t_h4_missing_verdict_field t_h2_large_help_keeps_lastmsg t_h1_huge_banner_no_crash t_smoke_stderr_noise_no_crash t_b_no_autocreate_then_update t_b_no_drift t_b_drift_warns_no_rewrite t_b_update_baseline t_b_empty_ambiguous_unknown t_b_query_fail_unknown_update_refused t_b_unparseable_blocks_update t_b_corrupt_baseline t_b_flag_missing_no_cache t_b_near_flag_not_matched t_b_version_empty_no_cache_hit t_b_cache_version_mismatch_miss t_b_probe_stderr_immune t_b_boilerplate_zero_is_empty t_b_mcp_drift_and_fail t_b_mcp_all_unknown_unparseable t_b_marketplace_identity_drift t_b_hooks_unparseable t_b_hooks_empty_table_is_zero t_b_hooks_removed_after_baseline t_b_flag_incompat_cache_not_trusted"
+all_tests="t_happy_path t_offline_unknown t_fake_pass_rejected t_ansi_stripped t_h1_leading_warning t_h1_warning_has_version t_h1_no_version t_h5_multiline t_h5_blank_second_line t_h5_junk t_h5_prerelease_current t_h3_npm_hang t_h3_partial_stdout_discarded t_h3_print_then_fail t_h4_empty_cache_miss t_h4_oldformat_cache_miss t_h4_truncated_line_miss t_h4_future_mtime_miss t_h4_newformat_cache_hit t_h2_exact_ok t_h2_not_ok_rejected t_h2_refusal_rejected t_h2_no_flag_when_unsupported t_h4_missing_latest_field t_h4_missing_verdict_field t_h2_large_help_keeps_lastmsg t_h1_huge_banner_no_crash t_smoke_stderr_noise_no_crash t_b_no_autocreate_then_update t_b_no_drift t_b_drift_warns_no_rewrite t_b_update_baseline t_b_empty_ambiguous_unknown t_b_query_fail_unknown_update_refused t_b_unparseable_blocks_update t_b_corrupt_baseline t_b_flag_missing_no_cache t_b_near_flag_not_matched t_b_version_empty_no_cache_hit t_b_cache_version_mismatch_miss t_b_probe_stderr_immune t_b_boilerplate_zero_is_empty t_b_mcp_drift_and_fail t_b_mcp_all_unknown_unparseable t_b_marketplace_identity_drift t_b_hooks_unparseable t_b_hooks_empty_table_is_zero t_b_hooks_removed_after_baseline t_b_hooks_alt_serializations t_b_flag_incompat_cache_not_trusted"
 tests="${*:-$all_tests}"
 for t in $tests; do
   case " $all_tests " in

@@ -144,32 +144,38 @@ function Get-CapabilitySnapshot {
     $cfgRaw = ''
     if (Test-Path $cfg) {
       $cfgRaw = [string](Get-Content -LiteralPath $cfg -Raw)
-      $lines = @($cfgRaw -split "`r?`n")
-      $subTableSeen = $false      # 看到 [hooks.state.<任何東西>] 這種子表頭
-      $bareBodySeen = $false      # [hooks.state] 這張表底下有實質內容
-      $inBare = $false
-      foreach ($ln in $lines) {
+      # 「條目形跡」四個訊號，任一成立且解析 0 筆就 UNPARSEABLE。
+      # 只有**完全看不到任何形跡**（沒有 hooks.state，或只有一張空的 [hooks.state]）才判零。
+      $evidence = $false
+      $inBare = $false      # 正在裸 [hooks.state] 這張表底下
+      $inHooks = $false     # 正在 [hooks] 這張表底下
+      foreach ($ln in @($cfgRaw -split "`r?`n")) {
         if ($ln -match '^\s*\[') {
-          # 任何表頭都結束「裸 [hooks.state] 的本體」
-          $inBare = $false
-          if ($ln -match '^\s*\[hooks\.state\."([^"]+)"\]') { $h.Items += (($Matches[1] -split ':')[0]); $subTableSeen = $true }
-          elseif ($ln -match '^\s*\[hooks\.state\.')        { $subTableSeen = $true }   # 子表存在但格式不認得
+          $inBare = $false; $inHooks = $false     # 任何表頭都結束前一張表的本體
+          if ($ln -match '^\s*\[hooks\.state\."([^"]+)"\]') { $h.Items += (($Matches[1] -split ':')[0]) }
           elseif ($ln -match '^\s*\[hooks\.state\]\s*$')    { $inBare = $true }
+          elseif ($ln -match 'hooks\.state')                { $evidence = $true }   # ① 子表頭但格式不認得
+          elseif ($ln -match '^\s*\[hooks\]\s*$')           { $inHooks = $true }
           continue
         }
-        if ($inBare -and $ln.Trim() -ne '' -and $ln.Trim() -notmatch '^#') { $bareBodySeen = $true }
+        if ($inBare -and $ln.Trim() -ne '' -and $ln.Trim() -notmatch '^#') { $evidence = $true }   # ② 裸表底下有實質內容
+        elseif ($ln -match 'hooks\.state')                  { $evidence = $true }   # ③ dotted key：hooks.state.x = ...
+        elseif ($inHooks -and $ln -match '^\s*state\s*=')    { $evidence = $true }   # ④ [hooks] 底下 state = { inline table }
       }
     }
     $h.Items = @($h.Items | Select-Object -Unique | Sort-Object)
     # 三態，不是兩態。舊版寫 `$cfgRaw -match 'hooks\.state'`，於是**合法的空表**
     # （`[hooks.state]` 底下沒有任何條目——例如使用者移除了唯一提供 hook 的外掛）
-    # 也被判成 UNPARSEABLE：它同時擋掉 baseline 比對、又是 cry-wolf，
-    # 日後真的格式變更時這個警告已經沒有訊號價值了。（2026-08-08 實測命中。）
-    #   有子表但一筆都解析不到 / 裸表底下有不認得的內容 → UNPARSEABLE（格式疑似變更）
-    #   完全沒有 hooks.state，或只有一張空的 [hooks.state]        → OK 且 0 筆（真的沒有 hook）
-    # hooks 是 read-only 心智模型之外的執行面，「洗白成無 hooks」代價最高，所以只有在
-    # **確實看不到任何條目形跡**時才判為零。
-    if ($h.Items.Count -eq 0 -and ($subTableSeen -or $bareBodySeen)) { $h.Status = 'UNPARSEABLE' }
+    # 也被判成 UNPARSEABLE：既擋掉 baseline 比對，又是 cry-wolf，日後真的格式變更時
+    # 這個警告已經沒有訊號價值。（2026-08-08 實測命中。）
+    #
+    # ⚠️ 但收窄判斷式很容易**開出洗白路徑**——hooks 是 read-only 心智模型之外的執行面，
+    # 「把有 hook 誤報成零」代價最高。所以上面列了四個形跡訊號，涵蓋 TOML 對同一份資料的
+    # 不同寫法：子表頭（含不認得的引號形式）、裸表本體、**dotted key**、**inline table**。
+    #   ③ 是本次收窄一度弄丟的：`hooks.state.myhook = {...}` 舊版靠字面比對抓得到，
+    #      只看表頭的版本會漏 → 已補回並加回歸案。
+    #   ④ 是**舊版就漏**的（字面 `hooks.state` 不出現），順手一起補。
+    if ($h.Items.Count -eq 0 -and $evidence) { $h.Status = 'UNPARSEABLE' }
   } catch { $h.Status = 'FAILED' }
   $snap['hooks'] = $h
 
@@ -444,16 +450,18 @@ Write-Output "使用的 codex: $codexCmd"
 # 那時去查 PATH 上的 codex 等於伸手到沙箱外：既讓每個案例多跑一次真 binary（實測讓測試臺從
 # 約 1 分鐘變成逾 10 分鐘），也會讓 anti-live 斷言看到真實路徑。這個比對本來就只對
 # 「寫死路徑 vs 使用者 PATH」這個情境有意義。
-$pathCodex = if ($env:CODEX_CHECK_CODEX_CMD) { $null } else { Get-Command codex -ErrorAction SilentlyContinue | Select-Object -First 1 }
+# ⚠️ 這裡**只比對路徑，絕不執行**任何在 PATH 上解析到的東西。
+# 2026-08-08 教訓：初版用 `Get-Command codex | Select-Object -First 1` 取第一個匹配，
+# 再 `cmd /c "<path>" --version`。原生安裝的 .exe 被移除後，第一個匹配變成
+# **C:\npm\codex.ps1**（PowerShell 解析順序 ExternalScript 排在 .cmd 之前），
+# 而 **cmd.exe 不會執行 .ps1 —— 它用檔案關聯開啟，於是彈出記事本並卡住等它關閉**
+# （實測讓一次呼叫掛滿 10 分鐘）。「為了印個版本號去執行 PATH 上解析到的路徑」
+# 這件事的爆炸半徑遠大於它的價值，故改成純路徑比對。
+$pathCodex = if ($env:CODEX_CHECK_CODEX_CMD) { $null } else { Get-Command codex -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1 }
 if ($pathCodex -and $pathCodex.Source -and ($pathCodex.Source -ne $codexCmd)) {
-  $pathVerRaw = ''
-  try { $pathVerRaw = (& cmd.exe /d /s /c ('"{0}" --version 2>NUL' -f $pathCodex.Source)) | Out-String } catch { }
-  $pathVer = if ($pathVerRaw -match '(?m)^\s*codex-cli\s+(\S+)') { $Matches[1] } else { $null }
-  if ($pathVer -and $instVer -and $pathVer -ne $instVer) {
-    Write-Output ("⚠️ PATH 上的 codex 是**另一支**且版本不同：{0}（{1}）" -f $pathCodex.Source, $pathVer)
-    Write-Output ("   skill 一律用上面那支（寫死路徑），所以你在終端機看到的版本不代表 worker 的版本。")
-    Write-Output ("   要讓 skill 跟上，請更新 skill 用的那支；`codex --version` 相符不構成證據。")
-  }
+  Write-Output ("⚠️ PATH 上的 codex 是**另一支**：{0}" -f $pathCodex.Source)
+  Write-Output ("   skill 一律用上面那支（寫死路徑）。兩者版本可能不同，**`codex --version` 相符不構成證據**；")
+  Write-Output ("   要確認 worker 實際版本，看下方 installed／smoke test 的輸出。")
 }
 Write-Output "installed: $instVer"
 Write-Output "latest:    $latestDisp"
