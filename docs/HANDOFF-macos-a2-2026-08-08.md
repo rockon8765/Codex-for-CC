@@ -40,9 +40,9 @@ done
 
 | 檔 | 期望 blob（前 12 碼）|
 |---|---|
-| `tools/probe-gate-registration.js` | `28bd25ac4a15` |
+| `tools/probe-gate-registration.js` | `213a85b0f2e1` |
 | `tools/backup-settings.js` | `081a6f384a84` |
-| `tests/probe-gate-registration.test.js` | `ff844feaa381` |
+| `tests/probe-gate-registration.test.js` | `24bdf7fe0bbe` |
 | `tests/backup-settings.test.js` | `8b4a8f259243` |
 | `docs/MIGRATION-hook-settings-target.md` | `eecac6aa8f09` |
 | `docs/AI-INSTALL.md` | `bfab2749379f` |

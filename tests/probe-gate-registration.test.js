@@ -83,7 +83,7 @@ const CASES = [
   { id: "local-invalid-main-ok", main: settings(gateEntry()), local: { raw: "{" }, exit: 1, want: ["JSON 解析失敗"], deny: ["正常，不用修"] },
 
   // ---- 停手：需要人工判斷，exit 3 --------------------------------------
-  { id: "halt-shared-entry", main: settings({ matcher: MATCHER, hooks: [gateHandler(), { type: "command", command: "node /other/hook.js" }] }), exit: 3, want: ["還有 1 個非 gate 的 handler", "判定：停手"] },
+  { id: "halt-shared-entry", main: settings({ matcher: MATCHER, hooks: [gateHandler(), { type: "command", command: "node /other/hook.js" }] }), exit: 3, want: ["還有 1 個非 gate 的 handler", "判定：停手", "大小寫敏感"] },
   { id: "halt-main2-diff-command", main: settings(gateEntry(), gateEntry(CMD_STALE)), exit: 3, want: ["matcher／command 不一致", "判定：停手"] },
   { id: "halt-main2-diff-matcher", main: settings(gateEntry(), gateEntry(CMD, "Bash")), exit: 3, want: ["matcher／command 不一致", "判定：停手"] },
   // ↓ Codex 2026-08-08 指出的回歸路徑：main 一筆 stale ＋ local 一筆正確。
@@ -116,7 +116,8 @@ const CASES = [
   // 本工具**只判斷 shell form**：看到 exec form 一律 exit 3。
   // 理由見 tools/probe-gate-registration.js 的註解——判「正常」會與必跑的
   // matcher-contract（也只看 command）矛盾，判「沒有 gate」則會叫人再加一筆。
-  { id: "halt-exec-form", main: settings(execEntry()), exit: 3, want: ["exec form", "判定：停手"], deny: ["正常，不用修", "兩邊都沒有 gate"] },
+  // 「大小寫敏感」是範圍說明裡的字串——每個 exit 3 路徑也要印，所以在這裡釘住
+  { id: "halt-exec-form", main: settings(execEntry()), exit: 3, want: ["exec form", "判定：停手", "大小寫敏感"], deny: ["正常，不用修", "兩邊都沒有 gate"] },
   { id: "halt-duplicate-exec-form", main: settings(execEntry(), execEntry()), exit: 3, want: ["exec form", "判定：停手"], deny: ["已經重複註冊"] },
   { id: "halt-mixed-forms", main: settings(gateEntry()), local: settings(execEntry()), exit: 3, want: ["exec form", "判定：停手"], deny: ["正常，不用修"] },
   // needle 出現在 args 但根本不是在跑 gate —— 舊寫法會判「正常，已裝好」，是假陽性

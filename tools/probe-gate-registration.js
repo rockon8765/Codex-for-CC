@@ -41,11 +41,19 @@ const NEEDLE = "super-mode-consult-gate";
 const isObj = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
 const typeName = (v) => (v === null ? "null" : Array.isArray(v) ? "陣列" : typeof v);
 
-// **每一條退出路徑都要印範圍**，所以掛在 process exit 上、而且在任何掃描之前就掛好。
-// 先前只在「有找到 gate」時才印，於是最需要看到它的那條路徑——找到 0 筆、
-// 接著 `AI-INSTALL` 步驟 2 會叫人新增一筆——反而看不到「needle 大小寫敏感」這個警告，
-// 而那正是 Windows 上製造重複註冊的入口。
-process.on("exit", () => {
+// **每一條退出路徑都要印範圍。** 先前只在「有找到 gate」時才印，於是最需要看到它的
+// 那條路徑——找到 0 筆、接著 `AI-INSTALL` 步驟 2 會叫人新增一筆——反而看不到
+// 「needle 大小寫敏感」這個警告，而那正是 Windows 上製造重複註冊的入口。
+//
+// ⚠️ **刻意不用 `process.on("exit")`。** 在 exit handler 裡寫 stdout 只有在該串流是
+// 同步的時候才可靠：Node 的 stdout 對 pipe **在 POSIX 上同步、在 Windows 上非同步**，
+// 所以那種寫法在 Windows 被導向管線時可能整段被截掉——而且輸出量小的時候還會剛好通過，
+// 變成靠運氣的綠燈。改成每個退出點顯式呼叫，行為與平台無關。
+const bye = (code) => {
+  printScope();
+  process.exit(code);
+};
+function printScope() {
   console.log("");
   console.log("⚠️ 本工具只數「gate 註冊了幾筆」，範圍刻意很窄：");
   console.log("   ・只判斷 shell form；看到 exec form（handler 帶 args）一律停手，不做判斷");
@@ -54,7 +62,7 @@ process.on("exit", () => {
   console.log("     重複註冊，本工具看不見。判「0 筆」時請先確認不是這種情況再新增。");
   console.log("   ・形狀檢查涵蓋整個 hooks.PreToolUse 樹（含與 gate 無關的條目），異形一律非 0；");
   console.log("     唯二例外：沒有 hooks 鍵的 entry 會略過，matcher 型別只在該 entry 掛著 gate 時才驗。");
-});
+}
 
 /**
  * 掃一個 settings 檔。
@@ -199,7 +207,7 @@ console.log("");
 
 if (!mainRes.ok || !localRes.ok) {
   console.log("判定：有檔案無法解析或形狀不合 —— 先修好再重跑，不要往下做。");
-  process.exit(1); // fail-closed：形狀不明時不可以讓人拿 exit 0 當成「已確認沒問題」
+  bye(1); // fail-closed：形狀不明時不可以讓人拿 exit 0 當成「已確認沒問題」
 }
 
 const tag = (file) => (h) => Object.assign({ file }, h);
@@ -216,7 +224,7 @@ if (execAll.length) {
   console.log("      理由：安裝流程規定必跑的 matcher-contract 目前也只看 `command`，會對它回報");
   console.log("      「沒有註冊本 hook」；而 `args` 存在與否會改變 runtime 語義，光比字串無法");
   console.log("      安全判斷兩筆註冊是不是同一筆。這裡若判「正常」或「沒有 gate」都會誤導。");
-  process.exit(3);
+  bye(3);
 }
 // 1. 含 gate 的 outer entry 底下還掛著別的 handler：整筆搬移／刪除會動到不相干的 hook。
 const shared = all.filter((h) => h.others > 0);
@@ -225,7 +233,7 @@ if (shared.length) {
     console.log("  " + h.where + " 所在的 entry 底下還有 " + h.others + " 個非 gate 的 handler");
   }
   console.log("判定：停手 —— 含 gate 的條目底下還掛著其他 handler，動它會影響不相干的 hook。請人工判斷。");
-  process.exit(3);
+  bye(3);
 }
 // 2. 有兩筆以上 gate handler、但它們的 matcher 或 command 不一致：不知道該留哪一筆。
 //    ⚠️ 必須比**兩個檔的聯集**。只比 settings.json 的話，「main 一筆 stale ＋ local 一筆正確」
@@ -242,7 +250,7 @@ if (all.length >= 2 && seen.length > 1) {
     console.log("    matcher=" + JSON.stringify(v[0]) + "  command=" + JSON.stringify(v[1]));
   }
   console.log("判定：停手 —— 多筆 gate handler 的 matcher／command 不一致，無法判斷該留哪一筆。請人工判斷。");
-  process.exit(3);
+  bye(3);
 }
 
 // ── 一般判定 ────────────────────────────────────────────────────────────
@@ -264,3 +272,5 @@ if (all.length) {
   }
   console.log("（端到端沒被 deny 時，先核對上面印出來的路徑還在不在——見下方範圍說明。）");
 }
+
+printScope(); // 正常結束（exit 0）也要印，與非 0 路徑一致
