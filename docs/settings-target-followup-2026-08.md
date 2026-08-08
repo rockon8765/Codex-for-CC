@@ -129,7 +129,7 @@
 | # | 項目 | 狀態 |
 |---|---|---|
 | 0 | MIGRATION 檔頭 containment 警告 ＋ backlog 追蹤列 | ✅ `b7b34c4` |
-| 1 | 三台唯讀 installed census（Windows／macOS／Linux）——釘 OS、Claude Code 版本、installed `matcher-contract` 的 blob、`settings.json`／`settings.local.json` 的 gate handler 數 | ☐ **需 Mac／Linux 持有者執行**；只當具名樣本，不外推 |
+| 1 | 三台唯讀 installed census——釘 OS、Claude Code 版本、installed `matcher-contract` 的 blob、`settings.json`／`settings.local.json` 的 gate handler 數 | **Windows ✅**（見 [`HANDOFF-macos-2026-08-08.md`](HANDOFF-macos-2026-08-08.md) §3 的對照表）；macOS 已併入該 handoff 的任務 B；**WSL2 不是對象**（實查無 `~/.claude`，純驗證環境）。只當具名樣本，不外推 |
 | 2 | B1：兩處回滾加子樹掃描（`$sbak` **僅在選中時**掃；live 不存在＝**無子樹可掃**，不得當掃描失敗）＋ 針對性測試 | ✅ Windows／Linux；**macOS 待原生驗證** |
 | 3 | A2：probe 逐層驗形狀並 fail-closed；第 2 節改 handler 粒度＋補「main 已有一筆」分支；10 處註冊入口改冪等／衝突停手 | ✅ Windows／Linux；**macOS 待原生驗證** |
 | 4 | A1：`--repo`／`--live` 顯式模式、印出實際受驗路徑、修 §1.1 的 4 處相對路徑 | ✅ Windows／Linux；**macOS 待原生驗證** |
@@ -138,6 +138,7 @@
 | 7 | README legacy notice（排在 #3 之後）| ✅ |
 | 8 | 把 legacy backup **子樹**掃描補進 `installer-rewrite-spec.md` 的 legacy 回滾節與驗收表 | ✅ |
 | 9 | 刪除舊分支（**最後一步**：successor 進 main ＋ 遠端 tag 可取回之後）| ☐ |
+| 10 | macOS 原生驗證 ＋ census —— 交接文件＝[`HANDOFF-macos-2026-08-08.md`](HANDOFF-macos-2026-08-08.md)（釘 `224ad8e`）| ☐ 待 Mac 端回報 |
 
 ## 4. 已拍板的決策
 
