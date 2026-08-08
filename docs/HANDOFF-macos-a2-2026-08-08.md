@@ -21,8 +21,40 @@
 > A-5 在 macOS 不可重跑，以及 `TMPDIR` 未設時 fallback 到 world-writable 的 `/tmp`，
 > 別人預先建那個固定路徑就能永久擋掉這項驗證。
 
-> ## 第二趟：⏳ 待跑（delta 重驗）
+> ## 第二趟：✅ 已完成（2026-08-09 回報，受驗 `27f462e`，10 筆 blob 全符）
 >
+> **環境**：macOS 26.6.1 (25G76) arm64／內建 `bash 3.2.57`／Node **v26.4.0**／
+> Claude Code 2.1.222／`uid=501` 非 root。工作目錄對 HEAD 全乾淨。
+>
+> **A-1** `TOTAL 44 PASS 44 FAIL 0` exit 0；**A-5** `TOTAL 44 PASS 7 FAIL 37` exit 1（預期）；
+> **A-7** `TOTAL 9 PASS 9 FAIL 0 SKIP 0` exit 0。A-1／A-7 各跑兩次，輸出一致。
+>
+> A-5 的 PASS 集合是**從測試檔抽出全部 44 個 id、扣掉逐行 `FAIL:` 反推**再與本檔 §3 清單
+> `diff`，結果 **EXACT MATCH**（44 個唯一 id，無重複遮蔽）。
+>
+> §4 診斷：**①** 驗證者把**四條**退出路徑都跑了（不只本檔點名的兩條）——
+> 空假 HOME／壞 JSON／exec form／已註冊 gate，對應 exit 0／1／3／0，**四條都印出範圍區塊**。
+> **②** fixed-clock 做到**端對端**確認：不只看測試綠，而是拿真的 `backup-settings.js`
+> 在假 HOME 跑兩次比對檔名——注入時 `bak-20260809-030405`（釘死值）、
+> 不注入時 `bak-20260809-030044`（真實時鐘），證明注入是 load-bearing 而非 no-op；
+> helper 未設 `FIXED_CLOCK_MS` 時會**大聲拋錯**，不會靜默退回真實時鐘。
+>
+> **驗證者另外做的三件事（都不在要求範圍內）**：
+> 1. 實測 §3 的兩道牙齒檢查**都是活的**——用 `HEAD` 版餵進去會觸發守衛 1 並 `exit 1`；
+>    另造合成檔（同時含舊特徵行與「形狀不合」）確認**守衛 2 也不是死碼**。
+>    順帶指出：從 `HEAD` 抽 heredoc 得到 **0 bytes**（A2 已把它移出檔案，正常）。
+> 2. 確認 `mktemp -d` 修法在 macOS **可重跑**（連跑兩次都建出新目錄），
+>    原本 `mkstemp failed: File exists` 的失效模式已消除。
+> 3. 查證真實 `~/.claude` **完全沒被動到**（`.bak-*` 全是 8/8 的、`settings.json` mtime 未變），
+>    並用「真實 HOME 讀到 1 個 gate vs 假 HOME 讀到檔案不存在」當假 `HOME` 機制的正向對照。
+>
+> **他們指出的兩個小問題，已記進 [`backlog.md`](backlog.md)，本趟結論不受影響**：
+> `FIXED_MS` 用無時區字串解析成**本地時間**，而他們正好在該時刻前 177 秒執行；
+> 以及本檔 §3 的 `awk` 用雙引號包程式。詳見 backlog。
+
+<details>
+<summary>第二趟的原始指示（已完成，保留備查）</summary>
+
 > 第一趟之後，合併前審查第五輪的修正**動了受測程式碼的行為**，所以那三個數字已經過時：
 >
 > | 動到什麼 | 影響哪些項目 |
@@ -37,6 +69,8 @@
 > 與第一趟相同）。
 >
 > **第二趟只要跑 A-1、A-5、A-7 三項。**
+
+</details>
 
 ## 1. 受驗版本與 blob
 
@@ -113,8 +147,10 @@ d=$(mktemp -d "${TMPDIR:-/tmp}/legacy-probe.XXXXXX")
 trap 'rm -r "$d"' EXIT
 legacy="$d/probe.js"
 
+# awk 程式用**單引號**：雙引號版在 bash 下雖然照跑（`$/` 不是合法展開），
+# 但那是碰運氣。程式裡本來就有 'PROBE' 單引號，所以用 '"'"' 跳脫。
 git show 5cc50e0:docs/MIGRATION-hook-settings-target.md \
-  | awk "/^node - <<'PROBE'$/{f=1;next} /^PROBE$/{f=0} f" > "$legacy"
+  | awk '/^node - <<'"'"'PROBE'"'"'$/{f=1;next} /^PROBE$/{f=0} f' > "$legacy"
 
 # 牙齒檢查：抽出來的必須真的是舊版，否則等於拿新版對新版比。
 # ⚠️ 檢查失敗要**真的中止**（exit 1），只印一行「停手」但繼續跑等於沒有守衛。
