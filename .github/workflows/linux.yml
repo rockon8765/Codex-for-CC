@@ -88,8 +88,10 @@ jobs:
 
       # 這裡也是 CI 唯一會**真的建出 symlink** 的地方（Windows 非管理員建不了，
       # 那邊該案會標 SKIP）。所以這一步同時是那條守衛的原生覆蓋。
-      - name: backup-settings 回歸
-        run: node "tests/backup-settings.test.js"
+      # --strict：CI 只看退出碼，所以 SKIP 必須也算失敗，否則守衛沒跑到卻是綠燈。
+      # Linux runner 建得出 symlink、也不是 root，兩個變異注入案都應該真的跑到。
+      - name: backup-settings 回歸（--strict：不允許 SKIP）
+        run: node "tests/backup-settings.test.js" --strict
 
       - name: e2e（會印 GATE_UNDER_TEST / GATE_BLOB 供核對）
         run: bash "linux/skills/超級模式/tests/run-e2e.sh"

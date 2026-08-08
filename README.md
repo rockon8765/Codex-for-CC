@@ -43,9 +43,9 @@
 > ⚠️ **macOS 尚未原生驗證**，交接文件見 [`docs/HANDOFF-macos-a2-2026-08-08.md`](docs/HANDOFF-macos-a2-2026-08-08.md)。在收到回報之前，**不要**把本批當成三平台等價驗證過。
 > **Windows**（Node v24.16.0）：`tests/probe-gate-registration.test.js` **42/42**；`tests/backup-settings.test.js` **6 PASS／0 FAIL／2 SKIP**（symlink 案需要建 symlink 的權限、rollback 案靠 `chmod 000` 做變異注入，兩者 Windows 都做不到 → **明確標 SKIP 並計入摘要，不是靜默跳過**）；`tests/ai-install/run-windows.ps1` **69/69**（pwsh 7 與 Windows PowerShell 5.1 各跑一次）；gate-cases **109/109**；`codex-check` **188/188**；三平台 `matcher-contract` 皆 exit 0（該檔與 `5cc50e0` **同 blob**，本批未改它）。
 > **Linux**（WSL2 ext4 家目錄、**fresh clone** 而非複製工作目錄，Node v22.23.1）：probe **42/42**、`backup-settings` **8/8 SKIP 0**（symlink 守衛與 rollback 變異注入在這裡都真的跑到，`uid 1000` 非 root）、gate-cases **121/121**、`run-posix.sh` **68/68**（基準值，本批不該改變它）、`bash -n` 全過。兩支新測試都已接進 [`linux.yml`](.github/workflows/linux.yml)；⚠️ **`tests/ai-install/` 仍不在 CI 內**，那部分依舊只有人工證據。
-> **反向驗證**：對 `5cc50e0` 的舊 heredoc probe 跑同一套 42 案 → **7 PASS／35 FAIL**，通過的 7 個**恰為**行為刻意未改變的對照組（清單在 handoff §3）。
+> **反向驗證**：對 `5cc50e0` 的舊 heredoc probe 跑同一套 42 案 → **6 PASS／36 FAIL**，通過的 6 個**恰為**行為刻意未改變的對照組（清單在 handoff §3）。
 > **probe 的範圍限制（寫在它自己的輸出裡）**：只判斷 shell form，看到 exec form（handler 帶 `args`）一律停手；不驗 command 指到的檔案存不存在；needle 比對大小寫敏感，**Windows 上只差路徑大小寫的重複註冊看不見**；它不是 settings 的 schema 驗證器。
-> **本批的暴險面**：兩個新增檔都是純 Node；未新增任何 shell 腳本，也未改動 `run-posix.sh`／`codex-check`／`matcher-contract`，所以 BSD vs GNU 的 `sed`／`awk`／`find`／`cp` 語義差異不在本批範圍內。
+> **本批的暴險面**：四個新增檔（兩支工具 ＋ 兩支測試）都是純 Node；未新增任何 shell 腳本，也未改動 `run-posix.sh`／`codex-check`／`matcher-contract`，所以 BSD vs GNU 的 `sed`／`awk`／`find`／`cp` 語義差異不在本批範圍內。
 >
 > **前一次 delta 的驗證分布（2026-08-04，`67a7ae6..1aeb010`：測試臺注入點補 rc＋型別前置檢查、`consult-schema` 退出契約、consult-gate 攔截面宣稱收斂）。**
 > ⚠️ 這裡**釘死 endpoint SHA，刻意不寫 `..HEAD`**——寫 `HEAD` 的話，下一個 commit 就會讓這段驗證宣稱悄悄擴張到沒驗過的改動上。

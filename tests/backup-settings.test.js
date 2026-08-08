@@ -15,6 +15,16 @@ const os = require("os");
 const path = require("path");
 const { spawnSync } = require("child_process");
 
+// --strict：有任何 SKIP 就回非 0。CI 用它 —— 否則「SKIP 後照樣 exit 0」等於把
+// 沒驗到的守衛包成綠燈，而 CI 只看退出碼。
+const strict = process.argv.includes("--strict");
+for (const arg of process.argv.slice(2)) {
+  if (arg !== "--strict") {
+    console.error("未知參數：" + arg);
+    process.exit(2);
+  }
+}
+
 const tool = path.join(__dirname, "..", "tools", "backup-settings.js");
 if (!fs.existsSync(tool)) {
   console.error("找不到：" + tool);
@@ -103,31 +113,43 @@ check("unicode-and-bom-preserved", (a) => {
   a(fs.readFileSync(path.join(h, ".claude", b[0])).equals(Buffer.from(body, "utf8")), "位元組不相同（BOM 或編碼掉了）");
 });
 
+// 撞名必須**確定性**觸發，不能靠「剛好同一秒」。做法：把未來 5 秒的候選備份檔名
+// 全部預先建好在**第二個**目標上，工具無論落在哪一秒都會撞到。
+// （先前寫法是跑兩次賭同一秒，跨秒就 SKIP —— 那等於把「沒驗到」包成綠燈。）
+function tsCandidates(n) {
+  const two = (x) => String(x).padStart(2, "0");
+  const out = [];
+  for (let i = 0; i < n; i++) {
+    const d = new Date(Date.now() + i * 1000);
+    out.push(
+      String(d.getFullYear()) + two(d.getMonth() + 1) + two(d.getDate()) + "-" +
+      two(d.getHours()) + two(d.getMinutes()) + two(d.getSeconds())
+    );
+  }
+  return out;
+}
+
 check("collision-aborts-without-partial", (a) => {
   const h = newHome("collision");
   fs.writeFileSync(path.join(h, ".claude", "settings.json"), MAIN);
   fs.writeFileSync(path.join(h, ".claude", "settings.local.json"), LOCAL);
-  // 先跑一次拿到 ts，再用同一個 ts 撞名
-  const first = run(h);
-  const ts = (first.out.match(/backup ts=(\d{8}-\d{6})/) || [])[1];
-  a(!!ts, "第一次沒拿到 ts");
-  if (!ts) return;
+  const cands = tsCandidates(5);
+  for (const ts of cands) {
+    fs.writeFileSync(path.join(h, ".claude", "settings.local.json.bak-" + ts), "佔位");
+  }
   const before = baks(h).length;
-  // 直接改系統時間不可行，所以改成：刪掉其中一個備份，讓第二次在同一秒重跑時撞到另一個。
-  // 若第二次的 ts 不同（跨秒）就視為無法觸發，標 SKIP 而不是假綠。
-  fs.unlinkSync(path.join(h, ".claude", "settings.json.bak-" + ts));
-  const second = run(h);
-  const ts2 = (second.out.match(/backup ts=(\d{8}-\d{6})/) || [])[1];
-  if (ts2 && ts2 !== ts) {
-    skipped.push("collision-aborts-without-partial（跨秒，撞名條件未觸發）");
-    pass--; // 這一輪不算過，改記到 skipped
+  const r = run(h);
+  // 注入自我檢查：若工具居然成功了，代表 5 秒視窗沒涵蓋到 —— 那是沒驗到，標 SKIP
+  if (r.status === 0) {
+    skipped.push("collision-aborts-without-partial（工具的 ts 落在 5 秒候選之外，撞名未觸發）");
+    pass--;
     return;
   }
-  a(second.status === 1, "退出碼 " + second.status + "（預期 1）");
-  a(second.out.includes("已存在"), "沒有回報撞名");
-  a(!second.out.includes("backup ts="), "中止了卻仍印出 backup ts=");
-  // 關鍵：預檢階段就中止，不該補回剛剛刪掉的那個備份（＝沒有半完成狀態）
-  a(baks(h).length === before - 1, "中止後備份數 " + baks(h).length + "（預期 " + (before - 1) + "，代表完全沒動手）");
+  a(r.status === 1, "退出碼 " + r.status + "（預期 1）");
+  a(r.out.includes("已存在"), "沒有回報撞名");
+  a(!r.out.includes("backup ts="), "中止了卻仍印出 backup ts=");
+  // 關鍵：撞名是在**預檢**階段發現的，所以 settings.json 那份也不該被備份
+  a(baks(h).length === before, "中止後備份數 " + baks(h).length + "（預期 " + before + "，代表完全沒動手）");
 });
 
 check("directory-instead-of-file", (a) => {
@@ -198,5 +220,9 @@ console.log("TOTAL " + total + "  PASS " + pass + "  FAIL " + failed.length + " 
 for (const s of skipped) console.log("SKIP: " + s);
 if (failed.length) {
   console.log("失敗的案子：" + failed.join(", "));
+  process.exit(1);
+}
+if (strict && skipped.length) {
+  console.log("--strict：有 " + skipped.length + " 個案子沒有實際驗到，視為失敗。");
   process.exit(1);
 }

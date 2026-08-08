@@ -16,12 +16,14 @@
  *   1 = 讀不到或形狀不合 —— 先修好再重跑，不要往下做（fail-closed）
  *   3 = 停手：需要人工判斷，本 repo 的文件涵蓋不了
  *
- * **範圍（刻意很窄，不要把它當成別的東西）**：
- *   ・它數的是「gate 註冊了幾筆」，**不是** settings 的 schema 驗證器 ——
- *     與 gate 無關的畸形條目會被略過，免得把使用者的 migration 擋死。
+ * **範圍（刻意很窄，不要把它當成別的東西）**——每次執行都會把這段印在最後：
+ *   ・它數的是「gate 註冊了幾筆」，不是完整的 settings schema 驗證器。
  *   ・只判斷 shell form；**看到 exec form（handler 帶 `args`）一律 exit 3**。
  *   ・不驗 command 指到的檔案存不存在，也不驗 hook 真的會被叫起。
  *   ・needle 比對大小寫敏感 —— Windows 上兩筆只差路徑大小寫的重複註冊看不見。
+ *   ・形狀檢查**涵蓋整棵 `hooks.PreToolUse`**（含與 gate 無關的條目），異形一律非 0。
+ *     唯二例外：沒有 `hooks` 鍵的 entry 會略過；`matcher` 型別只在該 entry 掛著 gate 時才驗。
+ *     （先前文件寫「與 gate 無關的畸形條目會被略過」是錯的，與實作相反。）
  *
  * 為什麼形狀不合一定要 fail-closed：舊版寫
  * `for (const entry of (j.hooks && j.hooks.PreToolUse) || [])`，當 `hooks.PreToolUse`
@@ -38,6 +40,21 @@ const NEEDLE = "super-mode-consult-gate";
 
 const isObj = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
 const typeName = (v) => (v === null ? "null" : Array.isArray(v) ? "陣列" : typeof v);
+
+// **每一條退出路徑都要印範圍**，所以掛在 process exit 上、而且在任何掃描之前就掛好。
+// 先前只在「有找到 gate」時才印，於是最需要看到它的那條路徑——找到 0 筆、
+// 接著 `AI-INSTALL` 步驟 2 會叫人新增一筆——反而看不到「needle 大小寫敏感」這個警告，
+// 而那正是 Windows 上製造重複註冊的入口。
+process.on("exit", () => {
+  console.log("");
+  console.log("⚠️ 本工具只數「gate 註冊了幾筆」，範圍刻意很窄：");
+  console.log("   ・只判斷 shell form；看到 exec form（handler 帶 args）一律停手，不做判斷");
+  console.log("   ・不驗 command 指到的檔案是否存在，也不驗 hook 真的會被叫起");
+  console.log("   ・needle 比對**大小寫敏感** —— Windows 上兩筆只差路徑大小寫、卻指向同一個檔的");
+  console.log("     重複註冊，本工具看不見。判「0 筆」時請先確認不是這種情況再新增。");
+  console.log("   ・形狀檢查涵蓋整個 hooks.PreToolUse 樹（含與 gate 無關的條目），異形一律非 0；");
+  console.log("     唯二例外：沒有 hooks 鍵的 entry 會略過，matcher 型別只在該 entry 掛著 gate 時才驗。");
+});
 
 /**
  * 掃一個 settings 檔。
@@ -245,9 +262,5 @@ if (all.length) {
   for (const h of all) {
     console.log("  " + h.file + " " + h.where + "  command=" + JSON.stringify(h.command));
   }
-  console.log("⚠️ 本 probe 只數「gate 註冊了幾筆」，範圍刻意很窄：");
-  console.log("   ・不驗 command 指到的檔案是否真的存在，也不驗 hook 真的會被叫起");
-  console.log("   ・needle 比對大小寫敏感；Windows 上兩筆只差路徑大小寫的重複註冊看不見");
-  console.log("   ・不是 settings 的 schema 驗證器：與 gate 無關的畸形條目它會略過");
-  console.log("   端到端沒被 deny 時，先核對上面印出來的路徑還在不在。");
+  console.log("（端到端沒被 deny 時，先核對上面印出來的路徑還在不在——見下方範圍說明。）");
 }

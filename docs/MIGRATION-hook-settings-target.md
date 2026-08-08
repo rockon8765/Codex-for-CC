@@ -27,11 +27,14 @@
 > 原因有二：內嵌的 bash heredoc 在 Windows 的 PowerShell 跑不動（而「重複註冊」三平台都會發生，
 > `AI-INSTALL` 步驟 2 會叫三平台的人都跑它）；而且內嵌在 markdown 裡的邏輯沒有任何回歸案守著。
 > 現在有 [`tests/probe-gate-registration.test.js`](../tests/probe-gate-registration.test.js)：**42 案**，
-> 對修訂前那版（`5cc50e0`）反向驗證為 **7 PASS／35 FAIL**，通過的 7 個恰為行為未改變的對照組。
+> 對修訂前那版（`5cc50e0`）反向驗證為 **6 PASS／36 FAIL**，通過的 6 個恰為行為未改變的對照組。
 >
-> ⚠️ **這支 probe 的範圍刻意很窄**，它自己會把範圍印出來：不驗路徑存在、不驗 hook 真的
-> 會被叫起、needle 比對大小寫敏感（Windows 上只差大小寫的重複註冊看不見）、
-> **不是 settings 的 schema 驗證器**（與 gate 無關的畸形條目會被略過，免得把 migration 擋死）。
+> ⚠️ **這支 probe 的範圍刻意很窄**，它**每次執行都會把範圍印在最後**（不是只在找到 gate 時）：
+> 只判斷 shell form、不驗路徑存在、不驗 hook 真的會被叫起、needle 比對大小寫敏感
+> （Windows 上只差大小寫的重複註冊看不見）。
+> **形狀檢查涵蓋整棵 `hooks.PreToolUse`**（含與 gate 無關的條目），異形一律非 0 ——
+> 唯二例外是「沒有 `hooks` 鍵的 entry 會略過」與「`matcher` 型別只在該 entry 掛著 gate 時才驗」。
+> （本段先前寫「與 gate 無關的畸形條目會被略過」，與實作相反，已更正。）
 >
 > ⚠️ **證據範圍**：probe 的行為有跨平台的自動化回歸案；第 2 節的修訂是**文件層的靜態修正**，
 > **未**在真實受影響的 macOS／Linux 環境端到端驗證。
@@ -145,7 +148,13 @@ node tools/backup-settings.js
 
 > 這支是 **fail-fast** 的：任何一步失敗就中止並回非 0，**不會印出 `backup ts=`**。
 > 所以「有印出 `ts`」才等於「該備份的都完成且逐位元組比對過」。
-> 而且它**先全部預檢、再全部複製**——避免「第一個檔備份好、第二個檔中止」的半完成狀態。
+> 它**先全部預檢、再全部複製**，而且**複製階段失敗時會把本次已建立的備份回收掉**——
+> 不變量是「**要嘛全部成功，要嘛什麼都沒留下**」。
+>
+> ⚠️ **它不是交易式的**：預檢到複製之間若有人換掉來源檔、或建立了預檢時還不存在的
+> settings 檔，它不會察覺（唯一真的關掉的 race 是目的檔撞名）。它假設你在自己的機器上
+> 手動操作、沒有並行的安裝程序。完整範圍寫在
+> [`tools/backup-settings.js`](../tools/backup-settings.js) 的檔頭。
 >
 > **為什麼是 Node 而不是 bash ＋ PowerShell 兩份**：第 2 節的 **B 分支三平台都會用到**，
 > 而 B 會**刪除** `settings.local.json` 裡的 gate handler。先前這裡只有 bash 版，

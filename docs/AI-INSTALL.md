@@ -304,6 +304,19 @@ if (Test-Path -LiteralPath $stale) { throw "安裝驗證失敗：FIX-PLAN.md 未
 > ——照做會把 local 那筆刪掉又不新增，**使用者僅存的 gate 就消失了**。
 > 兩份文件各留一份矩陣，遲早再度分歧；所以這裡只指向單一來源。
 >
+> **合併完成後，重跑同一支 probe 當驗收**（不是可選項）：
+>
+> ```
+> node tools/probe-gate-registration.js
+> ```
+>
+> 必須印「**判定：正常，不用修。**」且**退出碼 0**。任何其他結果都代表這一步沒做對。
+>
+> ⚠️ **為什麼合併後一定要再跑一次**：步驟 3 的 `matcher-contract` **只比對 `command` 字串、
+> 不驗 `type`**。所以萬一合併時把 handler 寫成 `{"type":"prompt", "command":"…gate…"}`，
+> 步驟 3 照樣 PASS，但 Claude Code 只有 `type:"command"` 才會執行 `command`
+> ——gate 實際上不會被叫起，而你會拿到一個全綠的安裝。probe 會驗 `type`，補得住這個洞。
+>
 > **後置條件**：`settings.json` 的 gate handler **恰 1 個**、`settings.local.json` **0 個**。
 
 - Linux 注意：若 `node` 不在系統 PATH——例如可攜式安裝在 `~/.local/node/bin`——

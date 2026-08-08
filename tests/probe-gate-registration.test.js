@@ -62,7 +62,8 @@ const settings = (...entries) => ({ hooks: { PreToolUse: entries } });
 // exit 1 = 讀不到／形狀不合（fail-closed）｜exit 3 = 停手｜exit 0 = 判定可執行
 const CASES = [
   // ---- fail-closed：形狀不合，一律 exit 1 -------------------------------
-  { id: "invalid-json", main: { raw: "{ 這不是 JSON" }, exit: 1, want: ["JSON 解析失敗", "無法解析或形狀不合"] },
+  // fail-closed 這條路徑也要印範圍（先前 exit 1 時完全不印）
+  { id: "invalid-json", main: { raw: "{ 這不是 JSON" }, exit: 1, want: ["JSON 解析失敗", "無法解析或形狀不合", "大小寫敏感"] },
   { id: "top-null", main: null, exit: 1, want: ["頂層不是物件（是 null）"] },
   { id: "top-array", main: [], exit: 1, want: ["頂層不是物件（是 陣列）"] },
   { id: "hooks-string", main: { hooks: "x" }, exit: 1, want: ["hooks 不是物件（是 string）"] },
@@ -82,13 +83,13 @@ const CASES = [
   { id: "local-invalid-main-ok", main: settings(gateEntry()), local: { raw: "{" }, exit: 1, want: ["JSON 解析失敗"], deny: ["正常，不用修"] },
 
   // ---- 停手：需要人工判斷，exit 3 --------------------------------------
-  { id: "halt-shared-entry", main: settings({ matcher: MATCHER, hooks: [gateHandler(), { type: "command", command: "node /other/hook.js" }] }), exit: 3, want: ["還有 1 個非 gate 的 handler", "停手"] },
-  { id: "halt-main2-diff-command", main: settings(gateEntry(), gateEntry(CMD_STALE)), exit: 3, want: ["matcher／command 不一致", "停手"] },
-  { id: "halt-main2-diff-matcher", main: settings(gateEntry(), gateEntry(CMD, "Bash")), exit: 3, want: ["matcher／command 不一致", "停手"] },
+  { id: "halt-shared-entry", main: settings({ matcher: MATCHER, hooks: [gateHandler(), { type: "command", command: "node /other/hook.js" }] }), exit: 3, want: ["還有 1 個非 gate 的 handler", "判定：停手"] },
+  { id: "halt-main2-diff-command", main: settings(gateEntry(), gateEntry(CMD_STALE)), exit: 3, want: ["matcher／command 不一致", "判定：停手"] },
+  { id: "halt-main2-diff-matcher", main: settings(gateEntry(), gateEntry(CMD, "Bash")), exit: 3, want: ["matcher／command 不一致", "判定：停手"] },
   // ↓ Codex 2026-08-08 指出的回歸路徑：main 一筆 stale ＋ local 一筆正確。
   //   只比 settings.json 的話會判成 B（純減法），使用者刪光 local 只留壞的那筆。
-  { id: "halt-main-stale-local-good", main: settings(gateEntry(CMD_STALE)), local: settings(gateEntry()), exit: 3, want: ["停手"], deny: ["『B. 已經有一筆』"] },
-  { id: "halt-local2-diff", local: settings(gateEntry(), gateEntry(CMD_STALE)), exit: 3, want: ["停手"] },
+  { id: "halt-main-stale-local-good", main: settings(gateEntry(CMD_STALE)), local: settings(gateEntry()), exit: 3, want: ["判定：停手"], deny: ["『B. 已經有一筆』"] },
+  { id: "halt-local2-diff", local: settings(gateEntry(), gateEntry(CMD_STALE)), exit: 3, want: ["判定：停手"] },
 
   // ---- 判定可執行：exit 0 ----------------------------------------------
   { id: "ok-normal", main: settings(gateEntry()), exit: 0, want: ["gate 條目：1 個", "檔案不存在", "正常，不用修"] },
@@ -97,7 +98,9 @@ const CASES = [
   { id: "ok-duplicate-identical", main: settings(gateEntry(), gateEntry()), exit: 0, want: ["有 2 筆 gate", "已經重複註冊", "『B. 已經有一筆』"] },
   { id: "ok-both-identical", main: settings(gateEntry()), local: settings(gateEntry()), exit: 0, want: ["兩邊都有", "『B. 已經有一筆』"] },
   { id: "ok-local-only", main: { hooks: { PreToolUse: [] } }, local: settings(gateEntry()), exit: 0, want: ["受影響", "『A. 還沒有』"] },
-  { id: "ok-none-both-missing", exit: 0, want: ["檔案不存在", "兩邊都沒有 gate"] },
+  // 每條退出路徑都要印範圍。這條（0 筆 → AI-INSTALL 會叫人新增）最需要看到
+  // 「needle 大小寫敏感」的警告，先前卻是唯一看不到的。
+  { id: "ok-none-both-missing", exit: 0, want: ["檔案不存在", "兩邊都沒有 gate", "大小寫敏感"] },
   { id: "ok-none-no-pretooluse", main: { hooks: { PostToolUse: [] } }, exit: 0, want: ["沒有 hooks.PreToolUse —— gate 條目：0 個", "兩邊都沒有 gate"] },
   { id: "ok-none-nongate-handler", main: settings({ matcher: "Bash", hooks: [{ type: "command", command: "node /other/hook.js" }] }), exit: 0, want: ["gate 條目：0 個", "兩邊都沒有 gate"] },
   { id: "ok-bom", main: { raw: "\uFEFF" + JSON.stringify(settings(gateEntry())) }, exit: 0, want: ["正常，不用修"] },
@@ -105,7 +108,7 @@ const CASES = [
   // 使用者本來就有的、與本 skill 無關的 PreToolUse 條目：不能被算進來，也不能觸發停手
   { id: "ok-gate-plus-unrelated-entry", main: settings({ matcher: "Bash", hooks: [{ type: "command", command: "node /other/hook.js" }] }, gateEntry()), exit: 0, want: ["gate 條目：1 個", "正常，不用修"] },
   // 同一個 entry 裡兩筆**相同**的 gate handler：others=0，不該判停手，該判重複註冊
-  { id: "ok-two-gate-same-entry", main: settings({ matcher: MATCHER, hooks: [gateHandler(), gateHandler()] }), exit: 0, want: ["有 2 筆 gate", "已經重複註冊"], deny: ["停手"] },
+  { id: "ok-two-gate-same-entry", main: settings({ matcher: MATCHER, hooks: [gateHandler(), gateHandler()] }), exit: 0, want: ["有 2 筆 gate", "已經重複註冊"], deny: ["判定：停手"] },
   // 讀取錯誤（非 ENOENT）：settings.json 是目錄。錯誤碼各平台可能不同，只斷言前綴。
   { id: "read-error-directory", main: { dir: true }, exit: 1, want: ["讀取失敗：", "無法解析或形狀不合"] },
 
@@ -113,13 +116,13 @@ const CASES = [
   // 本工具**只判斷 shell form**：看到 exec form 一律 exit 3。
   // 理由見 tools/probe-gate-registration.js 的註解——判「正常」會與必跑的
   // matcher-contract（也只看 command）矛盾，判「沒有 gate」則會叫人再加一筆。
-  { id: "halt-exec-form", main: settings(execEntry()), exit: 3, want: ["exec form", "停手"], deny: ["正常，不用修", "兩邊都沒有 gate"] },
-  { id: "halt-duplicate-exec-form", main: settings(execEntry(), execEntry()), exit: 3, want: ["exec form", "停手"], deny: ["已經重複註冊"] },
-  { id: "halt-mixed-forms", main: settings(gateEntry()), local: settings(execEntry()), exit: 3, want: ["exec form", "停手"], deny: ["正常，不用修"] },
+  { id: "halt-exec-form", main: settings(execEntry()), exit: 3, want: ["exec form", "判定：停手"], deny: ["正常，不用修", "兩邊都沒有 gate"] },
+  { id: "halt-duplicate-exec-form", main: settings(execEntry(), execEntry()), exit: 3, want: ["exec form", "判定：停手"], deny: ["已經重複註冊"] },
+  { id: "halt-mixed-forms", main: settings(gateEntry()), local: settings(execEntry()), exit: 3, want: ["exec form", "判定：停手"], deny: ["正常，不用修"] },
   // needle 出現在 args 但根本不是在跑 gate —— 舊寫法會判「正常，已裝好」，是假陽性
-  { id: "halt-echo-args-needle", main: settings({ matcher: MATCHER, hooks: [{ type: "command", command: "echo", args: ["super-mode-consult-gate"] }] }), exit: 3, want: ["exec form", "停手"], deny: ["正常，不用修"] },
+  { id: "halt-echo-args-needle", main: settings({ matcher: MATCHER, hooks: [{ type: "command", command: "echo", args: ["super-mode-consult-gate"] }] }), exit: 3, want: ["exec form", "判定：停手"], deny: ["正常，不用修"] },
   // 只有 args、沒有 command：官方 schema 要求 command，但這裡不當 schema 驗證器，一律停手
-  { id: "halt-args-only-no-command", main: settings({ matcher: MATCHER, hooks: [{ type: "command", args: ["/x/super-mode-consult-gate.js"] }] }), exit: 3, want: ["exec form", "停手"], deny: ["正常，不用修"] },
+  { id: "halt-args-only-no-command", main: settings({ matcher: MATCHER, hooks: [{ type: "command", args: ["/x/super-mode-consult-gate.js"] }] }), exit: 3, want: ["exec form", "判定：停手"], deny: ["正常，不用修"] },
   { id: "exec-form-type-prompt", main: settings({ matcher: MATCHER, hooks: [{ type: "prompt", command: "node", args: ["/x/super-mode-consult-gate.js"] }] }), exit: 1, want: ['type 是 "prompt"'], deny: ["正常，不用修"] },
   { id: "args-not-array", main: settings({ matcher: MATCHER, hooks: [{ type: "command", command: "node", args: "/x/super-mode-consult-gate.js" }] }), exit: 1, want: ["PreToolUse[0].hooks[0].args 不是陣列（是 string）"] },
   { id: "args-element-not-string", main: settings({ matcher: MATCHER, hooks: [{ type: "command", command: "node", args: [7, "/x/super-mode-consult-gate.js"] }] }), exit: 1, want: ["PreToolUse[0].hooks[0].args[0] 不是字串（是 number）"] },

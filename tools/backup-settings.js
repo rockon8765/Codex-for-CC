@@ -17,9 +17,17 @@
  *
  * 退出碼：0 = 全部完成（或本來就沒有檔案要備份）；1 = 中止，未產生任何備份。
  *
- * 已知範圍：symlink／reparse point 一律拒絕備份（複製會把它實體化，回滾時就用那個
- * 普通版本蓋回去，等於在你不知情下改掉佈局）。Windows 上 junction 也帶 reparse 屬性，
- * `lstat().isSymbolicLink()` 認得。
+ * **已知範圍（不要當成比實際更強的保證）**：
+ *   ・**不是交易式的。** 預檢到複製之間若有人把來源換成 symlink、或建立了預檢時
+ *     還不存在的 settings 檔，本工具不會察覺。`copyFileSync` 本身也不保證原子性。
+ *     它假設你在自己的機器上手動操作、沒有並行的安裝程序在動同一批檔案。
+ *     唯一真的關掉的 race 是**目的檔撞名**（`COPYFILE_EXCL`，不會覆蓋既有備份）。
+ *   ・symlink 一律拒絕備份（複製會把它實體化，還原時就用那個普通版本蓋回去，
+ *     等於在你不知情下改掉佈局）。Windows 上**一般的 drive-letter junction** 帶
+ *     reparse 屬性、`lstat().isSymbolicLink()` 認得；但 **Volume GUID 掛載點不會**
+ *     被認成 link，會退回一般 stat —— 那種情況下最後一段若是掛載目錄，
+ *     仍會被「不是一般檔案」擋下，但**不要宣稱所有 reparse 都攔得到**。
+ *   ・只處理這兩個 settings 檔，不碰 hook 與 skill 目錄。
  */
 "use strict";
 

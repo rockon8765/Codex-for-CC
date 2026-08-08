@@ -7,7 +7,7 @@
 
 本批把 `docs/MIGRATION-hook-settings-target.md` 第 1 節內嵌的 bash heredoc probe
 抽成 **repo 內的 Node 腳本**，並補上跨平台的 committed 回歸案。
-新增的兩個 `.js` 是純 Node（理論上平台無關），但：
+新增的四個 `.js`（`tools/` 兩支、`tests/` 兩支）都是純 Node（理論上平台無關），但：
 
 - `os.homedir()` 在各平台的解析來源不同（POSIX 讀 `HOME`、Windows 讀 `USERPROFILE`），
   測試臺**兩個都設**，需要在 BSD userland 實證這個做法成立。
@@ -40,12 +40,12 @@ done
 
 | 檔 | 期望 blob（前 12 碼）|
 |---|---|
-| `tools/probe-gate-registration.js` | `6280f96028fc` |
-| `tools/backup-settings.js` | `97530902820d` |
-| `tests/probe-gate-registration.test.js` | `5a8777c57b88` |
-| `tests/backup-settings.test.js` | `e5fea081a2c2` |
-| `docs/MIGRATION-hook-settings-target.md` | `63e38d6d4628` |
-| `docs/AI-INSTALL.md` | `3852df2607d3` |
+| `tools/probe-gate-registration.js` | `28bd25ac4a15` |
+| `tools/backup-settings.js` | `081a6f384a84` |
+| `tests/probe-gate-registration.test.js` | `ff844feaa381` |
+| `tests/backup-settings.test.js` | `8b4a8f259243` |
+| `docs/MIGRATION-hook-settings-target.md` | `eecac6aa8f09` |
+| `docs/AI-INSTALL.md` | `bfab2749379f` |
 | `macos/settings.snippet.json` | `a903d6aac575` |
 | `macos/skills/超級模式/references/orchestration.md` | `a4dd320b3285` |
 | `docs/linux-platform-notes.md` | `afa9cafd5d3e` |
@@ -55,7 +55,10 @@ done
 
 ## 2. 要跑的項目
 
-**全部唯讀**，不會動你的 `~/.claude`。測試臺用假 `HOME` 開 temp 目錄，跑完自己清掉。
+**不會動你的 `~/.claude`。** 測試臺一律用假 `HOME` 在 temp 目錄操作、跑完自己清掉；
+A-5 抽出來的舊 probe 用 `mktemp` ＋ `trap` 清理。
+（A-1／A-5 受測的 probe 本身是唯讀的；A-7 受測的 `backup-settings` 會寫檔，
+但只寫在測試臺開的假 `HOME` 裡。）
 
 | # | 指令 | 期望 |
 |---|---|---|
@@ -63,7 +66,7 @@ done
 | **A-2** | `node "macos/skills/超級模式/tests/run-gate-tests.js"` | `PASS 117/117` |
 | **A-3** | `node "macos/skills/超級模式/tests/matcher-contract.test.js"; echo "exit=$?"` | `exit=0`（此檔與 `main` 同 blob，跑它是為了確認改過的 `_comment` 沒破壞 JSON）|
 | **A-4** | `bash tests/ai-install/run-posix.sh` | `PASS=68 FAIL=0`（**基準值，本批不該改變它**）|
-| **A-5** | 反向驗證，見下方 §3 | `TOTAL 42  PASS 7  FAIL 35` |
+| **A-5** | 反向驗證，見下方 §3 | `TOTAL 42  PASS 6  FAIL 36` |
 | **A-6** | `node -e 'for (const p of ["windows","macos","linux"]) JSON.parse(require("fs").readFileSync(p+"/settings.snippet.json","utf8"))'` | 無輸出、exit 0 |
 | **A-7** | `node tests/backup-settings.test.js` | `TOTAL 8  PASS 8  FAIL 0  SKIP 0`，exit 0 |
 
@@ -86,26 +89,35 @@ done
 抽出來，用 `--probe` 指向它：
 
 ```bash
+set -euo pipefail
+# 用 mktemp，**不要**寫死 /tmp/legacy-probe.js：固定路徑會覆寫既有檔、
+# 會跟隨別人預先放好的 symlink，而且跑完不清理。
+legacy=$(mktemp "${TMPDIR:-/tmp}/legacy-probe.XXXXXX.js")
+trap 'rm -f "$legacy"' EXIT
+
 git show 5cc50e0:docs/MIGRATION-hook-settings-target.md \
-  | awk "/^node - <<'PROBE'$/{f=1;next} /^PROBE$/{f=0} f" > /tmp/legacy-probe.js
+  | awk "/^node - <<'PROBE'$/{f=1;next} /^PROBE$/{f=0} f" > "$legacy"
 
-# 牙齒檢查：抽出來的必須真的是舊版，否則等於拿新版對新版比
-grep -q 'for (const entry of (j.hooks && j.hooks.PreToolUse) || \[\])' /tmp/legacy-probe.js \
-  && echo '舊版特徵行 OK' || echo '抽取失敗，停手'
-grep -q '形狀不合' /tmp/legacy-probe.js && echo '抽到新版了，停手' || echo '確認不含新版字串'
+# 牙齒檢查：抽出來的必須真的是舊版，否則等於拿新版對新版比。
+# ⚠️ 檢查失敗要**真的中止**（exit 1），只印一行「停手」但繼續跑等於沒有守衛。
+grep -q 'for (const entry of (j.hooks && j.hooks.PreToolUse) || \[\])' "$legacy" \
+  || { echo '抽取失敗：不含舊版特徵行'; exit 1; }
+! grep -q '形狀不合' "$legacy" \
+  || { echo '抽到新版了，停手'; exit 1; }
+echo '牙齒檢查通過'
 
-node tests/probe-gate-registration.test.js --probe /tmp/legacy-probe.js
+node tests/probe-gate-registration.test.js --probe "$legacy"
 ```
 
-**期望 `PASS 7  FAIL 35`**，而且通過的 7 個必須**恰為**這幾個對照組
+**期望 `PASS 6  FAIL 36`**，而且通過的 6 個必須**恰為**這幾個對照組
 （它們是行為刻意未改變的案子）：
 
 ```
-ok-normal, ok-none-both-missing, ok-none-nongate-handler, ok-bom,
-ok-entry-without-hooks-key, ok-gate-plus-unrelated-entry, ok-unrelated-exec-form
+ok-normal, ok-none-nongate-handler, ok-bom, ok-entry-without-hooks-key,
+ok-gate-plus-unrelated-entry, ok-unrelated-exec-form
 ```
 
-> ⚠️ **只核對 `FAIL 35` 這個數字不夠。** 請把完整的 FAIL 清單貼回來——
+> ⚠️ **只核對 `FAIL 36` 這個數字不夠。** 請把完整的 FAIL 清單貼回來——
 > 2026-08-08 就是因為只看總數，差點漏掉「失敗的不是該失敗的那幾條」。
 > 特別留意 `top-null` 與 `pretooluse-object`：舊版對它們的**退出碼湊巧也是 1**
 > （未捕捉的 TypeError），只有字串斷言抓得到差別。
