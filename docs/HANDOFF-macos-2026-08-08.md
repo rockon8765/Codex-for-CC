@@ -1,6 +1,16 @@
 # HANDOFF — macOS 原生驗證 ＋ 三台 census（2026-08-08 批）
 
-> ## ⛔ 不要安裝這個分支
+> ## ✅ 已完成（2026-08-08 同日回報）
+>
+> macOS 26.6.1 (25G76) arm64／內建 `bash 3.2.57`／Node v26.4.0／Claude Code 2.1.220。
+> **7 筆 blob 全符，A-1～A-5 與任務 B 八項全數符合預期**：
+> `run-posix.sh` **85/85**、gate **117/117**、`matcher-contract --repo` exit 0、
+> 參數契約 3×`exit 2`、反向驗證 **PASS=81 FAIL=4** 且恰為 M11 那四條、probe 4 輸入全符。
+>
+> 結果與 census 已回寫 [`settings-target-followup-2026-08.md`](settings-target-followup-2026-08.md) §4.4。
+> **本檔自此僅作過程紀錄保留，不需要再執行。** 下方內文刻意不改寫。
+
+> ## ⛔（歷史）不要安裝這個分支
 >
 > 本批的改動**只在 Windows 與 WSL2 上跑過**，macOS 未經真機驗證。
 > **不要**把這個分支的檔案複製進 `~/.claude/`，**不要**照 `docs/AI-INSTALL.md` 安裝它。

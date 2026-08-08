@@ -104,7 +104,7 @@
 |---|---|---|
 | A1 加 `--repo`／`--live`／`--settings` | **仍開放**，且因 §1.2 升級為功能缺口 | A1 |
 | A1 全部呼叫點標旗標 | **部分過時**，依 §1.1 重新盤點（15 指令型／22 非指令）| A1 |
-| A1 舊 installed verifier fixture | **延後**，取決於三台 census | 待 census |
+| A1 舊 installed verifier fixture | **不做**——census 兩台取樣皆無此狀態（§4.4）| 已結案 |
 | A1 doc-contract 測試 | **改設計**：改為「非 canonical 文件連向唯一指引」，取代掃遍所有 Markdown | A1 |
 | A2 D6 conflict 規則＋後置條件 | **仍開放**（檔頭警告已先行 containment）| A2 |
 | A2 註冊入口全數納入 | **仍開放**，盤點更新為 10 處（§1.3）| A2 |
@@ -129,16 +129,16 @@
 | # | 項目 | 狀態 |
 |---|---|---|
 | 0 | MIGRATION 檔頭 containment 警告 ＋ backlog 追蹤列 | ✅ `b7b34c4` |
-| 1 | 三台唯讀 installed census——釘 OS、Claude Code 版本、installed `matcher-contract` 的 blob、`settings.json`／`settings.local.json` 的 gate handler 數 | **Windows ✅**（見 [`HANDOFF-macos-2026-08-08.md`](HANDOFF-macos-2026-08-08.md) §3 的對照表）；macOS 已併入該 handoff 的任務 B；**WSL2 不是對象**（實查無 `~/.claude`，純驗證環境）。只當具名樣本，不外推 |
-| 2 | B1：兩處回滾加子樹掃描（`$sbak` **僅在選中時**掃；live 不存在＝**無子樹可掃**，不得當掃描失敗）＋ 針對性測試 | ✅ Windows／Linux；**macOS 待原生驗證** |
-| 3 | A2：probe 逐層驗形狀並 fail-closed；第 2 節改 handler 粒度＋補「main 已有一筆」分支；10 處註冊入口改冪等／衝突停手 | ✅ Windows／Linux；**macOS 待原生驗證** |
-| 4 | A1：`--repo`／`--live` 顯式模式、印出實際受驗路徑、修 §1.1 的 4 處相對路徑 | ✅ Windows／Linux；**macOS 待原生驗證** |
+| 1 | 三台唯讀 installed census | ✅ **Windows ＋ macOS 已取樣**（§4.4 對照表）；Linux 未取樣。結論：A1 的舊 verifier fixture **不做**（無證據支持），並發現第三種狀態「skill 已裝但沒有 verifier 檔」|
+| 2 | B1：兩處回滾加子樹掃描（`$sbak` **僅在選中時**掃；live 不存在＝**無子樹可掃**，不得當掃描失敗）＋ 針對性測試 | ✅ **三平台完成**（macOS 原生見 §4.4）|
+| 3 | A2：probe 逐層驗形狀並 fail-closed；第 2 節改 handler 粒度＋補「main 已有一筆」分支；10 處註冊入口改冪等／衝突停手 | ✅ **三平台完成**（macOS 原生見 §4.4）|
+| 4 | A1：`--repo`／`--live` 顯式模式、印出實際受驗路徑、修 §1.1 的 4 處相對路徑 | ✅ **三平台完成**（macOS 原生見 §4.4）|
 | 5 | C：泛化為「任何 `settings.json` 寫入者」並具名 plugin manager | ✅ |
 | 6 | D：README 驗證區塊（寫「**後於 07-31 完成複驗**」，不要竄改當時的誠實記錄）、README 浮動 `..HEAD` 釘死、backlog L28／7→8／「可 promote」、舊 Mac handoff 標 archived | ✅ |
 | 7 | README legacy notice（排在 #3 之後）| ✅ |
 | 8 | 把 legacy backup **子樹**掃描補進 `installer-rewrite-spec.md` 的 legacy 回滾節與驗收表 | ✅ |
 | 9 | 刪除舊分支（**最後一步**：successor 進 main ＋ 遠端 tag 可取回之後）| ☐ |
-| 10 | macOS 原生驗證 ＋ census —— 交接文件＝[`HANDOFF-macos-2026-08-08.md`](HANDOFF-macos-2026-08-08.md)（釘 `224ad8e`）| ☐ 待 Mac 端回報 |
+| 10 | macOS 原生驗證 ＋ census —— 交接文件＝[`HANDOFF-macos-2026-08-08.md`](HANDOFF-macos-2026-08-08.md)（釘 `224ad8e`）| ✅ **2026-08-08 回報，八項全數符合預期**（§4.4）|
 
 ## 4. 已拍板的決策
 
@@ -158,7 +158,7 @@
 | Windows：測試臺跑 pwsh、**受測區塊跑 PS 5.1** | **86/86** exit 0 |
 | Linux WSL2／ext4 | **85/85** exit 0（基準 68）|
 | 反向驗證（兩平台各自對 `1aeb010` 的 `AI-INSTALL.md`）| 各 **4 FAIL**，且完全是 M11 的四條斷言；M12 在修正前也 PASS（它是守護不是修復）|
-| macOS | **未驗證**（本機無 Mac，走 handoff）|
+| macOS | ✅ **85/85** exit 0（26.6.1 arm64／bash 3.2.57 原生，見 §4.4）|
 
 ## 4.2 A2 的驗證紀錄（2026-08-08）
 
@@ -216,6 +216,61 @@ probe 以假 `HOME` 餵 **9 種**輸入實測（Node v24.16.0），**9/9 符合�
 
 回歸：三平台 `--repo` exit 0、gate **109／117／121**、三份 snippet JSON 可解析、
 `tests/ai-install` Windows **86/86**。
+
+## 4.4 macOS 原生驗證與 census 結果（2026-08-08 回報）
+
+**環境**：macOS 26.6.1（25G76）arm64、內建 `bash 3.2.57(1)-release`
+（`which -a bash` 只有 `/bin/bash`，確認非 Homebrew 5.x）、Node v26.4.0、Claude Code 2.1.220。
+受驗 SHA `224ad8e`，**7 筆 blob 全符**。
+
+| 項目 | 結果 |
+|---|---|
+| A-1 `run-posix.sh` | **85/85** exit 0。`[M11]`（備份子樹／live 子樹兩變體）與 `[M12]` 全綠——BSD 的 `ln -s`／`find -type l`／`cp -R` 無 GNU 專屬語義漏網 |
+| A-2 gate ＋ `matcher-contract --repo` | **117/117**；`--repo` exit 0 |
+| A-3 參數契約 | 三個 `exit 2`、deprecated 落 stderr、無旗標 `exit 0`，全符 |
+| A-4 反向驗證 | **PASS=81 FAIL=4**，且**恰為** M11 那四條。還原後 `git status --porcelain` 空、blob 回到 `d0781cbd4b48` |
+| A-5 probe 四輸入 | 三個 `exit 1` ＋ 對照組 `exit 0`，全符 |
+
+### ⚠️ 一處平台差異（非缺陷，但會咬未來的自動化）
+
+`matcher-contract` 在 macOS 印出的是 `/private/tmp/cfc-0808/…` 而非 handoff 寫的 `/tmp/…`——
+macOS 的 `/tmp` 是指向 `private/tmp` 的 symlink，realpath 解析後即為 `/private/tmp`，同一位置。
+
+> **教訓**：日後若要對「受驗 settings／受驗 hook」那兩行加**自動斷言**，
+> 字串比對 `/tmp/...` 在 macOS 會誤判，必須比 realpath。
+
+### census（三台的具名樣本，**不外推**）
+
+| 欄位 | Windows | macOS |
+|---|---|---|
+| OS | Windows 11 10.0.26200.0 | macOS 26.6.1 (25G76) arm64 |
+| Claude Code | 2.1.220 | 2.1.220 |
+| installed `matcher-contract` blob | `5edaa7efe4fd…` | **不存在**（`find ~/.claude -name 'matcher-contract*'` 零命中）|
+| 是否為含 `settings.local` 候選的舊版 | 否 | **N/A**——沒有已安裝的 verifier |
+| `settings.json` gate handler | 1 | 1 |
+| `settings.local.json` | 不存在 | **存在**（1497 B）但**無 `hooks` 段**，gate 0 |
+| probe 判定／exit | 「正常，不用修。」／0 | 同 |
+
+**WSL2 不是 census 對象**：實查該環境沒有 `~/.claude`，是純驗證環境。
+Linux（協作者機器）仍未取樣。
+
+### census 帶來的三個結論
+
+1. **A1 的「舊 installed verifier fixture」不做**（原列為「延後，取決於 census」）。
+   兩台取樣中**沒有任何一台**存在「含 `settings.local` 候選的舊版 verifier」——
+   Windows 是新版、macOS 根本沒裝過那個檔。為一個沒有任何證據支持的狀態寫 fixture
+   不划算；防護面已由 README legacy notice ＋ `MIGRATION §3.1`「用 checkout 的 verifier」覆蓋，
+   兩者都不依賴這個 fixture。
+   ⚠️ **兩個樣本不等於沒有這種機器**，只是我們沒有證據。日後若 Linux 取樣命中，重開此題。
+2. **出現我沒預期的第三種狀態：skill 已安裝、但 `tests/` 裡沒有 `matcher-contract.test.js`。**
+   那台 Mac 的 `~/.claude/skills/超級模式/tests/` 有 `run-gate-tests.js`／`run-e2e.sh`／
+   `consult-schema.tests.sh`／`codex-check.tests.sh`／`gate-cases.json`，**就是沒有 verifier**。
+   代表 README／`AI-INSTALL` 步驟 3 那條「★ 必跑」的指令在該機器上**從未被跑過**
+   （會直接 module-not-found）——與 `settings.local.json` 長期失效的歷史一致。
+   `MIGRATION §3.1` 改成「用 checkout 的那份」剛好也涵蓋這個狀態。
+3. **`settings.local.json` 存在但無 `hooks` 段**是現成的真實樣本，probe 對它輸出
+   「沒有 hooks 段 —— gate 條目：0 個」並判定正常。這條路徑先前只有合成測試，
+   現在有真機證據。
 
 ## 5. 沿用 v4 的紀律（這幾條仍然有效）
 
