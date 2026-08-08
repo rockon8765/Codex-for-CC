@@ -93,9 +93,29 @@ function scan(label, p) {
       const h = entry.hooks[k];
       const hat = at + ".hooks[" + k + "]";
       if (!isObj(h)) return bad(hat + " 不是物件（是 " + typeName(h) + "）");
-      if (h.command === undefined) continue;
-      if (typeof h.command !== "string") return bad(hat + ".command 不是字串（是 " + typeName(h.command) + "）");
-      if (!h.command.includes(NEEDLE)) continue;
+      if (h.command !== undefined && typeof h.command !== "string") {
+        return bad(hat + ".command 不是字串（是 " + typeName(h.command) + "）");
+      }
+      // **exec form 也要算。** Claude Code 的 command hook 有兩種形態：
+      //   shell form  { "type":"command", "command":"node /x/super-mode-consult-gate.js" }
+      //   exec form   { "type":"command", "command":"node", "args":["/x/super-mode-consult-gate.js"] }
+      // 只在 command 裡找 needle 會把 exec form 數成 0，於是 AI-INSTALL 步驟 2 判「兩邊都沒有
+      // gate」並叫人再加一筆——**這支診斷自己製造出它要防的重複註冊**。
+      if (h.args !== undefined && !Array.isArray(h.args)) {
+        return bad(hat + ".args 不是陣列（是 " + typeName(h.args) + "）");
+      }
+      const argv = [];
+      if (Array.isArray(h.args)) {
+        for (let a = 0; a < h.args.length; a++) {
+          if (typeof h.args[a] !== "string") {
+            return bad(hat + ".args[" + a + "] 不是字串（是 " + typeName(h.args[a]) + "）");
+          }
+          argv.push(h.args[a]);
+        }
+      }
+      if (h.command === undefined && !argv.length) continue;
+      const haystack = [h.command === undefined ? "" : h.command].concat(argv).join(" ");
+      if (!haystack.includes(NEEDLE)) continue;
       // 命中字串還不夠：canonical 註冊是 { "type": "command", "command": ... }。
       // 只比對 command 的 substring，會把「type 缺漏或不是 command」的條目也算成
       // 「gate 已接上」——那是這支診斷自己製造假綠。形狀不對就停，不要回報成已註冊。
@@ -106,7 +126,7 @@ function scan(label, p) {
           "（必須是 \"command\"）"
         );
       }
-      gateIdx.push(k);
+      gateIdx.push({ k, argv });
     }
 
     if (!gateIdx.length) continue;
@@ -116,12 +136,13 @@ function scan(label, p) {
       return bad(at + ".matcher 不是字串（是 " + typeName(entry.matcher) + "）");
     }
     const others = entry.hooks.length - gateIdx.length;
-    for (const k of gateIdx) {
+    for (const g of gateIdx) {
       handlers.push({
         matcher: entry.matcher === undefined ? "" : entry.matcher,
-        command: entry.hooks[k].command,
+        command: entry.hooks[g.k].command === undefined ? null : entry.hooks[g.k].command,
+        args: g.argv,
         others,
-        where: at + ".hooks[" + k + "]",
+        where: at + ".hooks[" + g.k + "]",
       });
     }
   }
@@ -140,7 +161,8 @@ if (!mainRes.ok || !localRes.ok) {
   process.exit(1); // fail-closed：形狀不明時不可以讓人拿 exit 0 當成「已確認沒問題」
 }
 
-const all = mainRes.handlers.concat(localRes.handlers);
+const tag = (file) => (h) => Object.assign({ file }, h);
+const all = mainRes.handlers.map(tag("settings.json")).concat(localRes.handlers.map(tag("settings.local.json")));
 
 // ── 停手條件（機械判定，文件不再自己摘要一份）────────────────────────────
 // 1. 含 gate 的 outer entry 底下還掛著別的 handler：整筆搬移／刪除會動到不相干的 hook。
@@ -157,14 +179,18 @@ if (shared.length) {
 //    會被判成 B（純減法），使用者刪光 local 只留下壞的那筆，重跑還會得到「正常」。
 const seen = [];
 for (const h of all) {
-  const key = JSON.stringify([h.matcher, h.command]);
+  const key = JSON.stringify([h.matcher, h.command, h.args]);
   if (!seen.includes(key)) seen.push(key);
 }
 if (all.length >= 2 && seen.length > 1) {
-  console.log("  共 " + all.length + " 筆 gate handler，出現 " + seen.length + " 種不同的 (matcher, command)：");
+  console.log("  共 " + all.length + " 筆 gate handler，出現 " + seen.length + " 種不同的 (matcher, command, args)：");
   for (const k of seen) {
     const v = JSON.parse(k);
-    console.log("    matcher=" + JSON.stringify(v[0]) + "  command=" + JSON.stringify(v[1]));
+    console.log(
+      "    matcher=" + JSON.stringify(v[0]) +
+      "  command=" + JSON.stringify(v[1]) +
+      (v[2] && v[2].length ? "  args=" + JSON.stringify(v[2]) : "")
+    );
   }
   console.log("判定：停手 —— 多筆 gate handler 的 matcher／command 不一致，無法判斷該留哪一筆。請人工判斷。");
   process.exit(3);
@@ -178,3 +204,19 @@ else if (main > 1) console.log("判定：settings.json 裡有 " + main + " 筆 g
 else if (main === 1 && local >= 1) console.log("判定：兩邊都有 —— **只要從 settings.local.json 移除**，不要搬。做第 2 節的『B. 已經有一筆』。");
 else if (main === 0 && local >= 1) console.log("判定：受影響 —— gate 只在 local，從非家目錄啟動完全不生效。做第 2 節的『A. 還沒有』。");
 else console.log("判定：兩邊都沒有 gate —— 可能還沒安裝，或註冊在別處。照 AI-INSTALL 步驟 2 重做。");
+
+// ⚠️ 明確劃出本 probe **不**負責的事。不寫出來的話，「判定：正常」會被當成
+// 「gate 一定會生效」，但 command 指到一個已經被刪掉的路徑時它照樣印「正常」。
+if (all.length) {
+  console.log("");
+  console.log("已註冊的 gate handler：");
+  for (const h of all) {
+    console.log(
+      "  " + h.file + " " + h.where +
+      "  command=" + JSON.stringify(h.command) +
+      (h.args.length ? "  args=" + JSON.stringify(h.args) : "")
+    );
+  }
+  console.log("⚠️ 本 probe 只驗**註冊的形狀**，不驗 command／args 指到的檔案是否真的存在，");
+  console.log("   也不驗 hook 真的會被叫起。端到端沒被 deny 時，先核對上面印出來的路徑還在不在。");
+}

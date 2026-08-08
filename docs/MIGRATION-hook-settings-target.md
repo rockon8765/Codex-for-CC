@@ -3,7 +3,7 @@
 > 2026-07-28。**只影響 macOS 與 Linux**，且只影響 **2026-07-28 以前**照舊版
 > `AI-INSTALL.md` 安裝的人。Windows 一直都是對的，不受影響。
 
-> **2026-08-08 修訂。** 本文件**下列三個**缺陷已修。**「已修」只涵蓋這三條**——
+> **2026-08-08 修訂。** 本文件**下列四個**缺陷已修。**「已修」只涵蓋這四條**——
 > 其餘章節不在本次修訂範圍內，特別是第 3.1 節（見該節開頭的 ⛔）：
 >
 > 1. 第 1 節的 probe 對「JSON 合法但形狀不對」**不 fail-closed**——`hooks.PreToolUse`
@@ -14,12 +14,16 @@
 >    **B（已經有／重複）** 兩支，B 是**減法**不是搬移。
 > 3. 第 2 節的粒度從「整個 outer entry」改為 **handler**——避免把掛在同一個 entry
 >    的其他 hook 一起搬走或刪掉。停手條件改由 probe **機械判定**，本文件不再摘要一份。
+> 4. 新舊 probe **都**只在 `command` 裡找 needle，因此漏掉 Claude Code 官方支援的
+>    **exec form**（`{"type":"command","command":"node","args":["…gate.js"]}`）。那會被數成 0、
+>    判成「兩邊都沒有 gate」，接著 `AI-INSTALL` 步驟 2 叫人再加一筆——
+>    **這支診斷自己製造出它要防的重複註冊**。現在 `command` 與 `args` 一起比對。
 >
 > **probe 已從本文件抽成 [`tools/probe-gate-registration.js`](../tools/probe-gate-registration.js)。**
 > 原因有二：內嵌的 bash heredoc 在 Windows 的 PowerShell 跑不動（而「重複註冊」三平台都會發生，
 > `AI-INSTALL` 步驟 2 會叫三平台的人都跑它）；而且內嵌在 markdown 裡的邏輯沒有任何回歸案守著。
-> 現在有 [`tests/probe-gate-registration.test.js`](../tests/probe-gate-registration.test.js)：**33 案**，
-> 對修訂前那版（`5cc50e0`）反向驗證為 **6 PASS／27 FAIL**，通過的 6 個恰為行為未改變的對照組。
+> 現在有 [`tests/probe-gate-registration.test.js`](../tests/probe-gate-registration.test.js)：**40 案**，
+> 對修訂前那版（`5cc50e0`）反向驗證為 **7 PASS／33 FAIL**，通過的 7 個恰為行為未改變的對照組。
 >
 > ⚠️ **證據範圍**：probe 的行為有跨平台的自動化回歸案；第 2 節的修訂是**文件層的靜態修正**，
 > **未**在真實受影響的 macOS／Linux 環境端到端驗證。
@@ -90,11 +94,12 @@ node tools/probe-gate-registration.js
 > `settings.json` 裡有兩筆重複 gate 時會被判成不用修。而重複註冊正是
 > 「照著安裝指引再跑一次」最容易產生的狀態。
 
-`exit 3`（停手）目前有兩種：含 gate 的 outer entry 底下**還掛著別的 handler**；
-或多筆 gate handler 的 `matcher`／`command` **不一致**（不知道該留哪一筆）。
-**probe 比的是兩個檔的聯集**，不是只看 `settings.json`——
-「`settings.json` 那筆是舊路徑、`settings.local.json` 那筆才是對的」如果照 B 做，
-會刪掉對的那筆、留下不會生效的那筆，而且重跑 probe 還會顯示「正常」。
+`exit 3`（停手）的**條件寫在 probe 裡，本文件刻意不複述**——它會直接印出命中的是哪一條
+（判定依據是**兩個檔的聯集**，不是只看 `settings.json`）。
+
+> ⚠️ **probe 只驗「註冊的形狀」。** 它**不驗** `command`／`args` 指到的檔案是否還存在，
+> 也不驗 hook 真的會被叫起。所以「判定：正常」不等於「gate 一定會生效」——
+> 決定性的驗證是第 3.2 節。
 
 ### 1.2 快速看它到底有沒有跑過（**參考用，不是證明**）
 
@@ -113,6 +118,12 @@ ls ~/.claude/projects/ 2>/dev/null
 ---
 
 ## 2. 修復
+
+> **哪一支適用哪個平台。** 本文件開頭說「只影響 macOS／Linux」講的是 **A**
+> （gate 只註冊在 `settings.local.json`）——那確實是 POSIX 專屬的歷史問題。
+> 但 **B（重複註冊）三平台都會發生**，Windows 使用者也會被
+> [`AI-INSTALL.md`](AI-INSTALL.md) 步驟 2 導到這裡。2.2 是手動編輯 JSON，本來就與平台無關；
+> 2.1 的備份見下方各平台指引。
 
 ### 2.1 先備份
 
@@ -135,6 +146,12 @@ echo "backup ts=$ts"
 > 所以「有印出 `ts`」才等於「該備份的都備份完成且逐位元組比對過」。
 > 舊版沒有 `set -e`、沒有撞名拒絕、也沒有 `cmp` 驗證——`cp` 失敗仍會一路跑到底印出
 > `backup ts=`，接著你就會在「以為有備份」的狀態下手動改 settings。
+
+> **Windows**：用 [`AI-INSTALL.md`](AI-INSTALL.md) 步驟 **1b** 的 PowerShell 備份區塊
+> ——它會一併備份 `settings.json`，而且有 `tests/ai-install/run-windows.ps1` 測試臺守著
+> （pwsh 與 Windows PowerShell 5.1 各驗一次）。
+> **這裡刻意不另寫一份 PowerShell 版本**：同一段備份邏輯寫兩遍，遲早演化到不一致——
+> 這個 repo 已經為此付過兩次代價。
 
 ### 2.2 手動修正（**刻意不提供自動腳本**，理由見下）
 
@@ -168,7 +185,7 @@ echo "backup ts=$ts"
 
 #### 兩支共用的條目樣板
 
-（`command` 保留你原本的絕對路徑，不要改）：
+（`command` 保留你原本的絕對路徑，不要改——**除非那個路徑指到的檔案已經不存在**，見 3.2）：
 
 ```json
 {
@@ -205,7 +222,12 @@ echo "backup ts=$ts"
 
 ---
 
-## 3. 驗證（**兩步都要做**）
+## 3. 驗證
+
+> **完成判準＝第 2 節的後置條件（probe 印「判定：正常，不用修。」且 exit 0）＋ 下面的 3.2。**
+> 3.1 是**補充**，不是必要條件——它跑的是你已安裝的那份 verifier，對本文件的讀者不可靠，
+> 理由見 3.1 開頭的 ⛔。（2026-08-08 以前這裡寫「兩步都要做」，那對「verifier 根本不存在」
+> 的機器來說是無法完成的流程。）
 
 ### 3.1 靜態：matcher 是否真的合併進去了
 
@@ -242,7 +264,11 @@ node ~/.claude/skills/超級模式/tests/matcher-contract.test.js; echo "exit=$?
 3. 開啟超級模式，在**沒有憑證**的狀態下試一個會被攔的動作
 4. 應該要被 deny
 
-沒被 deny → hook 沒接上，回到 2.2。
+沒被 deny → hook 沒接上。**先確認 `command`／`args` 指到的檔案真的存在**：
+第 1 節的 probe 會把註冊的路徑印出來，但它**只驗註冊的形狀、不驗那個路徑還在不在**。
+路徑不存在（家目錄搬過、當初就填錯、或 hook 被刪掉）時 probe 會一直印「正常，不用修。」
+——就註冊形狀而言它確實正常。這種情況直接把 `command`／`args` 改成正確的絕對路徑，
+再重跑本節。路徑沒問題才回到 2.2 檢查合併結果。
 
 ---
 
@@ -270,7 +296,8 @@ node ~/.claude/skills/超級模式/tests/matcher-contract.test.js; echo "exit=$?
 
 ## 5. 收尾
 
-確認 3.1 與 3.2 都過之後，2.1 產生的備份可以自行刪除：
+確認**第 2 節的後置條件**（probe 印「判定：正常，不用修。」且 exit 0）與 **3.2** 都過之後，
+2.1 產生的備份可以自行刪除：
 
 ```bash
 ls -la ~/.claude/settings*.json.bak-*

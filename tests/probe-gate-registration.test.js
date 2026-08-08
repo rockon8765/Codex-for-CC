@@ -49,6 +49,9 @@ const CMD = "node /home/u/.claude/hooks/super-mode-consult-gate.js";
 const CMD_STALE = "node /old/path/super-mode-consult-gate.js";
 
 const gateHandler = (cmd) => ({ type: "command", command: cmd || CMD });
+// exec form：args 存在時 command 只是可執行檔名，needle 在 args 裡
+const gateExec = (p) => ({ type: "command", command: "node", args: [p || "/home/u/.claude/hooks/super-mode-consult-gate.js"] });
+const execEntry = (p) => ({ matcher: MATCHER, hooks: [gateExec(p)] });
 const gateEntry = (cmd, matcher) => ({
   matcher: matcher === undefined ? MATCHER : matcher,
   hooks: [gateHandler(cmd)],
@@ -105,6 +108,19 @@ const CASES = [
   { id: "ok-two-gate-same-entry", main: settings({ matcher: MATCHER, hooks: [gateHandler(), gateHandler()] }), exit: 0, want: ["有 2 筆 gate", "已經重複註冊"], deny: ["停手"] },
   // 讀取錯誤（非 ENOENT）：settings.json 是目錄。錯誤碼各平台可能不同，只斷言前綴。
   { id: "read-error-directory", main: { dir: true }, exit: 1, want: ["讀取失敗：", "無法解析或形狀不合"] },
+
+  // ---- exec form（Claude Code 官方支援的第二種 command hook 形態）-------
+  // needle 在 args 裡、command 只是 "node"。只找 command 會數成 0，
+  // 於是 AI-INSTALL 步驟 2 判「兩邊都沒有 gate」並叫人再加一筆 = 自己製造重複註冊。
+  { id: "ok-exec-form", main: settings(execEntry()), exit: 0, want: ["gate 條目：1 個", "正常，不用修"], deny: ["兩邊都沒有 gate"] },
+  { id: "ok-duplicate-exec-form", main: settings(execEntry(), execEntry()), exit: 0, want: ["有 2 筆 gate", "已經重複註冊"] },
+  // shell form ＋ exec form 混用：文字上不同，保守停手
+  { id: "halt-mixed-forms", main: settings(gateEntry()), local: settings(execEntry()), exit: 3, want: ["停手"] },
+  { id: "exec-form-type-prompt", main: settings({ matcher: MATCHER, hooks: [{ type: "prompt", command: "node", args: ["/x/super-mode-consult-gate.js"] }] }), exit: 1, want: ['type 是 "prompt"'], deny: ["正常，不用修"] },
+  { id: "args-not-array", main: settings({ matcher: MATCHER, hooks: [{ type: "command", command: "node", args: "/x/super-mode-consult-gate.js" }] }), exit: 1, want: ["PreToolUse[0].hooks[0].args 不是陣列（是 string）"] },
+  { id: "args-element-not-string", main: settings({ matcher: MATCHER, hooks: [{ type: "command", command: "node", args: [7, "/x/super-mode-consult-gate.js"] }] }), exit: 1, want: ["PreToolUse[0].hooks[0].args[0] 不是字串（是 number）"] },
+  // 不相干的 exec-form handler（args 裡沒有 needle）不能被算進來
+  { id: "ok-unrelated-exec-form", main: settings({ matcher: "Bash", hooks: [{ type: "command", command: "node", args: ["/other/hook.js"] }] }), exit: 0, want: ["gate 條目：0 個", "兩邊都沒有 gate"] },
 ];
 
 // ── 執行 ────────────────────────────────────────────────────────────────

@@ -294,6 +294,9 @@ if (Test-Path -LiteralPath $stale) { throw "安裝驗證失敗：FIX-PLAN.md 未
 > | 退出碼 0 ＋「正常，不用修」 | **已經裝好了，什麼都不要做** |
 > | 退出碼 0 ＋ 其他任何判定 | **不要在這裡加**——照它指的 A／B 做 [`MIGRATION`](MIGRATION-hook-settings-target.md) 第 2 節 |
 >
+> `MIGRATION` 的標題寫「只影響 macOS／Linux」指的是 **A** 分支；
+> **B（重複註冊）三平台通用**，Windows 使用者照樣走那一節（備份改用本文件步驟 1b）。
+>
 > ⚠️ **這裡刻意不複述判定矩陣。** 唯一的矩陣在 `MIGRATION` 第 1 節，而 probe 直接印結論。
 > 2026-08-08 的合併前審查抓到：本節先前自己抄了一份簡化矩陣，把「`settings.json`=0、
 > `local`≥1」（**受影響的舊安裝者，正是 MIGRATION 存在的理由**）誤導向純減法分支
