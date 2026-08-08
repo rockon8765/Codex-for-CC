@@ -23,7 +23,7 @@
 ## 1. 受驗 SHA 與 blob
 
 **受驗版本＝分支 `fix/a2-migration-probe-2026-08-08` 的尖端。**
-**釘子是下面這 7 筆 blob，不是 SHA**——這樣「之後又補了一個只改 README 的 commit」
+**釘子是下面這 9 筆 blob，不是 SHA**——這樣「之後又補了一個只改 README 的 commit」
 不會讓你以為版本不對。任何一筆不符就停手回報。
 
 ```bash
@@ -40,15 +40,15 @@ done
 
 | 檔 | 期望 blob（前 12 碼）|
 |---|---|
-| `tools/probe-gate-registration.js` | `PIN_PROBE` |
-| `tools/backup-settings.js` | `PIN_BACKUP` |
-| `tests/probe-gate-registration.test.js` | `PIN_PROBE_TEST` |
-| `tests/backup-settings.test.js` | `PIN_BACKUP_TEST` |
-| `docs/MIGRATION-hook-settings-target.md` | `PIN_MIGRATION` |
-| `docs/AI-INSTALL.md` | `PIN_AIINSTALL` |
-| `macos/settings.snippet.json` | `PIN_SNIPPET` |
-| `macos/skills/超級模式/references/orchestration.md` | `PIN_ORCH` |
-| `docs/linux-platform-notes.md` | `PIN_LINUXNOTES` |
+| `tools/probe-gate-registration.js` | `6280f96028fc` |
+| `tools/backup-settings.js` | `255de1d69811` |
+| `tests/probe-gate-registration.test.js` | `5a8777c57b88` |
+| `tests/backup-settings.test.js` | `c56127de93bd` |
+| `docs/MIGRATION-hook-settings-target.md` | `63e38d6d4628` |
+| `docs/AI-INSTALL.md` | `3852df2607d3` |
+| `macos/settings.snippet.json` | `a903d6aac575` |
+| `macos/skills/超級模式/references/orchestration.md` | `a4dd320b3285` |
+| `docs/linux-platform-notes.md` | `afa9cafd5d3e` |
 
 > `README.md` 與本檔**刻意不列入**：它們是敘述性文件、不影響任何一項驗證，
 > 而且補釘 SHA 時還會再動一次。把它們放進釘子只會製造假的「版本不符」。
@@ -99,7 +99,7 @@ ok-normal, ok-none-both-missing, ok-none-nongate-handler, ok-bom,
 ok-entry-without-hooks-key, ok-gate-plus-unrelated-entry, ok-unrelated-exec-form
 ```
 
-> ⚠️ **只核對 `FAIL 33` 這個數字不夠。** 請把完整的 FAIL 清單貼回來——
+> ⚠️ **只核對 `FAIL 35` 這個數字不夠。** 請把完整的 FAIL 清單貼回來——
 > 2026-08-08 就是因為只看總數，差點漏掉「失敗的不是該失敗的那幾條」。
 > 特別留意 `top-null` 與 `pretooluse-object`：舊版對它們的**退出碼湊巧也是 1**
 > （未捕捉的 TypeError），只有字串斷言抓得到差別。

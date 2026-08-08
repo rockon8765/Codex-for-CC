@@ -38,7 +38,7 @@
 >
 > **例外：Linux 自 2026-07-26 起有持續性的原生覆蓋。** [`.github/workflows/linux.yml`](.github/workflows/linux.yml) 讓每次 push／PR 都在 `ubuntu-latest` 上跑完整 `linux/` 回歸（含一道變異測試守住平台語義）。所以 linux 的「目前 tip 是否原生驗證過」不必再靠人工回想——看 CI 狀態即可。Windows 與 macOS 目前**沒有** CI，仍靠人工原生驗證。
 >
-> **本次 delta 的驗證分布（2026-08-08，`5cc50e0..f5efb41`：A2 —— MIGRATION 的 probe 抽成 repo 腳本並 fail-closed、判定表拆 1／≥2、第 2 節改 handler 粒度、10 處註冊入口改成「跑 probe 照它印的判定走」）。**
+> **本次 delta 的驗證分布（2026-08-08，`5cc50e0..9528971`：A2 —— MIGRATION 的 probe 抽成 repo 腳本並 fail-closed、判定表拆 1／≥2、第 2 節改 handler 粒度、備份改用跨平台 `tools/backup-settings.js`、10 處註冊入口改成「跑 probe 照它印的判定走」）。**
 > （本列之後只有**一個補釘本行 SHA 的 commit**，它只動 `README.md` 與 handoff，未動任何受測檔——處理方式與 2026-08-04 那批的 `e1ec53f` 相同。）
 > ⚠️ **macOS 尚未原生驗證**，交接文件見 [`docs/HANDOFF-macos-a2-2026-08-08.md`](docs/HANDOFF-macos-a2-2026-08-08.md)。在收到回報之前，**不要**把本批當成三平台等價驗證過。
 > **Windows**（Node v24.16.0）：`tests/probe-gate-registration.test.js` **42/42**；`tests/backup-settings.test.js` **6 PASS／0 FAIL／1 SKIP**（symlink 案需要建 symlink 的權限，Windows 非管理員建不了，**明確標 SKIP 而非靜默跳過**）；`tests/ai-install/run-windows.ps1` **69/69**（pwsh 7 與 Windows PowerShell 5.1 各跑一次）；gate-cases **109/109**；`codex-check` **188/188**；三平台 `matcher-contract` 皆 exit 0（該檔與 `5cc50e0` **同 blob**，本批未改它）。
