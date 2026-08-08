@@ -1,5 +1,18 @@
 # 超級模式修復規劃書（FIX-PLAN · macOS 版）
 
+> ## ⚠️ 歷史文件——不是現行指引
+>
+> 本檔是 2026-07-03 的過程紀錄，**內文刻意保持原樣**。其中至少兩處已被後續實測推翻，
+> 照做會壞事：
+>
+> 1. **「放 local 不放 `settings.json`——防被 ECC 重生 settings.json 時蓋掉」**（見下方）。
+>    2026-07-28 macOS 真機實測確認 `~/.claude/settings.local.json`**不是** user scope，
+>    照做等於 gate 從來沒生效。現行做法一律用 `~/.claude/settings.json`，
+>    見 [`../AI-INSTALL.md`](../AI-INSTALL.md) 步驟 2。
+> 2. **把 ECC 具名為覆寫者**的斷言證據不足，已於 2026-08-08 在現行指引中撤下並泛化。
+>
+> 要知道「現在該怎麼做」，一律以 `docs/` 底下的現行文件為準，不要引用本檔。
+
 > 版本：2026-07-03 v1.0 ｜ 依據：Windows 參考版 `https://github.com/rockon8765/Codex-for-CC`
 > （該 repo 的 `skills/超級模式/FIX-PLAN.md` = 43 findings 稽核 + Phase 1–4 已修復 + 已對抗驗證）
 > 對象：**之後接手的較弱 AI 或人類**。照本文件逐步做即可，不需要重讀 Windows 稽核。

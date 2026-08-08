@@ -1,5 +1,5 @@
 {
-  "_comment": "把這個 PreToolUse 條目合併進 ~/.claude/settings.json 的 hooks.PreToolUse（合併，不要覆蓋既有設定）。請把 hook 的絕對路徑改成符合你家目錄的路徑；若 node 不在系統 PATH（如可攜式安裝在 ~/.local/node/bin），command 開頭的 node 也要換成絕對路徑，否則 hook 會靜默不跑。⚠️ 不要用 ~/.claude/settings.local.json：2026-07-28 macOS 實測確認它不是 user scope 的 hook 來源，只有從家目錄啟動 Claude Code 時才會被當成專案層檔案讀到，從其他目錄啟動就完全不生效（本 repo 曾因此讓 gate 長期未被叫用）。若你的環境有工具會覆寫 ~/.claude/settings.json（例如 ECC 重新安裝），請在那之後重跑 tests/matcher-contract.test.js —— 它現在找不到已註冊的 hook 就會 FAIL，不再靜默通過。",
+  "_comment": "把這個 PreToolUse 條目合併進 ~/.claude/settings.json 的 hooks.PreToolUse（合併，不要覆蓋既有設定）。請把 hook 的絕對路徑改成符合你家目錄的路徑；若 node 不在系統 PATH（如可攜式安裝在 ~/.local/node/bin），command 開頭的 node 也要換成絕對路徑，否則 hook 會靜默不跑。⚠️ 不要用 ~/.claude/settings.local.json：2026-07-28 macOS 實測確認它不是 user scope 的 hook 來源，只有從家目錄啟動 Claude Code 時才會被當成專案層檔案讀到，從其他目錄啟動就完全不生效（本 repo 曾因此讓 gate 長期未被叫用）。這個檔不是只有你在寫（Claude Code 自己的 plugin manager 也寫它——該檔除了 hooks 還有 enabledPlugins；但目前沒有證據顯示有工具會覆寫或移除 hooks 段），所以任何可能改動它的動作之後，請重跑 node ~/.claude/skills/超級模式/tests/matcher-contract.test.js —— 它現在找不到已註冊的 hook 就會 FAIL，不再靜默通過。",
   "hooks": {
     "PreToolUse": [
       {

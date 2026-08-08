@@ -172,10 +172,18 @@ node ~/.claude/skills/超級模式/tests/matcher-contract.test.js; echo "exit=$?
 
 ## 4. 如果你的 `~/.claude/settings.json` 會被別的工具覆寫
 
-例如 ECC 重新安裝。這是真實的衝突——舊版指引選 `settings.local.json` 就是為了躲它。
-但躲進一個**不會被載入的檔案**不能算解法，只是讓問題從「被覆寫」變成「從來沒生效」。
+這個檔**不是只有你在寫**：任何安裝器、設定同步或 promote 工具都可能改它，
+而且 **Claude Code 自己的 plugin manager 就是同一個檔的寫入者**
+（該檔的 top-level key 除了 `hooks` 還有 `enabledPlugins`，2026-08-08 實查）。
 
-現階段的做法：**覆寫之後重跑 3.1**。它現在找不到已註冊的 hook 會直接 FAIL，
+> ⚠️ 上述只證明「有其他寫入者」。**目前沒有證據顯示有哪個工具會覆寫或移除 `hooks` 段**——
+> 本節先前具名 ECC 並斷言「這是真實的衝突」，那個斷言的證據不足，已於 2026-08-08 撤下。
+> 別把舊斷言換成一個對 plugin manager 的新斷言。
+
+舊版指引選 `settings.local.json` 正是為了躲這件事。但躲進一個**不會被載入的檔案**不能算解法，
+只是讓問題從「被覆寫」變成「從來沒生效」。
+
+現階段的做法：**任何可能改動該檔的動作之後，重跑 3.1**。它現在找不到已註冊的 hook 會直接 FAIL，
 不會再靜默通過，所以你至少會知道要重補。
 
 長期做法記在 [`installer-rewrite-spec.md`](installer-rewrite-spec.md)：
