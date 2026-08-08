@@ -1,5 +1,11 @@
 # HANDOFF — macOS 原生驗證：codex-check hooks 三態（2026-08-08）
 
+> ## 🔀 已被取代（2026-08-08）
+>
+> **請改用 [`HANDOFF-macos-integration-2026-08-08.md`](HANDOFF-macos-integration-2026-08-08.md)**（釘 `319299c`）。
+> 那份把兩批合成一次驗證，並已納入 Codex 合併前審查後的修正。本檔僅作過程紀錄保留。
+
+
 > ## ⛔ 這份驗證已作廢，需要重跑（2026-08-08 更新）
 >
 > Mac 端在 `46e02bc` 上跑過一次並全綠，**但那之後 `macos/…/codex-check.sh` 又改了兩輪**
