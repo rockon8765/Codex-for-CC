@@ -335,7 +335,7 @@ t_b_hooks_unparseable() {  # config 有 hooks.state 但序列化格式變（單�
   setup; mkdir -p "$fake_home/.codex"
   printf "[hooks.state.'myhook:abc123']\ntrusted = true\n" > "$fake_home/.codex/config.toml"
   run_check CODEX_STUB_PLUGINS=alpha
-  printf '%s' "$out" | grep -qF '受信任 hooks: (UNPARSEABLE'; assert b_hooks_unp "hooks 報 UNPARSEABLE" $?
+  printf '%s' "$out" | grep -qF 'hooks.state（使用者啟用狀態）: (UNPARSEABLE'; assert b_hooks_unp "hooks 報 UNPARSEABLE" $?
   invoke_check update CODEX_STUB_PLUGINS=alpha
   if [ "$rc" -eq 2 ]; then assert b_hooks_unp "hooks 失真拒更新 exit 2" 0; else assert b_hooks_unp "hooks 失真拒更新 exit 2（實際 $rc）" 1; fi
 }
@@ -347,8 +347,8 @@ t_b_hooks_empty_table_is_zero() {  # 空的 [hooks.state] ＝合法零筆，**�
   # 刻意做成「空表夾在兩個別的表中間」——這正是真實 config 的長相
   printf "[model_reasoning]\neffort = 'high'\n\n[hooks.state]\n\n[shell_environment_policy.set]\nFOO = 'bar'\n" > "$fake_home/.codex/config.toml"
   run_check CODEX_STUB_PLUGINS=alpha
-  printf '%s' "$out" | grep -qF '受信任 hooks: 0 筆'; assert b_hooks_empty "hooks 報 0 筆而非 UNPARSEABLE" $?
-  if printf '%s' "$out" | grep -qF '受信任 hooks: (UNPARSEABLE'; then assert b_hooks_empty "hooks 不得報 UNPARSEABLE" 1; else assert b_hooks_empty "hooks 不得報 UNPARSEABLE" 0; fi
+  printf '%s' "$out" | grep -qF 'hooks.state（使用者啟用狀態）: 0 筆'; assert b_hooks_empty "hooks 報 0 筆而非 UNPARSEABLE" $?
+  if printf '%s' "$out" | grep -qF 'hooks.state（使用者啟用狀態）: (UNPARSEABLE'; then assert b_hooks_empty "hooks 不得報 UNPARSEABLE" 1; else assert b_hooks_empty "hooks 不得報 UNPARSEABLE" 0; fi
   # 必須**允許**寫 baseline —— 舊版會因為 UNPARSEABLE 而 exit 2
   invoke_check update CODEX_STUB_PLUGINS=alpha
   if [ "$rc" -eq 0 ]; then assert b_hooks_empty "空 hooks.state 可寫 baseline exit 0" 0; else assert b_hooks_empty "空 hooks.state 可寫 baseline exit 0（實際 $rc）" 1; fi
@@ -362,10 +362,10 @@ t_b_hooks_removed_after_baseline() {  # baseline 有 hook → 移除該外掛 �
   printf '[hooks.state."myhook:abc123"]\ntrusted = true\n' > "$cfg"
   invoke_check update CODEX_STUB_PLUGINS=alpha
   if [ "$rc" -eq 0 ]; then assert b_hooks_gone "前置：有 hook 時可建 baseline" 0; else assert b_hooks_gone "前置：有 hook 時可建 baseline（實際 $rc）" 1; fi
-  printf '%s' "$out" | grep -qF '受信任 hooks (1): myhook'; assert b_hooks_gone "前置：baseline 當下確實看到 1 筆 hook" $?
+  printf '%s' "$out" | grep -qF 'hooks.state（使用者啟用狀態）(1): myhook'; assert b_hooks_gone "前置：baseline 當下確實看到 1 筆 hook" $?
   printf '[hooks.state]\n' > "$cfg"
   run_check CODEX_STUB_PLUGINS=alpha
-  printf '%s' "$out" | grep -qF '受信任 hooks: 0 筆'; assert b_hooks_gone "hooks 歸零被如實報出" $?
+  printf '%s' "$out" | grep -qF 'hooks.state（使用者啟用狀態）: 0 筆'; assert b_hooks_gone "hooks 歸零被如實報出" $?
   if printf '%s' "$out" | grep -qF 'hooks: 有輸出但解析失敗'; then assert b_hooks_gone "不得因此進 UNKNOWN 段" 1; else assert b_hooks_gone "不得因此進 UNKNOWN 段" 0; fi
   # 最關鍵：hooks 從 1 筆變 0 筆**必須被報成漂移**。舊版會把它藏進 UNKNOWN 段而不報。
   printf '%s' "$out" | grep -qF 'hooks -: myhook'; assert b_hooks_gone "hooks 消失必須報成漂移" $?
@@ -378,48 +378,65 @@ t_b_hooks_alt_serializations() {  # TOML 的其他寫法不得被洗白成「0 �
   setup; mkdir -p "$fake_home/.codex"
   printf 'hooks.state.myhook = { trusted = true }\n' > "$fake_home/.codex/config.toml"
   run_check CODEX_STUB_PLUGINS=alpha
-  printf '%s' "$out" | grep -qF '受信任 hooks: (UNPARSEABLE'; assert b_hooks_alt "[dotted-key] 必須 UNPARSEABLE" $?
-  if printf '%s' "$out" | grep -qF '受信任 hooks: 0 筆'; then assert b_hooks_alt "[dotted-key] 不得報 0 筆" 1; else assert b_hooks_alt "[dotted-key] 不得報 0 筆" 0; fi
+  printf '%s' "$out" | grep -qF 'hooks.state（使用者啟用狀態）: (UNPARSEABLE'; assert b_hooks_alt "[dotted-key] 必須 UNPARSEABLE" $?
+  if printf '%s' "$out" | grep -qF 'hooks.state（使用者啟用狀態）: 0 筆'; then assert b_hooks_alt "[dotted-key] 不得報 0 筆" 1; else assert b_hooks_alt "[dotted-key] 不得報 0 筆" 0; fi
   invoke_check update CODEX_STUB_PLUGINS=alpha
   if [ "$rc" -eq 2 ]; then assert b_hooks_alt "[dotted-key] 拒寫 baseline exit 2" 0; else assert b_hooks_alt "[dotted-key] 拒寫 baseline exit 2（實際 $rc）" 1; fi
 
   setup; mkdir -p "$fake_home/.codex"
   printf '[hooks]\nstate = { "myhook:abc" = { trusted = true } }\n' > "$fake_home/.codex/config.toml"
   run_check CODEX_STUB_PLUGINS=alpha
-  printf '%s' "$out" | grep -qF '受信任 hooks: (UNPARSEABLE'; assert b_hooks_alt "[inline-table] 必須 UNPARSEABLE" $?
-  if printf '%s' "$out" | grep -qF '受信任 hooks: 0 筆'; then assert b_hooks_alt "[inline-table] 不得報 0 筆" 1; else assert b_hooks_alt "[inline-table] 不得報 0 筆" 0; fi
+  printf '%s' "$out" | grep -qF 'hooks.state（使用者啟用狀態）: (UNPARSEABLE'; assert b_hooks_alt "[inline-table] 必須 UNPARSEABLE" $?
+  if printf '%s' "$out" | grep -qF 'hooks.state（使用者啟用狀態）: 0 筆'; then assert b_hooks_alt "[inline-table] 不得報 0 筆" 1; else assert b_hooks_alt "[inline-table] 不得報 0 筆" 0; fi
   invoke_check update CODEX_STUB_PLUGINS=alpha
   if [ "$rc" -eq 2 ]; then assert b_hooks_alt "[inline-table] 拒寫 baseline exit 2" 0; else assert b_hooks_alt "[inline-table] 拒寫 baseline exit 2（實際 $rc）" 1; fi
 
   setup; mkdir -p "$fake_home/.codex"
   printf '[hooks]\nstate.myhook = { trusted = true }\n' > "$fake_home/.codex/config.toml"
   run_check CODEX_STUB_PLUGINS=alpha
-  printf '%s' "$out" | grep -qF '受信任 hooks: (UNPARSEABLE'; assert b_hooks_alt "[hooks-dotted-subkey] 必須 UNPARSEABLE" $?
-  if printf '%s' "$out" | grep -qF '受信任 hooks: 0 筆'; then assert b_hooks_alt "[hooks-dotted-subkey] 不得報 0 筆" 1; else assert b_hooks_alt "[hooks-dotted-subkey] 不得報 0 筆" 0; fi
+  printf '%s' "$out" | grep -qF 'hooks.state（使用者啟用狀態）: (UNPARSEABLE'; assert b_hooks_alt "[hooks-dotted-subkey] 必須 UNPARSEABLE" $?
+  if printf '%s' "$out" | grep -qF 'hooks.state（使用者啟用狀態）: 0 筆'; then assert b_hooks_alt "[hooks-dotted-subkey] 不得報 0 筆" 1; else assert b_hooks_alt "[hooks-dotted-subkey] 不得報 0 筆" 0; fi
+
+  # Codex 複審 #5 補的兩種：root inline table、quoted segments
+  setup; mkdir -p "$fake_home/.codex"
+  printf 'hooks = { state = { "myhook:abc" = { trusted = true } } }\n' > "$fake_home/.codex/config.toml"
+  run_check CODEX_STUB_PLUGINS=alpha
+  printf '%s' "$out" | grep -qF '(UNPARSEABLE'; assert b_hooks_alt "[root-inline] 必須 UNPARSEABLE" $?
+
+  setup; mkdir -p "$fake_home/.codex"
+  printf '[hooks."state"."myhook:abc"]\ntrusted = true\n' > "$fake_home/.codex/config.toml"
+  run_check CODEX_STUB_PLUGINS=alpha
+  printf '%s' "$out" | grep -qF '(UNPARSEABLE'; assert b_hooks_alt "[quoted-segments] 必須 UNPARSEABLE" $?
+
+  # 負向對照：名字只是「以 hooks 開頭」的無關表／鍵，**不得**誤判成形跡
+  setup; mkdir -p "$fake_home/.codex"
+  printf '[hooksomething]\nx = 1\n\nhooksfoo = 2\n' > "$fake_home/.codex/config.toml"
+  run_check CODEX_STUB_PLUGINS=alpha
+  printf '%s' "$out" | grep -qF '0 筆'; assert b_hooks_alt "負向對照：hooksomething／hooksfoo 不算形跡" $?
 
   # Codex 合併前審查 F4 補的三種：行尾註解、混合（1 認得＋1 異形）、縮排 canonical
   setup; mkdir -p "$fake_home/.codex"
   printf '[hooks] # retained by serializer\nstate.myhook = { trusted = true }\n' > "$fake_home/.codex/config.toml"
   run_check CODEX_STUB_PLUGINS=alpha
-  printf '%s' "$out" | grep -qF '受信任 hooks: (UNPARSEABLE'; assert b_hooks_alt "[trailing-comment] 必須 UNPARSEABLE" $?
+  printf '%s' "$out" | grep -qF 'hooks.state（使用者啟用狀態）: (UNPARSEABLE'; assert b_hooks_alt "[trailing-comment] 必須 UNPARSEABLE" $?
 
   setup; mkdir -p "$fake_home/.codex"
   printf '[hooks.state."good"]\ntrusted = true\n\nhooks.state.bad = { trusted = true }\n' > "$fake_home/.codex/config.toml"
   run_check CODEX_STUB_PLUGINS=alpha
-  printf '%s' "$out" | grep -qF '受信任 hooks: (UNPARSEABLE'; assert b_hooks_alt "[mixed-good-and-bad] 必須 UNPARSEABLE（不可因 items>0 而略過形跡）" $?
+  printf '%s' "$out" | grep -qF 'hooks.state（使用者啟用狀態）: (UNPARSEABLE'; assert b_hooks_alt "[mixed-good-and-bad] 必須 UNPARSEABLE（不可因 items>0 而略過形跡）" $?
 
   # 縮排的 canonical 表頭必須**被抽成 item**——先前 sed 抽取不吃縮排、awk 卻把它當已認得跳過，
   # 於是「抽不到又不報」＝洗白。這是 macOS 專屬的不一致，Windows 沒有。
   setup; mkdir -p "$fake_home/.codex"
   printf '  [hooks.state."myhook:abc"]\n  trusted = true\n' > "$fake_home/.codex/config.toml"
   run_check CODEX_STUB_PLUGINS=alpha
-  printf '%s' "$out" | grep -qF '受信任 hooks (1): myhook'; assert b_hooks_alt "縮排 canonical 表頭仍抽成 1 筆" $?
+  printf '%s' "$out" | grep -qF 'hooks.state（使用者啟用狀態）(1): myhook'; assert b_hooks_alt "縮排 canonical 表頭仍抽成 1 筆" $?
 
   # 對照組：純註解的空表仍須判為合法零筆（證明上面不是「一律 UNPARSEABLE」）
   setup; mkdir -p "$fake_home/.codex"
   printf "[hooks.state]\n# nothing here\n\n[shell]\nA = 'b'\n" > "$fake_home/.codex/config.toml"
   run_check CODEX_STUB_PLUGINS=alpha
-  printf '%s' "$out" | grep -qF '受信任 hooks: 0 筆'; assert b_hooks_alt "對照組：空表+註解仍是 0 筆" $?
+  printf '%s' "$out" | grep -qF 'hooks.state（使用者啟用狀態）: 0 筆'; assert b_hooks_alt "對照組：空表+註解仍是 0 筆" $?
 }
 t_b_flag_incompat_cache_not_trusted() {  # 命中側對稱守衛：本次盤點旗標不相容 → 舊綠快取不採信
   setup; invoke_check force

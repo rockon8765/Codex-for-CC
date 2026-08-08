@@ -152,17 +152,17 @@ function Get-CapabilitySnapshot {
       $inHooks = $false     # 正在 [hooks] 這張表底下
       foreach ($ln in @($cfgRaw -split "`r?`n")) {
         if ($ln -match '^\s*\[([^\]]*)\]') {
-          $hdr = $Matches[1]
+          $hdr = $Matches[1].Trim()
           $inBare = $false; $inHooks = $false     # 任何表頭都結束前一張表的本體
           if     ($hdr -match '^hooks\.state\."([^"]+)"$') { $h.Items += (($Matches[1] -split ':')[0]) }
           elseif ($hdr -eq 'hooks.state')                  { $inBare = $true }
-          elseif ($hdr -match 'hooks\.state')              { $evidence = $true }   # 子表頭但格式不認得
           elseif ($hdr -eq 'hooks')                        { $inHooks = $true }
+          elseif ($hdr -match '^"?hooks"?(\.|$)')          { $evidence = $true }   # 首段是 hooks 的其他任何形式
           continue
         }
         if ($inBare -and $ln.Trim() -ne '' -and $ln.Trim() -notmatch '^#') { $evidence = $true }   # 裸表底下有實質內容
-        elseif ($ln -match 'hooks\.state')                  { $evidence = $true }   # dotted key：hooks.state.x = ...
-        elseif ($inHooks -and $ln -match '^\s*state\s*[.=]') { $evidence = $true }   # [hooks] 底下的 state ＝／state.<id> ＝
+        elseif ($ln -match '^\s*"?hooks"?\s*[.=]')                { $evidence = $true }   # root：hooks = {...} 或 hooks.state.x = ...
+        elseif ($inHooks -and $ln -match '^\s*"?state"?\s*[.=]')  { $evidence = $true }   # [hooks] 底下的 state ／ "state" ＝／.
       }
     }
     $h.Items = @($h.Items | Select-Object -Unique | Sort-Object)
@@ -250,11 +250,16 @@ Write-Output "=== Codex worker 能力面（唯讀盤點）==="
   }
 
   $h = $snap['hooks']
-  if ($h.Status -eq 'FAILED') { Write-Output "受信任 hooks: (解析失敗)" }
-  elseif ($h.Status -eq 'UNPARSEABLE') { Write-Output "受信任 hooks: (UNPARSEABLE -- config 有 hooks.state 的條目形跡但解析 0 筆，疑序列化格式變更，請人工確認)" }
-  elseif ($h.Items.Count) { Write-Output ("受信任 hooks ({0}): {1}" -f $h.Items.Count, ($h.Items -join ', ')) }
+  if ($h.Status -eq 'FAILED') { Write-Output "hooks.state（使用者啟用狀態）: (解析失敗)" }
+  elseif ($h.Status -eq 'UNPARSEABLE') { Write-Output "hooks.state（使用者啟用狀態）: (UNPARSEABLE -- config 有 hooks 相關的條目形跡但解析 0 筆，疑序列化格式變更，請人工確認)" }
+  elseif ($h.Items.Count) { Write-Output ("hooks.state（使用者啟用狀態）({0}): {1}" -f $h.Items.Count, ($h.Items -join ', ')) }
   # 明確印出「零筆」。舊版在這個情況什麼都不印，讀的人分不出「查過、沒有」與「根本沒查」。
-  else { Write-Output "受信任 hooks: 0 筆（config 沒有 hooks.state 條目）" }
+  else { Write-Output "hooks.state（使用者啟用狀態）: 0 筆（config 沒有 hooks 相關條目）" }
+  # ⚠️ 宣稱範圍：本盤點只讀 ~/.codex/config.toml 的 `hooks.state`，那是**使用者的啟用狀態**，
+  # **不是**「實際會被執行的 hook 清單」。managed／bundled hook 不受 user state 控制，本工具看不到。
+  # 先前這行寫「受信任 hooks: 0 筆」＝超出證據的宣稱（2026-08-08 Codex 複審抓到）。
+  # 權威列舉要走 app-server 的 hooks/list —— `codex` **沒有** hooks CLI 子命令，屬獨立工程，記在 backlog。
+  Write-Output "  （只讀使用者啟用狀態，不列舉 managed／bundled hooks）"
 
   # skill 依賴旗標探測：升級後旗標從 exec --help 消失＝consult/exec 腳本可能已不相容，要大聲講。
   $fl = $snap['exec_flags']

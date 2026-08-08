@@ -657,7 +657,7 @@ function t_b_hooks_unparseable {  # config 有 hooks.state 但序列化格式變
   New-Item -ItemType Directory -Path $codexDir -Force | Out-Null
   Set-Content -LiteralPath (Join-Path $codexDir 'config.toml') -Value "[hooks.state.'myhook:abc123']`r`ntrusted = true" -Encoding utf8
   Run-Check @{ CODEX_STUB_PLUGINS = 'alpha' }
-  AssertMatch 'b_hooks_unp' 'hooks 報 UNPARSEABLE' '受信任 hooks: \(UNPARSEABLE'
+  AssertMatch 'b_hooks_unp' 'hooks 報 UNPARSEABLE' 'hooks\.state（使用者啟用狀態）: \(UNPARSEABLE'
   Invoke-Check -Mode update -Overrides @{ CODEX_STUB_PLUGINS = 'alpha' }
   if ($script:rc -eq 2) { Assert 'b_hooks_unp' 'hooks 失真拒更新 exit 2' 0 } else { Assert 'b_hooks_unp' "hooks 失真拒更新 exit 2（實際 $($script:rc)）" 1 }
 }
@@ -673,8 +673,8 @@ function t_b_hooks_empty_table_is_zero {  # 空的 [hooks.state] ＝合法零筆
   Set-Content -LiteralPath (Join-Path $codexDir 'config.toml') `
     -Value "[model_reasoning]`r`neffort = 'high'`r`n`r`n[hooks.state]`r`n`r`n[shell_environment_policy.set]`r`nFOO = 'bar'" -Encoding utf8
   Run-Check @{ CODEX_STUB_PLUGINS = 'alpha' }
-  AssertMatch 'b_hooks_empty' 'hooks 報 0 筆而非 UNPARSEABLE' '受信任 hooks: 0 筆'
-  AssertNoMatch 'b_hooks_empty' 'hooks 不得報 UNPARSEABLE' '受信任 hooks: \(UNPARSEABLE'
+  AssertMatch 'b_hooks_empty' 'hooks 報 0 筆而非 UNPARSEABLE' 'hooks\.state（使用者啟用狀態）: 0 筆'
+  AssertNoMatch 'b_hooks_empty' 'hooks 不得報 UNPARSEABLE' 'hooks\.state（使用者啟用狀態）: \(UNPARSEABLE'
   # 必須**允許**寫 baseline —— 舊版會因為 UNPARSEABLE 而 exit 2
   Invoke-Check -Mode update -Overrides @{ CODEX_STUB_PLUGINS = 'alpha' }
   if ($script:rc -eq 0) { Assert 'b_hooks_empty' '空 hooks.state 可寫 baseline exit 0' 0 } else { Assert 'b_hooks_empty' "空 hooks.state 可寫 baseline exit 0（實際 $($script:rc)）" 1 }
@@ -694,11 +694,11 @@ function t_b_hooks_removed_after_baseline {  # baseline 有 hook → 使用者�
   Set-Content -LiteralPath $cfg -Value "[hooks.state.`"myhook:abc123`"]`r`ntrusted = true" -Encoding utf8
   Invoke-Check -Mode update -Overrides @{ CODEX_STUB_PLUGINS = 'alpha' }
   if ($script:rc -eq 0) { Assert 'b_hooks_gone' '前置：有 hook 時可建 baseline' 0 } else { Assert 'b_hooks_gone' "前置：有 hook 時可建 baseline（實際 $($script:rc)）" 1 }
-  AssertMatch 'b_hooks_gone' '前置：baseline 當下確實看到 1 筆 hook' '受信任 hooks \(1\): myhook'
+  AssertMatch 'b_hooks_gone' '前置：baseline 當下確實看到 1 筆 hook' 'hooks\.state（使用者啟用狀態）\(1\): myhook'
   # 2) 使用者移除該外掛 → 只剩空表
   Set-Content -LiteralPath $cfg -Value "[hooks.state]" -Encoding utf8
   Run-Check @{ CODEX_STUB_PLUGINS = 'alpha' }
-  AssertMatch 'b_hooks_gone' 'hooks 歸零被如實報出' '受信任 hooks: 0 筆'
+  AssertMatch 'b_hooks_gone' 'hooks 歸零被如實報出' 'hooks\.state（使用者啟用狀態）: 0 筆'
   AssertNoMatch 'b_hooks_gone' '不得因此進 UNKNOWN 段' 'hooks: 有輸出但解析失敗'
   # 最關鍵：hooks 從 1 筆變 0 筆**必須被報成漂移**。舊版會把它藏進 UNKNOWN 段而不報。
   AssertMatch 'b_hooks_gone' 'hooks 消失必須報成漂移' 'hooks -: myhook'
@@ -712,7 +712,9 @@ function t_b_hooks_alt_serializations {  # TOML 的其他寫法不得被洗白�
   foreach ($c in @(
     @{ n = 'dotted-key'; toml = "hooks.state.myhook = { trusted = true }" },
     @{ n = 'inline-table'; toml = "[hooks]`r`nstate = { `"myhook:abc`" = { trusted = true } }" },
-    @{ n = 'hooks-dotted-subkey'; toml = "[hooks]`r`nstate.myhook = { trusted = true }" }
+    @{ n = 'hooks-dotted-subkey'; toml = "[hooks]`r`nstate.myhook = { trusted = true }" },
+    @{ n = 'root-inline'; toml = "hooks = { state = { `"myhook:abc`" = { trusted = true } } }" },
+    @{ n = 'quoted-segments'; toml = "[hooks.`"state`".`"myhook:abc`"]`r`ntrusted = true" }
   )) {
     $script:currentTest = "b_hooks_alt_$($c.n)"
     Setup
@@ -720,8 +722,8 @@ function t_b_hooks_alt_serializations {  # TOML 的其他寫法不得被洗白�
     New-Item -ItemType Directory -Path $codexDir -Force | Out-Null
     Set-Content -LiteralPath (Join-Path $codexDir 'config.toml') -Value $c.toml -Encoding utf8
     Run-Check @{ CODEX_STUB_PLUGINS = 'alpha' }
-    AssertMatch "b_hooks_alt_$($c.n)" "[$($c.n)] 必須 UNPARSEABLE，不得洗白成 0 筆" '受信任 hooks: \(UNPARSEABLE'
-    AssertNoMatch "b_hooks_alt_$($c.n)" "[$($c.n)] 不得報 0 筆" '受信任 hooks: 0 筆'
+    AssertMatch "b_hooks_alt_$($c.n)" "[$($c.n)] 必須 UNPARSEABLE，不得洗白成 0 筆" 'hooks\.state（使用者啟用狀態）: \(UNPARSEABLE'
+    AssertNoMatch "b_hooks_alt_$($c.n)" "[$($c.n)] 不得報 0 筆" 'hooks\.state（使用者啟用狀態）: 0 筆'
     # 且必須拒絕寫進 baseline（洗白進 baseline 之後就再也不會被報成漂移）
     Invoke-Check -Mode update -Overrides @{ CODEX_STUB_PLUGINS = 'alpha' }
     if ($script:rc -eq 2) { Assert "b_hooks_alt_$($c.n)" "[$($c.n)] 拒寫 baseline exit 2" 0 } else { Assert "b_hooks_alt_$($c.n)" "[$($c.n)] 拒寫 baseline exit 2（實際 $($script:rc)）" 1 }
@@ -737,7 +739,7 @@ function t_b_hooks_alt_serializations {  # TOML 的其他寫法不得被洗白�
     New-Item -ItemType Directory -Path $codexDir -Force | Out-Null
     Set-Content -LiteralPath (Join-Path $codexDir 'config.toml') -Value $c2.toml -Encoding utf8
     Run-Check @{ CODEX_STUB_PLUGINS = 'alpha' }
-    AssertMatch "b_hooks_alt_$($c2.n)" "[$($c2.n)] 必須 UNPARSEABLE" '受信任 hooks: \(UNPARSEABLE'
+    AssertMatch "b_hooks_alt_$($c2.n)" "[$($c2.n)] 必須 UNPARSEABLE" 'hooks\.state（使用者啟用狀態）: \(UNPARSEABLE'
   }
   # 縮排的 canonical 表頭必須**被抽成 item**（不是 UNPARSEABLE、更不是 0 筆）——
   # macOS 版先前 sed 抽取不吃縮排、awk 卻把它當已認得跳過，於是「抽不到又不報」＝洗白。
@@ -747,7 +749,15 @@ function t_b_hooks_alt_serializations {  # TOML 的其他寫法不得被洗白�
   New-Item -ItemType Directory -Path $codexDir -Force | Out-Null
   Set-Content -LiteralPath (Join-Path $codexDir 'config.toml') -Value "  [hooks.state.`"myhook:abc`"]`r`n  trusted = true" -Encoding utf8
   Run-Check @{ CODEX_STUB_PLUGINS = 'alpha' }
-  AssertMatch 'b_hooks_alt_indented' '縮排 canonical 表頭仍抽成 1 筆' '受信任 hooks \(1\): myhook'
+  AssertMatch 'b_hooks_alt_indented' '縮排 canonical 表頭仍抽成 1 筆' 'hooks\.state（使用者啟用狀態）\(1\): myhook'
+  # 負向對照：名字只是「以 hooks 開頭」的無關表／鍵，**不得**誤判成形跡（證明規則沒有過寬）
+  $script:currentTest = 'b_hooks_alt_negctrl'
+  Setup
+  $codexDir = Join-Path $script:fakeHome '.codex'
+  New-Item -ItemType Directory -Path $codexDir -Force | Out-Null
+  Set-Content -LiteralPath (Join-Path $codexDir 'config.toml') -Value "[hooksomething]`r`nx = 1`r`n`r`nhooksfoo = 2" -Encoding utf8
+  Run-Check @{ CODEX_STUB_PLUGINS = 'alpha' }
+  AssertMatch 'b_hooks_alt_negctrl' '負向對照：hooksomething／hooksfoo 不算形跡' '0 筆'
   # 對照組：純註解的空表仍須判為合法零筆（證明上面的斷言不是「一律 UNPARSEABLE」）
   $script:currentTest = 'b_hooks_alt_ctrl'
   Setup
@@ -755,7 +765,7 @@ function t_b_hooks_alt_serializations {  # TOML 的其他寫法不得被洗白�
   New-Item -ItemType Directory -Path $codexDir -Force | Out-Null
   Set-Content -LiteralPath (Join-Path $codexDir 'config.toml') -Value "[hooks.state]`r`n# nothing here`r`n`r`n[shell]`r`nA = 'b'" -Encoding utf8
   Run-Check @{ CODEX_STUB_PLUGINS = 'alpha' }
-  AssertMatch 'b_hooks_alt_ctrl' '對照組：空表+註解仍是 0 筆' '受信任 hooks: 0 筆'
+  AssertMatch 'b_hooks_alt_ctrl' '對照組：空表+註解仍是 0 筆' 'hooks\.state（使用者啟用狀態）: 0 筆'
 }
 function t_b_flag_incompat_cache_not_trusted {  # 命中側對稱守衛：本次盤點旗標不相容 → 舊綠快取不採信
   $script:currentTest = 'b_flag_nohit'

@@ -167,13 +167,13 @@ collect_capability_snapshot() {
               print "ITEM " name; next
             }
             if (hdr == "hooks.state") { inbare = 1; next }
-            if (hdr ~ /hooks\.state/) { print "EVID"; next }
-            if (hdr == "hooks") { inhooks = 1 }
+            if (hdr == "hooks") { inhooks = 1; next }
+            if (hdr ~ /^"?hooks"?(\.|$)/) { print "EVID"; next }
             next
           }
           if (inbare && $0 !~ /^[[:space:]]*$/ && $0 !~ /^[[:space:]]*#/) { print "EVID"; next }
-          if ($0 ~ /hooks\.state/) { print "EVID"; next }
-          if (inhooks && $0 ~ /^[[:space:]]*state[[:space:]]*[.=]/) { print "EVID" }
+          if ($0 ~ /^[[:space:]]*"?hooks"?[[:space:]]*[.=]/) { print "EVID"; next }
+          if (inhooks && $0 ~ /^[[:space:]]*"?state"?[[:space:]]*[.=]/) { print "EVID" }
         }')"
       # hooks ID 截斷：vendor:suffix 取 [0]（suffix 疑為 volatile hash，保留截斷防常態漂移）
       cap_hooks_items="$(printf '%s\n' "$hooks_scan" | sed -n 's/^ITEM //p' | cut -d: -f1 | LC_ALL=C sort -u)"
@@ -255,15 +255,20 @@ show_capability_surface() {
     [ -n "$hot_on" ] && echo "  * 高風險能力面 ON: $(join_list "$hot_on" ', ')"
   fi
 
-  if [ "$cap_hooks_status" = "FAILED" ]; then echo "受信任 hooks: (解析失敗)"
-  elif [ "$cap_hooks_status" = "UNPARSEABLE" ]; then echo "受信任 hooks: (UNPARSEABLE -- config 有 hooks.state 的條目形跡但解析 0 筆，疑序列化格式變更，請人工確認)"
+  # ⚠️ 宣稱範圍：本盤點只讀 ~/.codex/config.toml 的 hooks.state，那是**使用者的啟用狀態**，
+  # **不是**「實際會被執行的 hook 清單」。managed／bundled hook 不受 user state 控制，本工具看不到。
+  # 先前寫「受信任 hooks」＝超出證據的宣稱（2026-08-08 Codex 複審抓到）。權威列舉要走 app-server
+  # 的 hooks/list —— codex **沒有** hooks CLI 子命令（實查 --help），屬獨立工程，記在 backlog。
+  if [ "$cap_hooks_status" = "FAILED" ]; then echo "hooks.state（使用者啟用狀態）: (解析失敗)"
+  elif [ "$cap_hooks_status" = "UNPARSEABLE" ]; then echo "hooks.state（使用者啟用狀態）: (UNPARSEABLE -- config 有 hooks 相關的條目形跡但解析 0 筆，疑序列化格式變更，請人工確認)"
   elif [ -n "$cap_hooks_items" ]; then
     n="$(count_list "$cap_hooks_items")"
-    echo "受信任 hooks (${n}): $(join_list "$cap_hooks_items" ', ')"
+    echo "hooks.state（使用者啟用狀態）(${n}): $(join_list "$cap_hooks_items" ', ')"
   else
     # 明確印出「零筆」。舊版在這個情況什麼都不印，讀的人分不出「查過、沒有」與「根本沒查」。
-    echo "受信任 hooks: 0 筆（config 沒有 hooks.state 條目）"
+    echo "hooks.state（使用者啟用狀態）: 0 筆（config 沒有 hooks 相關條目）"
   fi
+  echo "  （只讀使用者啟用狀態，不列舉 managed／bundled hooks）"
 
   # skill 依賴旗標探測：升級後旗標從 exec --help 消失＝consult/exec 腳本可能已不相容，要大聲講。
   if [ "$cap_exec_flags_status" = "FAILED" ]; then echo "skill 依賴旗標: (exec --help 查詢失敗，無法探測)"

@@ -93,10 +93,6 @@ const liveSettings = path.join(os.homedir(), ".claude", "settings.json");
 function isGateHandler(h) {
   return !!h && String(h.command || "").includes("super-mode-consult-gate") && h.type === "command";
 }
-// 命中 command 但 type 不對 —— 用來給出比「沒有註冊」更精確的錯誤訊息。
-function isGateCommandWrongType(h) {
-  return !!h && String(h.command || "").includes("super-mode-consult-gate") && h.type !== "command";
-}
 
 function classify(p) {
   if (!fs.existsSync(p)) return { state: "missing" };
@@ -113,22 +109,32 @@ function classify(p) {
     return { state: "invalid", why: "JSON 解析失敗：" + e.message };
   }
   const list = (j.hooks && j.hooks.PreToolUse) || [];
-  const registered = list.some(
-    (e) =>
-      e &&
-      Array.isArray(e.hooks) &&
-      e.hooks.some(isGateHandler)
-  );
-  if (registered) return { state: "ok" };
-  // 分開報「完全沒註冊」與「註冊了但 type 不對」——後者若併進前者，
-  // 使用者會照「重跑步驟 2」去再加一筆，於是變成重複註冊。
-  const wrongType = list.some(
-    (e) => e && Array.isArray(e.hooks) && e.hooks.some(isGateCommandWrongType)
-  );
-  if (wrongType) {
-    return { state: "invalid", why: '有 handler 的 command 含本 gate，但 type 不是 "command" —— 修那一筆的 type，不要再新增一筆' };
+  // ⚠️ **先收集所有 needle 命中，再判定**——不可用 existential「找到一筆合法就回 ok」。
+  // 舊寫法 `if (registered) return ok` 會在「一筆合法 ＋ 一筆 type 錯」時提早返回，
+  // 錯的那筆完全不檢查，於是這支專門防假綠的測試自己假綠。
+  // （2026-08-08 Codex 複審抓到；註解宣稱「命中 needle 就強制 type」，程式卻沒做到。）
+  const hits = [];
+  for (const e of list) {
+    if (!e || !Array.isArray(e.hooks)) continue;
+    for (const h of e.hooks) {
+      if (h && String(h.command || "").includes("super-mode-consult-gate")) hits.push(h);
+    }
   }
-  return { state: "noHook" };
+  if (hits.length === 0) return { state: "noHook" };
+  // 任何一筆命中的 type 不對就失敗，**即使另有合法的一筆**。
+  // 分開報「type 不對」與「完全沒註冊」——後者若併進前者，使用者會照「重跑步驟 2」
+  // 去再加一筆，於是從「type 寫錯」變成「重複註冊」。
+  const bad = hits.filter((h) => h.type !== "command");
+  if (bad.length) {
+    return {
+      state: "invalid",
+      why:
+        "有 " + bad.length + " 筆 handler 的 command 含本 gate，但 type 不是 \"command\"（" +
+        bad.map((h) => (h.type === undefined ? "缺漏" : JSON.stringify(h.type))).join("、") +
+        "）—— 修那些筆的 type，不要再新增一筆",
+    };
+  }
+  return { state: "ok" };
 }
 
 const fail = (msg) => {
