@@ -40,7 +40,7 @@ done
 
 | 檔 | 期望 blob（前 12 碼）|
 |---|---|
-| `tools/probe-gate-registration.js` | `213a85b0f2e1` |
+| `tools/probe-gate-registration.js` | `2b24c02762ba` |
 | `tools/backup-settings.js` | `081a6f384a84` |
 | `tests/probe-gate-registration.test.js` | `24bdf7fe0bbe` |
 | `tests/backup-settings.test.js` | `8b4a8f259243` |
@@ -68,9 +68,10 @@ A-5 抽出來的舊 probe 用 `mktemp` ＋ `trap` 清理。
 | **A-4** | `bash tests/ai-install/run-posix.sh` | `PASS=68 FAIL=0`（**基準值，本批不該改變它**）|
 | **A-5** | 反向驗證，見下方 §3 | `TOTAL 42  PASS 6  FAIL 36` |
 | **A-6** | `node -e 'for (const p of ["windows","macos","linux"]) JSON.parse(require("fs").readFileSync(p+"/settings.snippet.json","utf8"))'` | 無輸出、exit 0 |
-| **A-7** | `node tests/backup-settings.test.js` | `TOTAL 8  PASS 8  FAIL 0  SKIP 0`，exit 0 |
+| **A-7** | `node tests/backup-settings.test.js --strict` | `TOTAL 8  PASS 8  FAIL 0  SKIP 0`，**exit 0** |
 
-> ⚠️ **A-7 的 SKIP 數是重點，這一趟必須是 `SKIP 0`。**
+> ⚠️ **A-7 用 `--strict` 跑**（有任何 SKIP 就回非 0），不要靠人眼去看 SKIP 數。
+> **這一趟必須是 `SKIP 0` 且 exit 0。**
 > 有兩個案子在 Windows 上會標 SKIP，也就是那兩條守衛在該平台**沒有被驗到**：
 >
 > - `symlink-refused-and-no-partial` —— Windows 非管理員建不出 symlink
@@ -92,7 +93,10 @@ A-5 抽出來的舊 probe 用 `mktemp` ＋ `trap` 清理。
 set -euo pipefail
 # 用 mktemp，**不要**寫死 /tmp/legacy-probe.js：固定路徑會覆寫既有檔、
 # 會跟隨別人預先放好的 symlink，而且跑完不清理。
-legacy=$(mktemp "${TMPDIR:-/tmp}/legacy-probe.XXXXXX.js")
+# ⚠️ 模板的 X 必須在**結尾**：Apple 的 mktemp(1) 不接受 X 後面還有副檔名，
+# 寫成 `...XXXXXX.js` 在 stock Darwin 會失敗（GNU 的 mktemp 反而會過，
+# 所以在 WSL 上驗不出來）。Node 不需要 .js 副檔名。
+legacy=$(mktemp "${TMPDIR:-/tmp}/legacy-probe.XXXXXX")
 trap 'rm -f "$legacy"' EXIT
 
 git show 5cc50e0:docs/MIGRATION-hook-settings-target.md \

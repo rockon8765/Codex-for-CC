@@ -45,10 +45,17 @@ const typeName = (v) => (v === null ? "null" : Array.isArray(v) ? "陣列" : typ
 // 那條路徑——找到 0 筆、接著 `AI-INSTALL` 步驟 2 會叫人新增一筆——反而看不到
 // 「needle 大小寫敏感」這個警告，而那正是 Windows 上製造重複註冊的入口。
 //
-// ⚠️ **刻意不用 `process.on("exit")`。** 在 exit handler 裡寫 stdout 只有在該串流是
-// 同步的時候才可靠：Node 的 stdout 對 pipe **在 POSIX 上同步、在 Windows 上非同步**，
-// 所以那種寫法在 Windows 被導向管線時可能整段被截掉——而且輸出量小的時候還會剛好通過，
-// 變成靠運氣的綠燈。改成每個退出點顯式呼叫，行為與平台無關。
+// 每個受控的判定分支都經過 bye()，所以範圍說明一定會印。
+//
+// ⚠️ **已知缺陷，尚未修（2026-08-09 合併前審查第五輪指出）**：`process.exit()`
+// 依 Node 官方文件會強制結束、**截斷尚未完成的 `process.stdout` 寫入**。
+// stdout 對 pipe／socket 的同步性隨平台不同（Windows 同步、**Linux／macOS 非同步**），
+// 所以把列印移到 `exit()` 之前並沒有解決問題——輸出量小時會剛好通過、大時會遺失，
+// 是典型的靠運氣綠燈。正解是改成 `main()` 回傳 code ＋ 單一 epilogue ＋ 設
+// `process.exitCode` 讓程序自然結束，不要呼叫 `process.exit()`。
+//
+// ⚠️ 另外，「每一條退出路徑」是**過度宣稱**：這裡只涵蓋下面五個受控分支，
+// 未捕捉例外、stdout EPIPE、signal、OOM 都不在保證內。
 const bye = (code) => {
   printScope();
   process.exit(code);
