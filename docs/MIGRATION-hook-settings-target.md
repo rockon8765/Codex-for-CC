@@ -80,7 +80,12 @@ const count = (label, p) => {
       if (!isObj(h)) return bad(label, "PreToolUse[" + i + "].hooks[" + k + "] 不是物件（是 " + typeName(h) + "）");
       if (h.command === undefined) continue;
       if (typeof h.command !== "string") return bad(label, "PreToolUse[" + i + "].hooks[" + k + "].command 不是字串（是 " + typeName(h.command) + "）");
-      if (h.command.includes(NEEDLE)) n++;
+      if (!h.command.includes(NEEDLE)) continue;
+      // 命中字串還不夠：canonical 註冊是 { "type": "command", "command": ... }。
+      // 只比對 command 的 substring，會把「type 缺漏或不是 command」的條目也算成「gate 已接上」
+      // ——那是這支診斷自己製造假綠。fail-closed：形狀不對就停，不要回報成已註冊。
+      if (h.type !== "command") return bad(label, "PreToolUse[" + i + "].hooks[" + k + "] 的 command 含 gate，但 type 是 " + (h.type === undefined ? "缺漏" : JSON.stringify(h.type)) + "（必須是 \"command\"）");
+      n++;
     }
   }
   console.log(label.padEnd(32) + "gate 條目：" + n + " 個");

@@ -283,12 +283,21 @@ if (Test-Path -LiteralPath $stale) { throw "安裝驗證失敗：FIX-PLAN.md 未
 > `hooks.PreToolUse[].hooks[].command` 含 `super-mode-consult-gate` 的 handler 各有幾個？
 > 現成的 probe 在 [`MIGRATION-hook-settings-target.md`](MIGRATION-hook-settings-target.md) 第 1 節。
 >
-> | 現況 | 做法 |
+> **不要在這裡自己判斷該怎麼修。** 跑那支 probe，它會直接印出判定與該走哪一支，
+> **照它印的做**。本節只負責「兩邊都是 0」這一種情況：
+>
+> | probe 判定 | 做法 |
 > |---|---|
-> | 兩邊都 0 | 照本節加入 |
-> | `settings.json` 恰 1、local 0 | **已經裝好了，什麼都不要做** |
-> | `settings.json` ≥2，或 local ≥1 | **不要再加**——走 MIGRATION 第 2 節的 **B**（減法） |
+> | 「兩邊都沒有 gate」 | **照本節往下加入** |
+> | 「正常，不用修」 | **已經裝好了，什麼都不要做** |
+> | 其他任何判定 | **不要在這裡加**——照 probe 指的那一支做 [`MIGRATION`](MIGRATION-hook-settings-target.md) 第 2 節 |
 > | 含 gate 的 entry 底下還有別的 handler | **停手**，人工判斷 |
+>
+> ⚠️ **這裡刻意不複述 A／B 的路由矩陣。** 唯一的矩陣在 `MIGRATION` 第 1 節，probe 直接印結論。
+> 2026-08-08 的合併前審查抓到：本節先前自己抄了一份簡化矩陣，把「`settings.json`=0、
+> `local`≥1」（**受影響的舊安裝者，正是 MIGRATION 存在的理由**）誤導向 B，而 B 是純減法
+> ——照做會把 local 那筆刪掉又不新增，**使用者僅存的 gate 就消失了**。
+> 兩份文件各留一份矩陣，遲早再度分歧；所以這裡改成只指向單一來源。
 >
 > **後置條件**：`settings.json` 的 gate handler **恰 1 個**、`settings.local.json` **0 個**。
 

@@ -86,6 +86,18 @@ const liveSettings = path.join(os.homedir(), ".claude", "settings.json");
 // 四態分類，不用布林 —— 「檔案不存在」與「檔案壞掉／沒註冊 hook」必須分得開。
 // 舊寫法把 parse error 一律 catch 成 false，等於把「待出貨的 snippet 壞了」
 // 和「這裡沒有 snippet」混為一談。
+// 「這個 handler 是不是本 gate」的唯一定義，classify 與下方選 entry 共用。
+// ⚠️ 只比對 command 的 substring 不夠：canonical 註冊是 { "type": "command", "command": ... }。
+// type 缺漏或不是 "command" 時，把它算成「已註冊」等於這支專門防假綠的測試自己變成假綠來源。
+// 2026-08-08 合併前審查抓到。
+function isGateHandler(h) {
+  return !!h && String(h.command || "").includes("super-mode-consult-gate") && h.type === "command";
+}
+// 命中 command 但 type 不對 —— 用來給出比「沒有註冊」更精確的錯誤訊息。
+function isGateCommandWrongType(h) {
+  return !!h && String(h.command || "").includes("super-mode-consult-gate") && h.type !== "command";
+}
+
 function classify(p) {
   if (!fs.existsSync(p)) return { state: "missing" };
   let raw;
@@ -105,9 +117,18 @@ function classify(p) {
     (e) =>
       e &&
       Array.isArray(e.hooks) &&
-      e.hooks.some((h) => String((h && h.command) || "").includes("super-mode-consult-gate"))
+      e.hooks.some(isGateHandler)
   );
-  return registered ? { state: "ok" } : { state: "noHook" };
+  if (registered) return { state: "ok" };
+  // 分開報「完全沒註冊」與「註冊了但 type 不對」——後者若併進前者，
+  // 使用者會照「重跑步驟 2」去再加一筆，於是變成重複註冊。
+  const wrongType = list.some(
+    (e) => e && Array.isArray(e.hooks) && e.hooks.some(isGateCommandWrongType)
+  );
+  if (wrongType) {
+    return { state: "invalid", why: '有 handler 的 command 含本 gate，但 type 不是 "command" —— 修那一筆的 type，不要再新增一筆' };
+  }
+  return { state: "noHook" };
 }
 
 const fail = (msg) => {
@@ -229,7 +250,7 @@ const entry =
   entries.find(
     (e) =>
       Array.isArray(e.hooks) &&
-      e.hooks.some((h) => String((h && h.command) || "").includes("super-mode-consult-gate"))
+      e.hooks.some(isGateHandler)
   ) || entries[0];
 const matcher = String(entry.matcher || "");
 const alternatives = matcher.split("|").map((s) => s.trim()).filter(Boolean);
