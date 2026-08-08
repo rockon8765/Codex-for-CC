@@ -276,6 +276,32 @@ if (Test-Path -LiteralPath $stale) { throw "安裝驗證失敗：FIX-PLAN.md 未
 （**合併，不要覆蓋既有設定**），並把 snippet 裡的絕對路徑改成使用者自己的家目錄。
 **三平台都是這個檔。**
 
+> ⛔ **這一步不是冪等的，動手前務必先數。** 「合併」照字面做會在陣列尾端**再 append 一筆**，
+> 於是重跑一次安裝就多一筆重複的 gate handler。**三平台都會發生。**
+>
+> ```
+> node tools/probe-gate-registration.js
+> ```
+>
+> 這支 probe 是唯讀的，三平台同一條指令（在本 repo 的 checkout 根目錄跑）。
+> **不要在這裡自己判斷該怎麼修，照它的退出碼與印出來的判定走**：
+>
+> | probe 結果 | 做法 |
+> |---|---|
+> | 退出碼 **1**（讀不到／形狀不合）| **停手**，先修好 settings 再重跑 |
+> | 退出碼 **3**（停手）| **停手**，人工判斷——見 [`MIGRATION`](MIGRATION-hook-settings-target.md) 第 2 節開頭 |
+> | 退出碼 0 ＋「兩邊都沒有 gate」 | **照本節往下加入** |
+> | 退出碼 0 ＋「正常，不用修」 | **已經裝好了，什麼都不要做** |
+> | 退出碼 0 ＋ 其他任何判定 | **不要在這裡加**——照它指的 A／B 做 [`MIGRATION`](MIGRATION-hook-settings-target.md) 第 2 節 |
+>
+> ⚠️ **這裡刻意不複述判定矩陣。** 唯一的矩陣在 `MIGRATION` 第 1 節，而 probe 直接印結論。
+> 2026-08-08 的合併前審查抓到：本節先前自己抄了一份簡化矩陣，把「`settings.json`=0、
+> `local`≥1」（**受影響的舊安裝者，正是 MIGRATION 存在的理由**）誤導向純減法分支
+> ——照做會把 local 那筆刪掉又不新增，**使用者僅存的 gate 就消失了**。
+> 兩份文件各留一份矩陣，遲早再度分歧；所以這裡只指向單一來源。
+>
+> **後置條件**：`settings.json` 的 gate handler **恰 1 個**、`settings.local.json` **0 個**。
+
 - Linux 注意：若 `node` 不在系統 PATH——例如可攜式安裝在 `~/.local/node/bin`——
   hook 指令開頭的 `node` 必須寫**絕對路徑**，否則 hook 會靜默不跑、gate 形同虛設。
 

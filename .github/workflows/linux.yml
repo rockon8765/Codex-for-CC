@@ -80,6 +80,12 @@ jobs:
       - name: matcher-contract
         run: node "linux/skills/超級模式/tests/matcher-contract.test.js"
 
+      # 這支是**平台無關**的頂層測試（tools/ 與 tests/ 都不在 linux/ 底下），
+      # 刻意接進本 workflow：probe 決定使用者會不會進入「動 settings」的流程，
+      # 之前它內嵌在 markdown 裡、沒有任何 gate 攔得住回歸。
+      - name: probe-gate-registration 回歸
+        run: node "tests/probe-gate-registration.test.js"
+
       - name: e2e（會印 GATE_UNDER_TEST / GATE_BLOB 供核對）
         run: bash "linux/skills/超級模式/tests/run-e2e.sh"
 

@@ -41,7 +41,7 @@
 1. **GNU coreutils 假設**：腳本用 `stat -c %Y`。Alpine/BusyBox 或其他非 GNU stat 環境需自行確認；BSD userland 請改用 `macos/`。
 2. **node 不一定在 PATH**：不少 Linux 機器的 Node 是可攜式安裝（如 `~/.local/node/bin`）、不在系統 PATH。hook 由 Claude Code 直接以 `command` 啟動，**PATH 找不到 node 時 hook 會靜默不跑、gate 形同虛設**。settings 註冊時一律建議寫 node 絕對路徑。部署後用一次故意違規的 Write 驗證 gate 真的會 deny。
 3. **codex 位置**：npm global 安裝常落在 `~/.local/bin/codex` 或 npm prefix 的 `bin/`；只要在 PATH 上即可，腳本不寫死路徑。
-4. 其餘部署步驟與 macOS 版相同：hook 複製到 `~/.claude/hooks/`（skill 目錄內不留副本——I3 的唯一保護目錄）、skill 目錄放 `~/.claude/skills/超級模式/`、snippet 合併進 `settings.json`（**不是** `settings.local.json`——家目錄那份不是 user scope，見 [`verify-settings-scope.md`](verify-settings-scope.md)）。
+4. 其餘部署步驟與 macOS 版相同：hook 複製到 `~/.claude/hooks/`（skill 目錄內不留副本——I3 的唯一保護目錄）、skill 目錄放 `~/.claude/skills/超級模式/`、snippet 合併進 `settings.json`（**不是** `settings.local.json`——家目錄那份不是 user scope，見 [`verify-settings-scope.md`](verify-settings-scope.md)）。⚠️ 合併**不是冪等的**：照字面做會 append 出第二筆 gate handler。動手前先跑 `node tools/probe-gate-registration.js`（唯讀）並照它印的判定走——不要自己按筆數推規則，判斷表見 [`AI-INSTALL.md`](AI-INSTALL.md) 步驟 2。
 
 ## 4. 驗證紀錄
 

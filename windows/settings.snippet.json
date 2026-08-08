@@ -1,5 +1,5 @@
 {
-  "_comment": "把這個 PreToolUse 條目合併進 ~/.claude/settings.json 的 hooks.PreToolUse。請把 hook 的絕對路徑改成你自己機器的路徑。",
+  "_comment": "把這個 PreToolUse 條目合併進 ~/.claude/settings.json 的 hooks.PreToolUse（合併，不要覆蓋既有設定）。請把 hook 的絕對路徑改成你自己機器的路徑。⚠️ 這一步不是冪等的：照字面合併會在陣列尾端再 append 一筆，重跑安裝就多一筆重複的 gate handler。⚠️ 動手前務必先在 Codex-for-CC 的 checkout 根目錄跑 node tools/probe-gate-registration.js（唯讀，三平台同一條指令），照它的退出碼與印出的判定走——無論你數到幾筆。不要在這裡自行判斷：「恰好 1 筆」這種捷徑會漏掉「那一筆只在 settings.local.json」的情況（那份不是 user scope，gate 等於沒生效），自行推測也可能把「settings.json=0、local≥1」誤走純減法分支、刪掉你僅存的 gate。只有 probe 退出碼 0 且判「兩邊都沒有 gate」時才照本檔加入；退出碼 1 或 3 一律停手。後置條件：settings.json 恰 1 個、settings.local.json 0 個。",
   "hooks": {
     "PreToolUse": [
       {
