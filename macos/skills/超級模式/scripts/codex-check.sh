@@ -152,8 +152,31 @@ collect_capability_snapshot() {
   cfg="$HOME/.codex/config.toml"
   if [ -f "$cfg" ]; then
     if cfg_raw="$(cat "$cfg" 2>/dev/null)"; then
+      # **單一 awk pass 同時產出 items 與 evidence。** 先前 items 走 sed（`^\[` 不吃縮排）、
+      # evidence 走另一段 awk（`^[[:space:]]*\[` 吃縮排並把它當「已認得」跳過）——兩條規則不一致，
+      # 縮排的 canonical 表頭於是「抽不到卻又被當成已認得」＝洗白。合成一條就不可能再分歧。
+      # 表頭一律先抓 `[` 到 `]` 之間的內容再比對，行尾註解與縮排自然被排除。
+      hooks_scan="$(printf '%s\n' "$cfg_raw" | tr -d '\r' | awk '
+        {
+          if (match($0, /^[[:space:]]*\[[^]]*\]/)) {
+            hdr = substr($0, RSTART, RLENGTH)
+            sub(/^[[:space:]]*\[/, "", hdr); sub(/\]$/, "", hdr)
+            inbare = 0; inhooks = 0
+            if (hdr ~ /^hooks\.state\."[^"]+"$/) {
+              name = hdr; sub(/^hooks\.state\."/, "", name); sub(/"$/, "", name)
+              print "ITEM " name; next
+            }
+            if (hdr == "hooks.state") { inbare = 1; next }
+            if (hdr ~ /hooks\.state/) { print "EVID"; next }
+            if (hdr == "hooks") { inhooks = 1 }
+            next
+          }
+          if (inbare && $0 !~ /^[[:space:]]*$/ && $0 !~ /^[[:space:]]*#/) { print "EVID"; next }
+          if ($0 ~ /hooks\.state/) { print "EVID"; next }
+          if (inhooks && $0 ~ /^[[:space:]]*state[[:space:]]*[.=]/) { print "EVID" }
+        }')"
       # hooks ID 截斷：vendor:suffix 取 [0]（suffix 疑為 volatile hash，保留截斷防常態漂移）
-      cap_hooks_items="$(printf '%s\n' "$cfg_raw" | tr -d '\r' | sed -nE 's/^\[hooks\.state\."([^"]+)"\].*$/\1/p' | cut -d: -f1 | LC_ALL=C sort -u)"
+      cap_hooks_items="$(printf '%s\n' "$hooks_scan" | sed -n 's/^ITEM //p' | cut -d: -f1 | LC_ALL=C sort -u)"
       # 三態，不是兩態。舊版寫 `case "$cfg_raw" in *"hooks.state"*)`，於是**合法的空表**
       # （`[hooks.state]` 底下沒有任何條目——例如使用者移除了唯一提供 hook 的外掛）
       # 也被判成 UNPARSEABLE：它同時擋掉 baseline 比對、又是 cry-wolf。
@@ -163,23 +186,10 @@ collect_capability_snapshot() {
       #   完全沒有 hooks.state，或只有一張空的 [hooks.state] → OK 且 0 筆（真的沒有 hook）
       # hooks 是 read-only 心智模型之外的執行面，「洗白成無 hooks」代價最高，所以只有在
       # **確實看不到任何條目形跡**時才判為零。
-      if [ -z "$cap_hooks_items" ]; then
-        # 「條目形跡」四個訊號，任一成立就 UNPARSEABLE。涵蓋 TOML 對同一份資料的不同寫法。
-        hooks_evidence="$(printf '%s\n' "$cfg_raw" | tr -d '\r' | awk '
-          /^[[:space:]]*\[/ {
-            inbare = 0; inhooks = 0
-            if ($0 ~ /^[[:space:]]*\[hooks\.state\.\"[^\"]+\"\][[:space:]]*$/) { next }
-            if ($0 ~ /^[[:space:]]*\[hooks\.state\][[:space:]]*$/) { inbare = 1; next }
-            if ($0 ~ /hooks\.state/) { print "hdr"; next }
-            if ($0 ~ /^[[:space:]]*\[hooks\][[:space:]]*$/) { inhooks = 1 }
-            next
-          }
-          inbare && $0 !~ /^[[:space:]]*$/ && $0 !~ /^[[:space:]]*#/ { print "body"; next }
-          /hooks\.state/ { print "dotted"; next }
-          inhooks && $0 ~ /^[[:space:]]*state[[:space:]]*[.=]/ { print "inline" }
-        ')"
-        [ -n "$hooks_evidence" ] && cap_hooks_status="UNPARSEABLE"
-      fi
+      # ⚠️ 形跡**不是**只在「解析 0 筆」時才檢查。混合案（一筆認得 ＋ 一筆異形）若只看
+      # items 數，異形那筆會完全隱形、而且 items>0 讓整段看起來健康。有形跡就代表
+      # 「這個檔裡有我讀不懂的 hooks 條目」，數量多寡不影響這個結論。
+      if printf '%s\n' "$hooks_scan" | grep -q '^EVID$'; then cap_hooks_status="UNPARSEABLE"; fi
     else
       cap_hooks_status="FAILED"
     fi

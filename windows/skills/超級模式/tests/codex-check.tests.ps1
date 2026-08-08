@@ -417,6 +417,9 @@ function t_h4_newformat_cache_hit {   # 新格式且 <24h → hit、跳過、exi
   # 釘死「每次呼叫都盤點」的核心保證：mutation 測試證明少了這兩條斷言，把盤點搬到 exit 0 之後仍全綠
   AssertMatch 'h4_newformat_cache' 'hit run 仍印能力面' '=== Codex worker 能力面'
   AssertMatch 'h4_newformat_cache' 'hit run 仍印 baseline 狀態' 'NO_BASELINE'
+  # F5 回歸：路徑輸出必須在 cache gate **之前**。放在後面的話，最常見的重跑路徑（快取命中直接 exit 0）
+  # 永遠看不到實際被叫起的是哪一支 codex —— 那正是這行要解決的問題。
+  AssertMatch 'h4_newformat_cache' 'hit run 仍印使用的 codex 路徑' '使用的 codex: '
 }
 function t_h2_exact_ok {    # 支援 -o：lastmsg 檔 == CODEX_OK → OK（transcript 無 marker 也行）
   $script:currentTest = 'h2_exact_ok'
@@ -723,6 +726,28 @@ function t_b_hooks_alt_serializations {  # TOML 的其他寫法不得被洗白�
     Invoke-Check -Mode update -Overrides @{ CODEX_STUB_PLUGINS = 'alpha' }
     if ($script:rc -eq 2) { Assert "b_hooks_alt_$($c.n)" "[$($c.n)] 拒寫 baseline exit 2" 0 } else { Assert "b_hooks_alt_$($c.n)" "[$($c.n)] 拒寫 baseline exit 2（實際 $($script:rc)）" 1 }
   }
+  # Codex 合併前審查 F4 補的三種：行尾註解、縮排 canonical、混合（1 認得＋1 異形）
+  foreach ($c2 in @(
+    @{ n = 'trailing-comment'; toml = "[hooks] # retained by serializer`r`nstate.myhook = { trusted = true }"; want = 'UNPARSEABLE' },
+    @{ n = 'mixed-good-and-bad'; toml = "[hooks.state.`"good`"]`r`ntrusted = true`r`n`r`nhooks.state.bad = { trusted = true }"; want = 'UNPARSEABLE' }
+  )) {
+    $script:currentTest = "b_hooks_alt_$($c2.n)"
+    Setup
+    $codexDir = Join-Path $script:fakeHome '.codex'
+    New-Item -ItemType Directory -Path $codexDir -Force | Out-Null
+    Set-Content -LiteralPath (Join-Path $codexDir 'config.toml') -Value $c2.toml -Encoding utf8
+    Run-Check @{ CODEX_STUB_PLUGINS = 'alpha' }
+    AssertMatch "b_hooks_alt_$($c2.n)" "[$($c2.n)] 必須 UNPARSEABLE" '受信任 hooks: \(UNPARSEABLE'
+  }
+  # 縮排的 canonical 表頭必須**被抽成 item**（不是 UNPARSEABLE、更不是 0 筆）——
+  # macOS 版先前 sed 抽取不吃縮排、awk 卻把它當已認得跳過，於是「抽不到又不報」＝洗白。
+  $script:currentTest = 'b_hooks_alt_indented'
+  Setup
+  $codexDir = Join-Path $script:fakeHome '.codex'
+  New-Item -ItemType Directory -Path $codexDir -Force | Out-Null
+  Set-Content -LiteralPath (Join-Path $codexDir 'config.toml') -Value "  [hooks.state.`"myhook:abc`"]`r`n  trusted = true" -Encoding utf8
+  Run-Check @{ CODEX_STUB_PLUGINS = 'alpha' }
+  AssertMatch 'b_hooks_alt_indented' '縮排 canonical 表頭仍抽成 1 筆' '受信任 hooks \(1\): myhook'
   # 對照組：純註解的空表仍須判為合法零筆（證明上面的斷言不是「一律 UNPARSEABLE」）
   $script:currentTest = 'b_hooks_alt_ctrl'
   Setup

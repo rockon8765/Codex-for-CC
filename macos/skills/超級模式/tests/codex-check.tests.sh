@@ -397,6 +397,24 @@ t_b_hooks_alt_serializations() {  # TOML 的其他寫法不得被洗白成「0 �
   printf '%s' "$out" | grep -qF '受信任 hooks: (UNPARSEABLE'; assert b_hooks_alt "[hooks-dotted-subkey] 必須 UNPARSEABLE" $?
   if printf '%s' "$out" | grep -qF '受信任 hooks: 0 筆'; then assert b_hooks_alt "[hooks-dotted-subkey] 不得報 0 筆" 1; else assert b_hooks_alt "[hooks-dotted-subkey] 不得報 0 筆" 0; fi
 
+  # Codex 合併前審查 F4 補的三種：行尾註解、混合（1 認得＋1 異形）、縮排 canonical
+  setup; mkdir -p "$fake_home/.codex"
+  printf '[hooks] # retained by serializer\nstate.myhook = { trusted = true }\n' > "$fake_home/.codex/config.toml"
+  run_check CODEX_STUB_PLUGINS=alpha
+  printf '%s' "$out" | grep -qF '受信任 hooks: (UNPARSEABLE'; assert b_hooks_alt "[trailing-comment] 必須 UNPARSEABLE" $?
+
+  setup; mkdir -p "$fake_home/.codex"
+  printf '[hooks.state."good"]\ntrusted = true\n\nhooks.state.bad = { trusted = true }\n' > "$fake_home/.codex/config.toml"
+  run_check CODEX_STUB_PLUGINS=alpha
+  printf '%s' "$out" | grep -qF '受信任 hooks: (UNPARSEABLE'; assert b_hooks_alt "[mixed-good-and-bad] 必須 UNPARSEABLE（不可因 items>0 而略過形跡）" $?
+
+  # 縮排的 canonical 表頭必須**被抽成 item**——先前 sed 抽取不吃縮排、awk 卻把它當已認得跳過，
+  # 於是「抽不到又不報」＝洗白。這是 macOS 專屬的不一致，Windows 沒有。
+  setup; mkdir -p "$fake_home/.codex"
+  printf '  [hooks.state."myhook:abc"]\n  trusted = true\n' > "$fake_home/.codex/config.toml"
+  run_check CODEX_STUB_PLUGINS=alpha
+  printf '%s' "$out" | grep -qF '受信任 hooks (1): myhook'; assert b_hooks_alt "縮排 canonical 表頭仍抽成 1 筆" $?
+
   # 對照組：純註解的空表仍須判為合法零筆（證明上面不是「一律 UNPARSEABLE」）
   setup; mkdir -p "$fake_home/.codex"
   printf "[hooks.state]\n# nothing here\n\n[shell]\nA = 'b'\n" > "$fake_home/.codex/config.toml"
