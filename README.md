@@ -41,7 +41,10 @@
 > **本次 delta 的驗證分布（2026-08-08，`5cc50e0..429c28c`：A2 —— MIGRATION 的 probe 抽成 repo 腳本並 fail-closed、判定表拆 1／≥2、第 2 節改 handler 粒度、備份改用跨平台 `tools/backup-settings.js`、10 處註冊入口改成「跑 probe 照它印的判定走」）。**
 > （本列之後只有**一個補釘本行 SHA 的 commit**，它只動 `README.md`，未動任何受測檔——處理方式與 2026-08-04 那批的 `e1ec53f` 相同。受測檔的真正釘子是 handoff 的 **9 筆 blob**。）
 > ⚠️ 這裡**釘死 endpoint SHA，刻意不寫 `..HEAD`**——寫 `HEAD` 的話，下一個 commit 就會讓這段驗證宣稱悄悄擴張到沒驗過的改動上。
-> ⚠️ **macOS 尚未原生驗證**，交接文件見 [`docs/HANDOFF-macos-a2-2026-08-08.md`](docs/HANDOFF-macos-a2-2026-08-08.md)。在收到回報之前，**不要**把本批當成三平台等價驗證過。
+> **macOS**：**撰寫當下未原生驗證**（本機無 Mac），**後於 2026-08-09 在真機補驗完成，七項全綠**——macOS 26.6.1 arm64／內建 `bash 3.2.57`／Node v26.4.0／`uid=501` 非 root，受驗 `f530cd6`、9 筆 blob 全符：probe **42/42**、gate-cases **117/117**、`matcher-contract` exit 0、`run-posix.sh` **68/68**、反向驗證 **6 PASS／36 FAIL**（PASS 清單經程式化比對恰為那 6 個對照組）、`backup-settings --strict` **8/8 SKIP 0**。詳見 [`docs/HANDOFF-macos-a2-2026-08-08.md`](docs/HANDOFF-macos-a2-2026-08-08.md)。
+> **`SKIP 0` 是這趟最重要的收穫**：symlink 拒絕與「複製階段回收」兩條守衛在 Windows 因權限驗不到，在 macOS 都真的執行了。
+> ⚠️ 受驗 SHA `f530cd6` 與本列釘的 endpoint 之間有一個 commit 動過 `tools/probe-gate-registration.js`，但**只有註解、無可執行行變動**，故行為結論延用成立；blob 已不同。
+> （保留「撰寫當下未原生驗證」這個時序，是因為那是當時誠實的狀態。）
 > **Windows**（Node v24.16.0）：`tests/probe-gate-registration.test.js` **42/42**；`tests/backup-settings.test.js` **6 PASS／0 FAIL／2 SKIP**（symlink 案需要建 symlink 的權限、rollback 案靠 `chmod 000` 做變異注入，兩者 Windows 都做不到 → **明確標 SKIP 並計入摘要，不是靜默跳過**）；`tests/ai-install/run-windows.ps1` **69/69**（pwsh 7 與 Windows PowerShell 5.1 各跑一次）；gate-cases **109/109**；`codex-check` **188/188**；三平台 `matcher-contract` 皆 exit 0（該檔與 `5cc50e0` **同 blob**，本批未改它）。
 > **Linux**（WSL2 ext4 家目錄、**fresh clone** 而非複製工作目錄，Node v22.23.1）：probe **42/42**、`backup-settings` **8/8 SKIP 0**（symlink 守衛與 rollback 變異注入在這裡都真的跑到，`uid 1000` 非 root）、gate-cases **121/121**、`run-posix.sh` **68/68**（基準值，本批不該改變它）、`bash -n` 全過。兩支新測試都已接進 [`linux.yml`](.github/workflows/linux.yml)；⚠️ **`tests/ai-install/` 仍不在 CI 內**，那部分依舊只有人工證據。
 > **反向驗證**：對 `5cc50e0` 的舊 heredoc probe 跑同一套 42 案 → **6 PASS／36 FAIL**，通過的 6 個**恰為**行為刻意未改變的對照組（清單在 handoff §3）。

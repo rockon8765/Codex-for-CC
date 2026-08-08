@@ -1,7 +1,41 @@
 # macOS 原生驗證交接：A2（MIGRATION probe 抽成 repo 腳本）
 
-> **狀態：pending。** 本批在 Windows 與 Linux(WSL2/ext4) 皆綠，**macOS 未原生驗證**。
-> 在收到回報之前，不要把本批當成三平台等價驗證過。
+> ## ✅ 已完成（2026-08-09 回報，A-1～A-7 七項全綠）
+>
+> **環境**：macOS 26.6.1 arm64／內建 `bash 3.2.57(1)-release`／Node **v26.4.0**／
+> Claude Code 2.1.222／執行帳號 `uid=501` 非 root。**受驗 `f530cd6`，9 筆 blob 全符。**
+>
+> | # | 結果 |
+> |---|---|
+> | A-1 probe 正向 | `TOTAL 42 PASS 42 FAIL 0` |
+> | A-2 gate-cases | `PASS 117/117` |
+> | A-3 matcher-contract | exit 0（15 個工具名 ＋ `mcp__.*` 一致）|
+> | A-4 `run-posix.sh` | `PASS=68 FAIL=0`（基準值未動）|
+> | A-5 反向驗證 | `TOTAL 42 PASS 6 FAIL 36`，**PASS 清單經程式化比對恰為那 6 個對照組**（不是靠總數推斷）|
+> | A-6 三份 snippet JSON | 無輸出、exit 0 |
+> | A-7 `backup-settings --strict` | `TOTAL 8 PASS 8 FAIL 0 **SKIP 0**` |
+>
+> **A-7 的 SKIP 0 是本趟最重要的收穫**：`symlink-refused-and-no-partial` 與
+> `copy-phase-failure-rolls-back` 這兩條在 Windows 上因權限而驗不到的守衛，這裡都真的執行了。
+>
+> §4 診斷：**BSD 的 `e.code` ＝ `EISDIR`**，與 Linux 相同（所以「只比前綴」那個放寬並沒有被用到）；
+> `halt-exec-form` 確認是**因為偵測到 exec form**而 exit 3，訊息指名了該 handler；
+> 假 `HOME` 機制在 macOS 有效（驗證者真實的 `~/.claude/settings.json` 有註冊 gate，
+> 而 probe 印「檔案不存在」——這是有效的正向對照）。
+>
+> `top-null` 與 `pretooluse-object` 的失敗原因**只有「缺少字串」、沒有退出碼不符**，
+> 證實舊版對它們湊巧也 exit 1，確實只有字串斷言抓得到差別。
+>
+> ⚠️ **受驗 SHA 與目前尖端的差異**：驗證跑在 `f530cd6`，其後的 `4626216` 動了
+> `tools/probe-gate-registration.js`——但**只有註解、沒有任何可執行行變動**
+> （`git diff f530cd6..4626216 -- tools/probe-gate-registration.js` 可自行核對），
+> 所以 A-1／A-5／A-7 的行為結論延用到目前尖端成立，只是 blob 已不同。
+>
+> **驗證者另外找出一個 macOS 專屬缺陷並修好**（見 §3）：BSD `mktemp` 不接受尾綴。
+> 他們的診斷比我原本的更精確——`mkstemp` 帶 `O_EXCL`，所以那個失效模式是**拒絕**
+> 而不是「覆寫既有檔或跟隨 symlink」；實際風險是 A-5 在 macOS 上不可重跑，
+> 以及 `TMPDIR` 未設時 fallback 到 world-writable 的 `/tmp`，別人預先建那個固定路徑
+> 就能永久擋掉這項驗證。
 
 ## 0. 為什麼需要 macOS 這一趟
 
@@ -91,13 +125,15 @@ A-5 抽出來的舊 probe 用 `mktemp` ＋ `trap` 清理。
 
 ```bash
 set -euo pipefail
-# 用 mktemp，**不要**寫死 /tmp/legacy-probe.js：固定路徑會覆寫既有檔、
-# 會跟隨別人預先放好的 symlink，而且跑完不清理。
-# ⚠️ 模板的 X 必須在**結尾**：Apple 的 mktemp(1) 不接受 X 後面還有副檔名，
-# 寫成 `...XXXXXX.js` 在 stock Darwin 會失敗（GNU 的 mktemp 反而會過，
-# 所以在 WSL 上驗不出來）。Node 不需要 .js 副檔名。
-legacy=$(mktemp "${TMPDIR:-/tmp}/legacy-probe.XXXXXX")
-trap 'rm -f "$legacy"' EXIT
+# 不要寫死 /tmp/legacy-probe.js：固定路徑可以被別人預先佔住。
+# ⚠️ **BSD 的 mktemp 不接受尾綴**：`X` 不在模板結尾就完全不展開。
+# `...XXXXXX.js` 在 macOS 會建出**字面**檔名（零隨機化），連跑兩次第二次直接
+# `mkstemp failed: File exists`；GNU 的 mktemp 反而會過，所以在 WSL 上驗不出來。
+# 可攜寫法是建暫存**目錄**、檔名放在裡面。
+# （2026-08-09 macOS 26.6.1 實測：與 Linux 跑出完全相同的 PASS 6 / FAIL 36，路徑確實隨機化。）
+d=$(mktemp -d "${TMPDIR:-/tmp}/legacy-probe.XXXXXX")
+trap 'rm -r "$d"' EXIT
+legacy="$d/probe.js"
 
 git show 5cc50e0:docs/MIGRATION-hook-settings-target.md \
   | awk "/^node - <<'PROBE'$/{f=1;next} /^PROBE$/{f=0} f" > "$legacy"
