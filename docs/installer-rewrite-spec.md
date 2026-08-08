@@ -114,7 +114,7 @@ command quoting、原子替換仍需平台 adapter。這是「一份核心 + ada
   同 command 出現多次／與其他 handler 共用 matcher group／同 basename 指向不同路徑 → **conflict，不猜**
 - **嚴格 JSON parse**，只容許移除 UTF-8 BOM；有註解、尾逗號、parse error 就**不動檔**
 - **optimistic concurrency**：產生 patched JSON 後，在原子替換**前**重新讀取並比對整檔 hash；
-  期間被其他程式（編輯器、ECC）改過就重試或中止，不得覆蓋
+  期間被其他程式（編輯器、安裝器、設定同步工具、Claude Code 自己的 plugin manager）改過就重試或中止，不得覆蓋
 - 原子替換用同目錄暫存檔 + rename，保留權限
 - 隔離區備份的是**替換當下**的完整 settings 檔
 

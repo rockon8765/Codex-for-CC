@@ -308,9 +308,13 @@ if (Test-Path -LiteralPath $stale) { throw "安裝驗證失敗：FIX-PLAN.md 未
 > 「User-defined hooks from `~/.claude/settings.json`, `.claude/settings.json`, and
 > `.claude/settings.local.json`」——`~/` **只出現在 `settings.json`**。
 >
-> **若你的環境有工具會覆寫 `~/.claude/settings.json`**（例如 ECC 重新安裝）：那是真實的衝突，
-> 但把 hook 藏到一個不會被載入的檔案並不能解決它。正確做法是覆寫之後**重跑步驟 3 的
-> `matcher-contract`**——它現在找不到已註冊的 hook 會直接 FAIL，不再靜默通過。
+> **`~/.claude/settings.json` 不是只有你在寫。** 任何安裝器、設定同步或 promote 工具都可能改它——
+> 而且**Claude Code 自己的 plugin manager 就是同一個檔的寫入者**（該檔的 top-level key
+> 除了 `hooks` 還有 `enabledPlugins`，2026-08-08 於維護者機器實查）。
+> ⚠️ 這只證明「有其他寫入者」，**不**證明有哪個工具會覆寫或移除 `hooks` 段——目前沒有這種證據。
+>
+> 但把 hook 藏到一個不會被載入的檔案並不能解決這件事。正確做法是**任何可能改動該檔的動作之後**，
+> 重跑步驟 3 的 `matcher-contract --live`——它現在找不到已註冊的 hook 會直接 FAIL，不再靜默通過。
 >
 > 📌 **2026-07-28 以前照舊指引裝過的人**：你的 hook 很可能一次都沒生效過。
 > 診斷與修復步驟見 [`MIGRATION-hook-settings-target.md`](MIGRATION-hook-settings-target.md)。

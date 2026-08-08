@@ -101,7 +101,7 @@ SKILL.md 的 §2 / §3 / §3.5 / §5 的詳細範本與程序。用到才讀。
 ⚠️ **不要放 `settings.local.json`**——2026-07-28 macOS 實測確認家目錄那份**不是** user scope，
 只有從家目錄啟動 Claude Code 時才生效（那時它剛好就是專案層的檔案）。舊版指引寫「放 local 才不會被
 ECC 蓋掉」，那個理由已被推翻：躲進不會被載入的檔案只是把「被覆寫」換成「從來沒生效」。
-ECC 覆寫後的正解是重跑 `node ~/.claude/skills/超級模式/tests/matcher-contract.test.js --live`
+任何工具改動該檔之後（包含 Claude Code 自己的 plugin manager——它同樣寫這個檔）的正解是重跑 `node ~/.claude/skills/超級模式/tests/matcher-contract.test.js --live`
 ——它現在找不到已註冊的 hook 會 FAIL。（舊版這裡寫相對路徑 `tests/…`，從一般專案目錄執行會
 直接 module-not-found，等於這條指引沒法照做。）
 詳見 `docs/verify-settings-scope.md`：

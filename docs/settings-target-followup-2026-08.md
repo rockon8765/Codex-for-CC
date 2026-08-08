@@ -103,11 +103,11 @@
 | v4 §9 列 | 判定 | 去處 |
 |---|---|---|
 | A1 加 `--repo`／`--live`／`--settings` | **仍開放**，且因 §1.2 升級為功能缺口 | A1 |
-| A1 全部呼叫點標旗標 | **部分過時**，依 §1.1 重新盤點（15 指令型／17 非指令）| A1 |
+| A1 全部呼叫點標旗標 | **部分過時**，依 §1.1 重新盤點（15 指令型／22 非指令）| A1 |
 | A1 舊 installed verifier fixture | **延後**，取決於三台 census | 待 census |
 | A1 doc-contract 測試 | **改設計**：改為「非 canonical 文件連向唯一指引」，取代掃遍所有 Markdown | A1 |
 | A2 D6 conflict 規則＋後置條件 | **仍開放**（檔頭警告已先行 containment）| A2 |
-| A2 註冊入口全數納入 | **仍開放**，盤點更新為 11 處（§1.3）| A2 |
+| A2 註冊入口全數納入 | **仍開放**，盤點更新為 10 處（§1.3）| A2 |
 | B1 rollback 掃 `$sbak` 與 live 樹 | **仍開放**，範圍收斂為 2 個程式碼地點（§1.4）| B1 |
 | B1 五類測試 ＋ M2／M3 自我檢查 | M2／M3 **已完成**（`main` `0b12c6d`）；五類測試仍開放 | B1 |
 | B1 反向驗證（基準 `67a7ae6`） | **仍開放**，基準需改（main 已前進到 `1aeb010`）| B1 |
@@ -133,9 +133,9 @@
 | 2 | B1：兩處回滾加子樹掃描（`$sbak` **僅在選中時**掃；live 不存在＝**無子樹可掃**，不得當掃描失敗）＋ 針對性測試 | ✅ Windows／Linux；**macOS 待原生驗證** |
 | 3 | A2：probe 逐層驗形狀並 fail-closed；第 2 節改 handler 粒度＋補「main 已有一筆」分支；10 處註冊入口改冪等／衝突停手 | ✅ Windows／Linux；**macOS 待原生驗證** |
 | 4 | A1：`--repo`／`--live` 顯式模式、印出實際受驗路徑、修 §1.1 的 4 處相對路徑 | ✅ Windows／Linux；**macOS 待原生驗證** |
-| 5 | C：泛化為「任何 `settings.json` 寫入者」並具名 plugin manager | ☐ |
-| 6 | D：README 驗證區塊（寫「**後於 07-31 完成複驗**」，不要竄改當時的誠實記錄）、README 浮動 `..HEAD` 釘死、backlog L28／7→8／「可 promote」、舊 Mac handoff 標 archived | ☐ |
-| 7 | README legacy notice（**排在 #3 之後**）| ☐ |
+| 5 | C：泛化為「任何 `settings.json` 寫入者」並具名 plugin manager | ✅ |
+| 6 | D：README 驗證區塊（寫「**後於 07-31 完成複驗**」，不要竄改當時的誠實記錄）、README 浮動 `..HEAD` 釘死、backlog L28／7→8／「可 promote」、舊 Mac handoff 標 archived | ✅ |
+| 7 | README legacy notice（排在 #3 之後）| ✅ |
 | 8 | 把 legacy backup **子樹**掃描補進 `installer-rewrite-spec.md` 的 legacy 回滾節與驗收表 | ☐ |
 | 9 | 刪除舊分支（**最後一步**：successor 進 main ＋ 遠端 tag 可取回之後）| ☐ |
 

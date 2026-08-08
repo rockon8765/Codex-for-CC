@@ -1,6 +1,16 @@
 # HANDOFF — macOS 原生驗證（2026-07-28 批）
 
-> ## ⛔ 不要安裝這個分支
+> ## ✅ 已完成並封存（2026-08-08 標記）
+>
+> **這份 handoff 已經做完，不需要再執行。** macOS 端於 2026-07-28 完成首驗、
+> 2026-07-31 對分支尖端 `6f7839b` 補驗全綠（gate 117/117、`matcher-contract` exit 0、
+> `consult-schema` 4/4、`run-e2e` 11/11、`run-posix.sh` 64/64），該批已 promote 進 main。
+>
+> ⚠️ **下方提到的驗證分支 `refactor/context-engineering-2026-07-27-pending-native-macos` 已刪除**，
+> 照著 checkout 會失敗。本檔自此僅作**過程紀錄**保留——內文刻意不改寫。
+> 要知道現在的驗證狀態，看 [`../README.md`](../README.md) 的「本次 delta 的驗證分布」段。
+
+> ## ⛔（歷史）不要安裝這個分支
 > 本分支的改動**只在 Windows 與 WSL2 上跑過**，macOS 未經真機驗證。
 > **不要**把這個分支的檔案複製進 `~/.claude/`，**不要**照 `docs/AI-INSTALL.md` 安裝它。
 > 這份 handoff 做的是：在**隔離的 worktree 裡**跑測試 + 一項需要真 Claude Code 的行為實測，
