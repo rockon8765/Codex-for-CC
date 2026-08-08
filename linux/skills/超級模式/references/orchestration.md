@@ -96,6 +96,8 @@ SKILL.md 的 §2 / §3 / §3.5 / §5 的詳細範本與程序。用到才讀。
 - **擋不到 Codex 子程序自己寫的檔**——`codex-exec.sh` 一放行，Codex CLI 之後的檔案改動不逐一經過 Claude Code hook。
 
 **註冊（部署）**：把下面合併進 `~/.claude/settings.json`（hook 設定變更下個 session 才生效）。
+⚠️ **這一步不是冪等的**：已經有一筆 gate handler 就不要再加，否則會重複註冊。
+先數再動手，判斷表見 `docs/AI-INSTALL.md` 步驟 2。
 路徑改成你的家目錄；若 `node` 不在系統 PATH（如可攜式安裝），`command` 開頭的 `node` 也要換成
 絕對路徑（如 `/home/user/.local/node/bin/node`），否則 hook 會**靜默不跑、gate 形同虛設**。
 ⚠️ **不要放 `settings.local.json`**——2026-07-28 macOS 實測確認家目錄那份**不是** user scope，

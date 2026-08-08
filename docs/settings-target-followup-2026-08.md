@@ -61,11 +61,16 @@
 換言之 §3.1 在現行程式碼下**做不到它宣稱的事**。
 這讓 A1 的 `--live` 從「衛生」升級為**功能缺口**。
 
-### 1.3 註冊入口（共 11 處）
+### 1.3 註冊入口（共 10 處）
 
-`docs/AI-INSTALL.md:275`（步驟 2，canonical）、`README.md:183`／`:198`／`:213`（三平台手動安裝）、
-`docs/MIGRATION-hook-settings-target.md:176`（§4）、`docs/linux-platform-notes.md:44`、
-三份 `settings.snippet.json:2`、`macos`／`linux` 的 `orchestration.md:98`。
+`docs/AI-INSTALL.md`（步驟 2，canonical）、`README.md` 三平台手動安裝各一、
+`docs/linux-platform-notes.md`、三份 `settings.snippet.json` 的 `_comment`、
+`macos`／`linux` 的 `orchestration.md`。
+
+> ⚠️ 先前把 `docs/MIGRATION-hook-settings-target.md` 也算成註冊入口（記為 11 處）是**錯的**——
+> 那個 `合併進` 命中的是 §3.1 的**標題**（「matcher 是否真的合併進去了」），不是註冊指示。
+> Windows 的 snippet 也在名單內：它從沒受 `settings.local.json` 那個 bug 影響，
+> 但**重複註冊的問題三平台都有**。
 
 它們目前**都只說「合併」**，沒有任何一處說明「已經有一筆時該怎麼辦」——
 標準重跑安裝本身就可能 append 第二筆。
@@ -126,7 +131,7 @@
 | 0 | MIGRATION 檔頭 containment 警告 ＋ backlog 追蹤列 | ✅ `b7b34c4` |
 | 1 | 三台唯讀 installed census（Windows／macOS／Linux）——釘 OS、Claude Code 版本、installed `matcher-contract` 的 blob、`settings.json`／`settings.local.json` 的 gate handler 數 | ☐ **需 Mac／Linux 持有者執行**；只當具名樣本，不外推 |
 | 2 | B1：兩處回滾加子樹掃描（`$sbak` **僅在選中時**掃；live 不存在＝**無子樹可掃**，不得當掃描失敗）＋ 針對性測試 | ✅ Windows／Linux；**macOS 待原生驗證** |
-| 3 | A2：probe 逐層驗形狀並 fail-closed；第 2 節改 handler 粒度＋補「main 已有一筆」分支；11 處註冊入口改冪等／衝突停手 | ☐ |
+| 3 | A2：probe 逐層驗形狀並 fail-closed；第 2 節改 handler 粒度＋補「main 已有一筆」分支；10 處註冊入口改冪等／衝突停手 | ✅ Windows／Linux；**macOS 待原生驗證** |
 | 4 | A1：`--repo`／`--live` 顯式模式、印出實際受驗路徑、修 §1.1 的 4 處相對路徑 | ☐ |
 | 5 | C：泛化為「任何 `settings.json` 寫入者」並具名 plugin manager | ☐ |
 | 6 | D：README 驗證區塊（寫「**後於 07-31 完成複驗**」，不要竄改當時的誠實記錄）、README 浮動 `..HEAD` 釘死、backlog L28／7→8／「可 promote」、舊 Mac handoff 標 archived | ☐ |
@@ -153,6 +158,27 @@
 | Linux WSL2／ext4 | **85/85** exit 0（基準 68）|
 | 反向驗證（兩平台各自對 `1aeb010` 的 `AI-INSTALL.md`）| 各 **4 FAIL**，且完全是 M11 的四條斷言；M12 在修正前也 PASS（它是守護不是修復）|
 | macOS | **未驗證**（本機無 Mac，走 handoff）|
+
+## 4.2 A2 的驗證紀錄（2026-08-08）
+
+probe 改寫成逐層驗形狀、異形一律 `exit 1`；第 2 節拆成 **A（還沒有）**／**B（已經有／重複）**
+兩支且粒度改為 handler；判定表把 `≥1` 拆成 `1` 與 `≥2`；10 處註冊入口全部加上
+「不是冪等、先數再動手」與後置條件。
+
+probe 以假 `HOME` 餵 **9 種**輸入實測（Node v24.16.0），**9/9 符合預期**：
+
+| 輸入 | 期望 | 結果 |
+|---|---|---|
+| 頂層 `null`／`PreToolUse` 物件／`PreToolUse` **字串**／entry 非物件／`command` 非字串 | exit **1** | 皆 exit 1，並印出具體是哪一層不合 |
+| 正常 1 筆（**對照組**） | exit 0「正常」 | ✅ |
+| `main` 2 筆 | exit 0「已經重複註冊」 | ✅ |
+| `main` 1 ＋ `local` 1 | exit 0「只從 local 移除，不要搬」 | ✅ |
+| `main` 0 ＋ `local` 1 | exit 0「受影響」 | ✅ |
+
+**修正前的行為**：`PreToolUse` 是字串時 **exit 0** 且判定成「兩邊都沒有 gate……重做安裝」。
+
+回歸：`tests/ai-install` Windows **86/86**、Linux **85/85**；gate **109／117／121**；
+三平台 `matcher-contract` 皆 exit 0（snippet 的 `_comment` 有改動，這支會讀）。
 
 > ⚠️ **v4 §8 的 PS 5.1 指令是錯的。** 它寫 `powershell -File .\tests\ai-install\run-windows.ps1 -Shell powershell`，
 > 但 `-Shell` 選的是「執行**被抽出的區塊**」用哪個 shell，測試臺本身必須跑在 pwsh 下。

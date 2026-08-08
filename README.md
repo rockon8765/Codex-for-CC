@@ -184,6 +184,8 @@ cp    "macos/hooks/super-mode-consult-gate.js" ~/.claude/hooks/
 #    並把絕對路徑改成你自己家目錄的路徑。
 #    ⚠️ 不要用 settings.local.json —— 家目錄那份不是 user scope，只有從家目錄
 #    啟動 Claude Code 時才生效（見 docs/verify-settings-scope.md）。
+#    ⚠️ 這一步不是冪等的：已經有一筆 gate 就不要再加，否則會重複註冊。
+#    先數再動手，判斷表見 docs/AI-INSTALL.md 步驟 2。
 # 4. 驗證：
 node "$HOME/.claude/skills/超級模式/tests/run-gate-tests.js"        # 應全數 PASS（案例數見 gate-cases.json）
 node "$HOME/.claude/skills/超級模式/tests/matcher-contract.test.js" # ★ 必跑，見下方說明
@@ -200,6 +202,8 @@ cp    "linux/hooks/super-mode-consult-gate.js" ~/.claude/hooks/
 #    node 也要寫絕對路徑，否則 hook 會靜默不跑。
 #    ⚠️ 不要用 settings.local.json —— 家目錄那份不是 user scope，只有從家目錄
 #    啟動 Claude Code 時才生效（見 docs/verify-settings-scope.md）。
+#    ⚠️ 這一步不是冪等的：已經有一筆 gate 就不要再加，否則會重複註冊。
+#    先數再動手，判斷表見 docs/AI-INSTALL.md 步驟 2。
 # 4. 驗證（linux/ 每次 push 都跑 ubuntu-latest CI，這裡是驗你這台機器的安裝結果）：
 node "$HOME/.claude/skills/超級模式/tests/run-gate-tests.js"        # 應全數 PASS（案例數見 gate-cases.json）
 node "$HOME/.claude/skills/超級模式/tests/matcher-contract.test.js" # ★ 必跑，見下方說明
@@ -211,6 +215,8 @@ bash "$HOME/.claude/skills/超級模式/tests/run-e2e.sh"               # 應全
 Copy-Item -Recurse ".\windows\skills\超級模式" "$env:USERPROFILE\.claude\skills\"
 Copy-Item ".\windows\hooks\super-mode-consult-gate.js" "$env:USERPROFILE\.claude\hooks\"
 # 然後把 hook 接到 ~/.claude/settings.json（見 windows/settings.snippet.json）。
+# ⚠️ 這一步不是冪等的：已經有一筆 gate 就不要再加，否則會重複註冊。
+# 先數再動手，判斷表見 docs/AI-INSTALL.md 步驟 2。
 # 驗證：
 node "$env:USERPROFILE\.claude\skills\超級模式\tests\run-gate-tests.js"        # 應全數 PASS
 node "$env:USERPROFILE\.claude\skills\超級模式\tests\matcher-contract.test.js" # ★ 必跑，見下方說明

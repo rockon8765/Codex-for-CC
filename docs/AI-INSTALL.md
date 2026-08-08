@@ -276,6 +276,22 @@ if (Test-Path -LiteralPath $stale) { throw "安裝驗證失敗：FIX-PLAN.md 未
 （**合併，不要覆蓋既有設定**），並把 snippet 裡的絕對路徑改成使用者自己的家目錄。
 **三平台都是這個檔。**
 
+> ⛔ **這一步不是冪等的，重跑安裝前務必先數。** 「合併」照字面做會在陣列尾端
+> **再 append 一筆**，於是重跑一次安裝就多一筆重複的 gate handler。
+>
+> **動手前先數**：`~/.claude/settings.json` 與 `~/.claude/settings.local.json` 裡
+> `hooks.PreToolUse[].hooks[].command` 含 `super-mode-consult-gate` 的 handler 各有幾個？
+> 現成的 probe 在 [`MIGRATION-hook-settings-target.md`](MIGRATION-hook-settings-target.md) 第 1 節。
+>
+> | 現況 | 做法 |
+> |---|---|
+> | 兩邊都 0 | 照本節加入 |
+> | `settings.json` 恰 1、local 0 | **已經裝好了，什麼都不要做** |
+> | `settings.json` ≥2，或 local ≥1 | **不要再加**——走 MIGRATION 第 2 節的 **B**（減法） |
+> | 含 gate 的 entry 底下還有別的 handler | **停手**，人工判斷 |
+>
+> **後置條件**：`settings.json` 的 gate handler **恰 1 個**、`settings.local.json` **0 個**。
+
 - Linux 注意：若 `node` 不在系統 PATH——例如可攜式安裝在 `~/.local/node/bin`——
   hook 指令開頭的 `node` 必須寫**絕對路徑**，否則 hook 會靜默不跑、gate 形同虛設。
 

@@ -1,5 +1,5 @@
 {
-  "_comment": "把這個 PreToolUse 條目合併進 ~/.claude/settings.json 的 hooks.PreToolUse（合併，不要覆蓋既有設定）。請把 hook 的絕對路徑改成符合你家目錄的路徑；若 node 不在系統 PATH（如可攜式安裝在 ~/.local/node/bin），command 開頭的 node 也要換成絕對路徑，否則 hook 會靜默不跑。⚠️ 不要用 ~/.claude/settings.local.json：2026-07-28 macOS 實測確認它不是 user scope 的 hook 來源，只有從家目錄啟動 Claude Code 時才會被當成專案層檔案讀到，從其他目錄啟動就完全不生效（本 repo 曾因此讓 gate 長期未被叫用）。若你的環境有工具會覆寫 ~/.claude/settings.json（例如 ECC 重新安裝），請在那之後重跑 tests/matcher-contract.test.js —— 它現在找不到已註冊的 hook 就會 FAIL，不再靜默通過。",
+  "_comment": "把這個 PreToolUse 條目合併進 ~/.claude/settings.json 的 hooks.PreToolUse（合併，不要覆蓋既有設定）。⚠️ 這一步不是冪等的：照字面合併會在陣列尾端再 append 一筆，重跑安裝就多一筆重複的 gate handler。動手前先數 command 含 super-mode-consult-gate 的 handler 有幾個——恰好 1 筆就什麼都不要做；≥2 筆、或 settings.local.json 也有，請走 docs/MIGRATION-hook-settings-target.md 第 2 節的 B（減法）。後置條件：settings.json 恰 1 個、settings.local.json 0 個。請把 hook 的絕對路徑改成符合你家目錄的路徑；若 node 不在系統 PATH（如可攜式安裝在 ~/.local/node/bin），command 開頭的 node 也要換成絕對路徑，否則 hook 會靜默不跑。⚠️ 不要用 ~/.claude/settings.local.json：2026-07-28 macOS 實測確認它不是 user scope 的 hook 來源，只有從家目錄啟動 Claude Code 時才會被當成專案層檔案讀到，從其他目錄啟動就完全不生效（本 repo 曾因此讓 gate 長期未被叫用）。若你的環境有工具會覆寫 ~/.claude/settings.json（例如 ECC 重新安裝），請在那之後重跑 tests/matcher-contract.test.js —— 它現在找不到已註冊的 hook 就會 FAIL，不再靜默通過。",
   "hooks": {
     "PreToolUse": [
       {
