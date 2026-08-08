@@ -144,14 +144,32 @@ function Get-CapabilitySnapshot {
     $cfgRaw = ''
     if (Test-Path $cfg) {
       $cfgRaw = [string](Get-Content -LiteralPath $cfg -Raw)
-      foreach ($ln in ($cfgRaw -split "`r?`n")) {
-        if ($ln -match '^\[hooks\.state\."([^"]+)"\]') { $h.Items += (($Matches[1] -split ':')[0]) }
+      $lines = @($cfgRaw -split "`r?`n")
+      $subTableSeen = $false      # 看到 [hooks.state.<任何東西>] 這種子表頭
+      $bareBodySeen = $false      # [hooks.state] 這張表底下有實質內容
+      $inBare = $false
+      foreach ($ln in $lines) {
+        if ($ln -match '^\s*\[') {
+          # 任何表頭都結束「裸 [hooks.state] 的本體」
+          $inBare = $false
+          if ($ln -match '^\s*\[hooks\.state\."([^"]+)"\]') { $h.Items += (($Matches[1] -split ':')[0]); $subTableSeen = $true }
+          elseif ($ln -match '^\s*\[hooks\.state\.')        { $subTableSeen = $true }   # 子表存在但格式不認得
+          elseif ($ln -match '^\s*\[hooks\.state\]\s*$')    { $inBare = $true }
+          continue
+        }
+        if ($inBare -and $ln.Trim() -ne '' -and $ln.Trim() -notmatch '^#') { $bareBodySeen = $true }
       }
     }
     $h.Items = @($h.Items | Select-Object -Unique | Sort-Object)
-    # config 內有 hooks.state 段但一筆都解析不到（如 TOML 改用單引號/裸鍵序列化）→ UNPARSEABLE，
-    # 不可当成「無 hooks」寫進 baseline（hooks 是 read-only 心智模型外的執行面，洗白代價最高）。
-    if ($h.Items.Count -eq 0 -and $cfgRaw -match 'hooks\.state') { $h.Status = 'UNPARSEABLE' }
+    # 三態，不是兩態。舊版寫 `$cfgRaw -match 'hooks\.state'`，於是**合法的空表**
+    # （`[hooks.state]` 底下沒有任何條目——例如使用者移除了唯一提供 hook 的外掛）
+    # 也被判成 UNPARSEABLE：它同時擋掉 baseline 比對、又是 cry-wolf，
+    # 日後真的格式變更時這個警告已經沒有訊號價值了。（2026-08-08 實測命中。）
+    #   有子表但一筆都解析不到 / 裸表底下有不認得的內容 → UNPARSEABLE（格式疑似變更）
+    #   完全沒有 hooks.state，或只有一張空的 [hooks.state]        → OK 且 0 筆（真的沒有 hook）
+    # hooks 是 read-only 心智模型之外的執行面，「洗白成無 hooks」代價最高，所以只有在
+    # **確實看不到任何條目形跡**時才判為零。
+    if ($h.Items.Count -eq 0 -and ($subTableSeen -or $bareBodySeen)) { $h.Status = 'UNPARSEABLE' }
   } catch { $h.Status = 'FAILED' }
   $snap['hooks'] = $h
 
@@ -204,8 +222,10 @@ function Show-CapabilitySurface {
 
   $h = $snap['hooks']
   if ($h.Status -eq 'FAILED') { Write-Output "受信任 hooks: (解析失敗)" }
-  elseif ($h.Status -eq 'UNPARSEABLE') { Write-Output "受信任 hooks: (UNPARSEABLE -- config 有 hooks.state 段但解析 0 筆，疑序列化格式變更，請人工確認)" }
+  elseif ($h.Status -eq 'UNPARSEABLE') { Write-Output "受信任 hooks: (UNPARSEABLE -- config 有 hooks.state 的條目形跡但解析 0 筆，疑序列化格式變更，請人工確認)" }
   elseif ($h.Items.Count) { Write-Output ("受信任 hooks ({0}): {1}" -f $h.Items.Count, ($h.Items -join ', ')) }
+  # 明確印出「零筆」。舊版在這個情況什麼都不印，讀的人分不出「查過、沒有」與「根本沒查」。
+  else { Write-Output "受信任 hooks: 0 筆（config 沒有 hooks.state 條目）" }
 
   # skill 依賴旗標探測：升級後旗標從 exec --help 消失＝consult/exec 腳本可能已不相容，要大聲講。
   $fl = $snap['exec_flags']
@@ -415,6 +435,26 @@ try {
 }
 $latestDisp = if ($latest) { $latest } else { "(unknown - offline)" }
 
+# 印出**實際被叫起的那支 codex**，並在它與 PATH 上的 codex 不同版時大聲講。
+# 2026-08-08 的活案例：使用者把原生安裝升到 0.147.0，但 skill 寫死的 C:\npm 那支還是
+# 0.146.0，於是互動 `codex --version` 顯示 0.147、skill 實際驅動的 worker 卻是 0.146——
+# 兩邊都「正確」但不一致，而且**沒有任何地方會提示這個落差**。
+Write-Output "使用的 codex: $codexCmd"
+# ⚠️ 只有在**沒有 seam 注入**時才做 PATH 比對。合成測試臺一律用 CODEX_CHECK_CODEX_CMD 注入 stub，
+# 那時去查 PATH 上的 codex 等於伸手到沙箱外：既讓每個案例多跑一次真 binary（實測讓測試臺從
+# 約 1 分鐘變成逾 10 分鐘），也會讓 anti-live 斷言看到真實路徑。這個比對本來就只對
+# 「寫死路徑 vs 使用者 PATH」這個情境有意義。
+$pathCodex = if ($env:CODEX_CHECK_CODEX_CMD) { $null } else { Get-Command codex -ErrorAction SilentlyContinue | Select-Object -First 1 }
+if ($pathCodex -and $pathCodex.Source -and ($pathCodex.Source -ne $codexCmd)) {
+  $pathVerRaw = ''
+  try { $pathVerRaw = (& cmd.exe /d /s /c ('"{0}" --version 2>NUL' -f $pathCodex.Source)) | Out-String } catch { }
+  $pathVer = if ($pathVerRaw -match '(?m)^\s*codex-cli\s+(\S+)') { $Matches[1] } else { $null }
+  if ($pathVer -and $instVer -and $pathVer -ne $instVer) {
+    Write-Output ("⚠️ PATH 上的 codex 是**另一支**且版本不同：{0}（{1}）" -f $pathCodex.Source, $pathVer)
+    Write-Output ("   skill 一律用上面那支（寫死路徑），所以你在終端機看到的版本不代表 worker 的版本。")
+    Write-Output ("   要讓 skill 跟上，請更新 skill 用的那支；`codex --version` 相符不構成證據。")
+  }
+}
 Write-Output "installed: $instVer"
 Write-Output "latest:    $latestDisp"
 # C3/H1：版本狀態機。任何 UNKNOWN 都不誤報 OUTDATED（smoke test 才是權威可用性判定）。

@@ -658,6 +658,48 @@ function t_b_hooks_unparseable {  # config 有 hooks.state 但序列化格式變
   Invoke-Check -Mode update -Overrides @{ CODEX_STUB_PLUGINS = 'alpha' }
   if ($script:rc -eq 2) { Assert 'b_hooks_unp' 'hooks 失真拒更新 exit 2' 0 } else { Assert 'b_hooks_unp' "hooks 失真拒更新 exit 2（實際 $($script:rc)）" 1 }
 }
+function t_b_hooks_empty_table_is_zero {  # 空的 [hooks.state] ＝合法零筆，**不是** UNPARSEABLE（2026-08-08 真實命中）
+  # 使用者移除了唯一提供 hook 的外掛之後，config 會留下一張空的 [hooks.state]。
+  # 舊版判斷式是 `$cfgRaw -match 'hooks\.state'`，於是把這個合法狀態誤報成 UNPARSEABLE：
+  # 既擋掉整個能力面的 baseline 比對，又是 cry-wolf。
+  $script:currentTest = 'b_hooks_empty'
+  Setup
+  $codexDir = Join-Path $script:fakeHome '.codex'
+  New-Item -ItemType Directory -Path $codexDir -Force | Out-Null
+  # 刻意做成「空表夾在兩個別的表中間」——這正是真實 config 的長相
+  Set-Content -LiteralPath (Join-Path $codexDir 'config.toml') `
+    -Value "[model_reasoning]`r`neffort = 'high'`r`n`r`n[hooks.state]`r`n`r`n[shell_environment_policy.set]`r`nFOO = 'bar'" -Encoding utf8
+  Run-Check @{ CODEX_STUB_PLUGINS = 'alpha' }
+  AssertMatch 'b_hooks_empty' 'hooks 報 0 筆而非 UNPARSEABLE' '受信任 hooks: 0 筆'
+  AssertNoMatch 'b_hooks_empty' 'hooks 不得報 UNPARSEABLE' '受信任 hooks: \(UNPARSEABLE'
+  # 必須**允許**寫 baseline —— 舊版會因為 UNPARSEABLE 而 exit 2
+  Invoke-Check -Mode update -Overrides @{ CODEX_STUB_PLUGINS = 'alpha' }
+  if ($script:rc -eq 0) { Assert 'b_hooks_empty' '空 hooks.state 可寫 baseline exit 0' 0 } else { Assert 'b_hooks_empty' "空 hooks.state 可寫 baseline exit 0（實際 $($script:rc)）" 1 }
+}
+function t_b_hooks_removed_after_baseline {  # baseline 有 hook → 使用者移除該外掛 → 空表。舊版在這裡整個能力面停止比對
+  # 這是 2026-08-08 的真實情境：baseline 記著 hooks=superpowers，使用者手動移除該外掛後
+  # config 只剩一張空的 [hooks.state]。舊版判成 UNPARSEABLE，於是把整段丟進
+  # 「UNKNOWN（無法與 baseline 比對）」——**該報的 hooks 消失反而不會被報成漂移**。
+  # 注意順序：必須先有 baseline 才測得到這個傷害。首跑就斷言「沒有 UNKNOWN 段」是恆真的裝飾，
+  # 因為舊版根本拒寫 baseline、後續比對不會發生。
+  $script:currentTest = 'b_hooks_gone'
+  Setup
+  $codexDir = Join-Path $script:fakeHome '.codex'
+  New-Item -ItemType Directory -Path $codexDir -Force | Out-Null
+  $cfg = Join-Path $codexDir 'config.toml'
+  # 1) 有一個真的 hook → 建 baseline
+  Set-Content -LiteralPath $cfg -Value "[hooks.state.`"myhook:abc123`"]`r`ntrusted = true" -Encoding utf8
+  Invoke-Check -Mode update -Overrides @{ CODEX_STUB_PLUGINS = 'alpha' }
+  if ($script:rc -eq 0) { Assert 'b_hooks_gone' '前置：有 hook 時可建 baseline' 0 } else { Assert 'b_hooks_gone' "前置：有 hook 時可建 baseline（實際 $($script:rc)）" 1 }
+  AssertMatch 'b_hooks_gone' '前置：baseline 當下確實看到 1 筆 hook' '受信任 hooks \(1\): myhook'
+  # 2) 使用者移除該外掛 → 只剩空表
+  Set-Content -LiteralPath $cfg -Value "[hooks.state]" -Encoding utf8
+  Run-Check @{ CODEX_STUB_PLUGINS = 'alpha' }
+  AssertMatch 'b_hooks_gone' 'hooks 歸零被如實報出' '受信任 hooks: 0 筆'
+  AssertNoMatch 'b_hooks_gone' '不得因此進 UNKNOWN 段' 'hooks: 有輸出但解析失敗'
+  # 最關鍵：hooks 從 1 筆變 0 筆**必須被報成漂移**。舊版會把它藏進 UNKNOWN 段而不報。
+  AssertMatch 'b_hooks_gone' 'hooks 消失必須報成漂移' 'hooks -: myhook'
+}
 function t_b_flag_incompat_cache_not_trusted {  # 命中側對稱守衛：本次盤點旗標不相容 → 舊綠快取不採信
   $script:currentTest = 'b_flag_nohit'
   Setup; Invoke-Check -Mode force
@@ -680,7 +722,7 @@ $allTests = @(
   't_b_empty_ambiguous_unknown','t_b_query_fail_unknown_update_refused','t_b_unparseable_blocks_update','t_b_corrupt_baseline',
   't_b_flag_missing_no_cache','t_b_near_flag_not_matched','t_b_version_empty_no_cache_hit','t_b_cache_version_mismatch_miss',
   't_b_probe_stderr_immune','t_b_boilerplate_zero_is_empty','t_b_mcp_drift_and_fail','t_b_mcp_all_unknown_unparseable',
-  't_b_marketplace_identity_drift','t_b_hooks_unparseable','t_b_flag_incompat_cache_not_trusted'
+  't_b_marketplace_identity_drift','t_b_hooks_unparseable','t_b_hooks_empty_table_is_zero','t_b_hooks_removed_after_baseline','t_b_flag_incompat_cache_not_trusted'
 )
 
 try {

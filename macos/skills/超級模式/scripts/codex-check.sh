@@ -154,10 +154,26 @@ collect_capability_snapshot() {
     if cfg_raw="$(cat "$cfg" 2>/dev/null)"; then
       # hooks ID 截斷：vendor:suffix 取 [0]（suffix 疑為 volatile hash，保留截斷防常態漂移）
       cap_hooks_items="$(printf '%s\n' "$cfg_raw" | tr -d '\r' | sed -nE 's/^\[hooks\.state\."([^"]+)"\].*$/\1/p' | cut -d: -f1 | LC_ALL=C sort -u)"
-      # config 內有 hooks.state 段但一筆都解析不到（如 TOML 改用單引號/裸鍵序列化）→ UNPARSEABLE，
-      # 不可當成「無 hooks」寫進 baseline（hooks 是 read-only 心智模型外的執行面，洗白代價最高）。
+      # 三態，不是兩態。舊版寫 `case "$cfg_raw" in *"hooks.state"*)`，於是**合法的空表**
+      # （`[hooks.state]` 底下沒有任何條目——例如使用者移除了唯一提供 hook 的外掛）
+      # 也被判成 UNPARSEABLE：它同時擋掉 baseline 比對、又是 cry-wolf。
+      # 更糟的是「hooks 從 N 筆變 0 筆」這種真實的能力面變化會被藏進 UNKNOWN 段而**不報成漂移**。
+      # （2026-08-08 真實命中並補了回歸案 t_b_hooks_removed_after_baseline。）
+      #   有子表頭但解析 0 筆 / 裸表底下有不認得的內容 → UNPARSEABLE（格式疑似變更）
+      #   完全沒有 hooks.state，或只有一張空的 [hooks.state] → OK 且 0 筆（真的沒有 hook）
+      # hooks 是 read-only 心智模型之外的執行面，「洗白成無 hooks」代價最高，所以只有在
+      # **確實看不到任何條目形跡**時才判為零。
       if [ -z "$cap_hooks_items" ]; then
-        case "$cfg_raw" in *"hooks.state"*) cap_hooks_status="UNPARSEABLE" ;; esac
+        hooks_evidence="$(printf '%s\n' "$cfg_raw" | tr -d '\r' | awk '
+          /^[[:space:]]*\[/ {
+            inbare = 0
+            if ($0 ~ /^[[:space:]]*\[hooks\.state\./) { print "sub"; next }
+            if ($0 ~ /^[[:space:]]*\[hooks\.state\][[:space:]]*$/) { inbare = 1 }
+            next
+          }
+          inbare && $0 !~ /^[[:space:]]*$/ && $0 !~ /^[[:space:]]*#/ { print "body" }
+        ')"
+        [ -n "$hooks_evidence" ] && cap_hooks_status="UNPARSEABLE"
       fi
     else
       cap_hooks_status="FAILED"
@@ -225,10 +241,13 @@ show_capability_surface() {
   fi
 
   if [ "$cap_hooks_status" = "FAILED" ]; then echo "受信任 hooks: (解析失敗)"
-  elif [ "$cap_hooks_status" = "UNPARSEABLE" ]; then echo "受信任 hooks: (UNPARSEABLE -- config 有 hooks.state 段但解析 0 筆，疑序列化格式變更，請人工確認)"
+  elif [ "$cap_hooks_status" = "UNPARSEABLE" ]; then echo "受信任 hooks: (UNPARSEABLE -- config 有 hooks.state 的條目形跡但解析 0 筆，疑序列化格式變更，請人工確認)"
   elif [ -n "$cap_hooks_items" ]; then
     n="$(count_list "$cap_hooks_items")"
     echo "受信任 hooks (${n}): $(join_list "$cap_hooks_items" ', ')"
+  else
+    # 明確印出「零筆」。舊版在這個情況什麼都不印，讀的人分不出「查過、沒有」與「根本沒查」。
+    echo "受信任 hooks: 0 筆（config 沒有 hooks.state 條目）"
   fi
 
   # skill 依賴旗標探測：升級後旗標從 exec --help 消失＝consult/exec 腳本可能已不相容，要大聲講。
