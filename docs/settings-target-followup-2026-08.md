@@ -289,6 +289,49 @@ Linux（協作者機器）仍未取樣。
 > 一份在 `MIGRATION`；一份在 `sed` 一份在 `awk`。兩次都不是「漏了某個 case」，
 > 而是「兩份副本各自演化到不一致」。修法一律是**消除副本**，不是加測試去比對副本。
 
+## 4.6 macOS 原生重驗（2026-08-08，對 `319299c`）
+
+Codex 審查後的修正動到了受測檔，**先前對 `224ad8e`／`46e02bc` 的驗證已作廢**，
+故對合併樹重釘 SHA 重跑一次。
+
+**環境**：macOS 26.6.1 arm64、內建 `bash 3.2.57`、**`awk version 20200816`**
+（BSD／one-true-awk，非 GNU awk——F4 的前提條件成立）、Node v26.4.0。
+**9 筆 blob 全符。**
+
+| 項目 | 預期 | 結果 |
+|---|---|---|
+| A-1 `run-posix.sh` | 85/85 | ✅ `PASS=85 FAIL=0` |
+| A-2 gate ／ `matcher-contract --repo` | 117/117 ／ exit 0 | ✅（路徑印 `/private/tmp/…`，`/tmp` symlink 的正常形式）|
+| A-3 參數契約 | 3×`exit 2`＋deprecated＋`exit 0` | ✅ |
+| A-4 反向驗證 | `PASS=81 FAIL=4`，恰為 M11 四條 | ✅ 不多不少 |
+| A-5 probe（含新增 type 判別）| case 1–5 `exit 1`、case 6 `exit 0` | ✅ |
+| B-1 hooks 案例 | FAIL 0，五條指名項全到 | ✅ `TOTAL 22 FAIL 0` |
+| B-2 全套回歸 | `TOTAL 138 FAIL 0` | ✅，`^FAIL` 零行 |
+| B-3 反向驗證 | `TOTAL 20 FAIL 13` | ✅ |
+
+### 兩份「超出腳本」的唯讀診斷，補上了原本缺的因果證據
+
+驗證者額外做了兩件事（都不改檔），把「數字對」升級成「**因為對的理由而對**」：
+
+1. **A-5 case 4／5 印出實際訊息**，確認是因 `type` 判別擋下，而非碰巧被別的形狀檢查攔到：
+   `PreToolUse[0].hooks[0] 的 command 含 gate，但 type 是 缺漏／"prompt"（必須是 "command"）`。
+2. **B-3 列出失敗的 13 條**，其中包含
+   `FAIL: b_hooks_alt — 縮排 canonical 表頭仍抽成 1 筆`。
+
+> **第 2 點是本輪最有價值的一筆證據。** F4b（macOS 專屬的洗白）先前只有
+> 「讀碼推論 ＋ WSL2 跨宿主測試」支撐——而 WSL 是 GNU userland，**無法證明 BSD 上的行為**。
+> 現在有了原生 BSD awk 上的直接證據：舊版雙 parser 在真 macOS 上**確實**讓縮排的
+> canonical 表頭「抽不到又不報」，新的單一 parser 修掉了它。
+>
+> 這也是「反向驗證只看總數不夠」的實例——若只核對 `FAIL 13` 這個數字，
+> 無從得知失敗的是不是該失敗的那些。
+
+### 已知且不影響判定
+
+- macOS 的 `/tmp` 是指向 `private/tmp` 的 symlink，`matcher-contract` 印
+  `/private/tmp/cfc-int/…`。同一位置。**若日後要對那兩行加自動斷言，須比 realpath**。
+- WSL2 跨宿主時 FAIL 的 4 個 cache／mtime 案例，在原生 macOS **再次全過**（第二次證實為環境限制）。
+
 ## 5. 沿用 v4 的紀律（這幾條仍然有效）
 
 1. **反向驗證**：新回歸案必須對**修正前**版本 FAIL，否則只是裝飾

@@ -1,6 +1,19 @@
 # HANDOFF — macOS 原生驗證（整合批，2026-08-08）
 
-> ## ⛔ 不要安裝這個分支
+> ## ✅ 已完成（2026-08-08 同日回報，對 `319299c` 全綠）
+>
+> macOS 26.6.1 arm64／內建 `bash 3.2.57`／**`awk version 20200816`（BSD，非 GNU）**／Node v26.4.0。
+> 9 筆 blob 全符，A-1～A-5 與 B-1～B-3 **每一項都與預期數字完全相符**：
+> `run-posix` 85/85、gate 117/117、參數契約 3×exit 2、A-4 反向 `PASS=81 FAIL=4`（恰為 M11 四條）、
+> probe 6 case 全符、B-1 `TOTAL 22 FAIL 0`、B-2 `TOTAL 138 FAIL 0`、B-3 `TOTAL 20 FAIL 13`。
+>
+> 結果與兩份補充診斷已回寫 [`settings-target-followup-2026-08.md`](settings-target-followup-2026-08.md) §4.6。
+> **本檔自此僅作過程紀錄保留，不需要再執行。** 下方內文刻意不改寫。
+>
+> ⚠️ 本檔之後只會有**純文件** commit（回寫紀錄），不會動到上表任何一個 blob；
+> 若日後有 commit 改到受測檔，這個「已完成」標記必須改回 pending。
+
+> ## ⛔（歷史）不要安裝這個分支
 > 只在 Windows 原生與 WSL2 跨宿主跑過，**macOS 未經真機驗證**。
 > 全程在隔離 worktree 內，**不要**把任何檔案複製進 `~/.claude`。
 
