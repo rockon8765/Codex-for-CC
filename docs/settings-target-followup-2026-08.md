@@ -136,7 +136,7 @@
 | 5 | C：泛化為「任何 `settings.json` 寫入者」並具名 plugin manager | ✅ |
 | 6 | D：README 驗證區塊（寫「**後於 07-31 完成複驗**」，不要竄改當時的誠實記錄）、README 浮動 `..HEAD` 釘死、backlog L28／7→8／「可 promote」、舊 Mac handoff 標 archived | ✅ |
 | 7 | README legacy notice（排在 #3 之後）| ✅ |
-| 8 | 把 legacy backup **子樹**掃描補進 `installer-rewrite-spec.md` 的 legacy 回滾節與驗收表 | ☐ |
+| 8 | 把 legacy backup **子樹**掃描補進 `installer-rewrite-spec.md` 的 legacy 回滾節與驗收表 | ✅ |
 | 9 | 刪除舊分支（**最後一步**：successor 進 main ＋ 遠端 tag 可取回之後）| ☐ |
 
 ## 4. 已拍板的決策

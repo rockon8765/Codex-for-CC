@@ -168,6 +168,25 @@ node tools/install.js --dry-run
 - 先完整預檢三個舊備份／`.absent` 狀態
 - live 一律**搬 quarantine**，不遞迴刪除
 - 掛載／link／型別不明／settings 已變更 → 停止並輸出人工復原指示
+
+**子樹掃描（兩棵樹，不只頂層）** —— D2 的「受管子樹的所有後代」只涵蓋 **live** 側；
+legacy 備份是**外來的、沒有 manifest 的**一棵樹，必須另外規定：
+
+- **選中的 legacy 備份子樹**與 **live 子樹**都要**遞迴**掃 link／reparse／掛載，
+  且**兩棵都掃完才允許任何 mutation**
+- 這不是理論題：舊 markdown 流程的預檢**只驗頂層**，2026-08-08 實測，
+  頂層乾淨但子樹藏 junction 時回滾會先刪 live、再從錯誤拓撲還原
+  （已於 `AI-INSTALL.md` 修補，回歸案 `[M11]`）
+- 備份建立當下的檢查**不能取代**這一步：備份放到真正被使用之間可能已漂移，
+  兩者之間沒有 manifest 也沒有完整性證明
+
+> ⚠️ **兩個前置條件缺一不可**，否則會把**合法**回滾擋死——那與它要防的資料損失是同一形狀的 bug：
+>
+> 1. 備份子樹**只在預檢確認選中它時才掃**。全新安裝只有 `.absent`、根本沒有備份目錄，
+>    無條件掃會讓那條合法路徑永遠失敗。
+> 2. **路徑不存在 ＝「沒有子樹可掃」，不是掃描失敗。** live 可能已被使用者手動移除；
+>    把它當 fail-closed 會讓「從備份還原」這個最需要 rollback 的情境永久失效。
+>    只有**真正的列舉失敗**（權限等）才 fail-closed。
 - **文件必須誠實說明這是整棵樹復原，不是精確 manifest 回滾**——
   舊備份不可能重建「哪些檔案是當次安裝寫入的」
 
@@ -217,6 +236,8 @@ node tools/install.js --dry-run
 | D7 target 常數 + nonce probe + `INSTALLED_UNVERIFIED` | ☐ |
 | D8 鎖 + `--break-lock` | ☐ |
 | legacy `--rollback-legacy` | ☐ |
+| legacy 回滾：**備份子樹 ＋ live 子樹**皆遞迴掃 link／reparse／掛載，且**兩棵掃完才 mutate** | ☐ |
+| legacy 回滾：兩個前置條件的**正向**回歸案——`.absent`（無備份子樹可掃）與 live 不存在時，回滾**必須成功** | ☐ |
 | 測試四套 | ☐ |
 | 三平台原生綠（shipping gate） | ☐ |
 | `AI-INSTALL.md` 切換 | ☐ |
