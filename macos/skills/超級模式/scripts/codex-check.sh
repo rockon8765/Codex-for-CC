@@ -152,13 +152,44 @@ collect_capability_snapshot() {
   cfg="$HOME/.codex/config.toml"
   if [ -f "$cfg" ]; then
     if cfg_raw="$(cat "$cfg" 2>/dev/null)"; then
+      # **單一 awk pass 同時產出 items 與 evidence。** 先前 items 走 sed（`^\[` 不吃縮排）、
+      # evidence 走另一段 awk（`^[[:space:]]*\[` 吃縮排並把它當「已認得」跳過）——兩條規則不一致，
+      # 縮排的 canonical 表頭於是「抽不到卻又被當成已認得」＝洗白。合成一條就不可能再分歧。
+      # 表頭一律先抓 `[` 到 `]` 之間的內容再比對，行尾註解與縮排自然被排除。
+      hooks_scan="$(printf '%s\n' "$cfg_raw" | tr -d '\r' | awk '
+        {
+          if (match($0, /^[[:space:]]*\[[^]]*\]/)) {
+            hdr = substr($0, RSTART, RLENGTH)
+            sub(/^[[:space:]]*\[/, "", hdr); sub(/\]$/, "", hdr)
+            inbare = 0; inhooks = 0
+            if (hdr ~ /^hooks\.state\."[^"]+"$/) {
+              name = hdr; sub(/^hooks\.state\."/, "", name); sub(/"$/, "", name)
+              print "ITEM " name; next
+            }
+            if (hdr == "hooks.state") { inbare = 1; next }
+            if (hdr ~ /hooks\.state/) { print "EVID"; next }
+            if (hdr == "hooks") { inhooks = 1 }
+            next
+          }
+          if (inbare && $0 !~ /^[[:space:]]*$/ && $0 !~ /^[[:space:]]*#/) { print "EVID"; next }
+          if ($0 ~ /hooks\.state/) { print "EVID"; next }
+          if (inhooks && $0 ~ /^[[:space:]]*state[[:space:]]*[.=]/) { print "EVID" }
+        }')"
       # hooks ID 截斷：vendor:suffix 取 [0]（suffix 疑為 volatile hash，保留截斷防常態漂移）
-      cap_hooks_items="$(printf '%s\n' "$cfg_raw" | tr -d '\r' | sed -nE 's/^\[hooks\.state\."([^"]+)"\].*$/\1/p' | cut -d: -f1 | LC_ALL=C sort -u)"
-      # config 內有 hooks.state 段但一筆都解析不到（如 TOML 改用單引號/裸鍵序列化）→ UNPARSEABLE，
-      # 不可當成「無 hooks」寫進 baseline（hooks 是 read-only 心智模型外的執行面，洗白代價最高）。
-      if [ -z "$cap_hooks_items" ]; then
-        case "$cfg_raw" in *"hooks.state"*) cap_hooks_status="UNPARSEABLE" ;; esac
-      fi
+      cap_hooks_items="$(printf '%s\n' "$hooks_scan" | sed -n 's/^ITEM //p' | cut -d: -f1 | LC_ALL=C sort -u)"
+      # 三態，不是兩態。舊版寫 `case "$cfg_raw" in *"hooks.state"*)`，於是**合法的空表**
+      # （`[hooks.state]` 底下沒有任何條目——例如使用者移除了唯一提供 hook 的外掛）
+      # 也被判成 UNPARSEABLE：它同時擋掉 baseline 比對、又是 cry-wolf。
+      # 更糟的是「hooks 從 N 筆變 0 筆」這種真實的能力面變化會被藏進 UNKNOWN 段而**不報成漂移**。
+      # （2026-08-08 真實命中並補了回歸案 t_b_hooks_removed_after_baseline。）
+      #   有子表頭但解析 0 筆 / 裸表底下有不認得的內容 → UNPARSEABLE（格式疑似變更）
+      #   完全沒有 hooks.state，或只有一張空的 [hooks.state] → OK 且 0 筆（真的沒有 hook）
+      # hooks 是 read-only 心智模型之外的執行面，「洗白成無 hooks」代價最高，所以只有在
+      # **確實看不到任何條目形跡**時才判為零。
+      # ⚠️ 形跡**不是**只在「解析 0 筆」時才檢查。混合案（一筆認得 ＋ 一筆異形）若只看
+      # items 數，異形那筆會完全隱形、而且 items>0 讓整段看起來健康。有形跡就代表
+      # 「這個檔裡有我讀不懂的 hooks 條目」，數量多寡不影響這個結論。
+      if printf '%s\n' "$hooks_scan" | grep -q '^EVID$'; then cap_hooks_status="UNPARSEABLE"; fi
     else
       cap_hooks_status="FAILED"
     fi
@@ -225,10 +256,13 @@ show_capability_surface() {
   fi
 
   if [ "$cap_hooks_status" = "FAILED" ]; then echo "受信任 hooks: (解析失敗)"
-  elif [ "$cap_hooks_status" = "UNPARSEABLE" ]; then echo "受信任 hooks: (UNPARSEABLE -- config 有 hooks.state 段但解析 0 筆，疑序列化格式變更，請人工確認)"
+  elif [ "$cap_hooks_status" = "UNPARSEABLE" ]; then echo "受信任 hooks: (UNPARSEABLE -- config 有 hooks.state 的條目形跡但解析 0 筆，疑序列化格式變更，請人工確認)"
   elif [ -n "$cap_hooks_items" ]; then
     n="$(count_list "$cap_hooks_items")"
     echo "受信任 hooks (${n}): $(join_list "$cap_hooks_items" ', ')"
+  else
+    # 明確印出「零筆」。舊版在這個情況什麼都不印，讀的人分不出「查過、沒有」與「根本沒查」。
+    echo "受信任 hooks: 0 筆（config 沒有 hooks.state 條目）"
   fi
 
   # skill 依賴旗標探測：升級後旗標從 exec --help 消失＝consult/exec 腳本可能已不相容，要大聲講。

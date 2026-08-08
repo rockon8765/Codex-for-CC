@@ -144,14 +144,43 @@ function Get-CapabilitySnapshot {
     $cfgRaw = ''
     if (Test-Path $cfg) {
       $cfgRaw = [string](Get-Content -LiteralPath $cfg -Raw)
-      foreach ($ln in ($cfgRaw -split "`r?`n")) {
-        if ($ln -match '^\[hooks\.state\."([^"]+)"\]') { $h.Items += (($Matches[1] -split ':')[0]) }
+      # **單一 pass 同時產出 items 與 evidence。** 先前是兩條各自為政的解析路徑
+      # （一條抽 items、一條找形跡），規則稍有出入就會出現「抽不到卻又被當成已認得」的洞。
+      # 表頭一律先抓 `[` 到 `]` 之間的內容再比對，**行尾註解與縮排自然被排除**。
+      $evidence = $false
+      $inBare = $false      # 正在裸 [hooks.state] 這張表底下
+      $inHooks = $false     # 正在 [hooks] 這張表底下
+      foreach ($ln in @($cfgRaw -split "`r?`n")) {
+        if ($ln -match '^\s*\[([^\]]*)\]') {
+          $hdr = $Matches[1]
+          $inBare = $false; $inHooks = $false     # 任何表頭都結束前一張表的本體
+          if     ($hdr -match '^hooks\.state\."([^"]+)"$') { $h.Items += (($Matches[1] -split ':')[0]) }
+          elseif ($hdr -eq 'hooks.state')                  { $inBare = $true }
+          elseif ($hdr -match 'hooks\.state')              { $evidence = $true }   # 子表頭但格式不認得
+          elseif ($hdr -eq 'hooks')                        { $inHooks = $true }
+          continue
+        }
+        if ($inBare -and $ln.Trim() -ne '' -and $ln.Trim() -notmatch '^#') { $evidence = $true }   # 裸表底下有實質內容
+        elseif ($ln -match 'hooks\.state')                  { $evidence = $true }   # dotted key：hooks.state.x = ...
+        elseif ($inHooks -and $ln -match '^\s*state\s*[.=]') { $evidence = $true }   # [hooks] 底下的 state ＝／state.<id> ＝
       }
     }
     $h.Items = @($h.Items | Select-Object -Unique | Sort-Object)
-    # config 內有 hooks.state 段但一筆都解析不到（如 TOML 改用單引號/裸鍵序列化）→ UNPARSEABLE，
-    # 不可当成「無 hooks」寫進 baseline（hooks 是 read-only 心智模型外的執行面，洗白代價最高）。
-    if ($h.Items.Count -eq 0 -and $cfgRaw -match 'hooks\.state') { $h.Status = 'UNPARSEABLE' }
+    # 三態，不是兩態。舊版寫 `$cfgRaw -match 'hooks\.state'`，於是**合法的空表**
+    # （`[hooks.state]` 底下沒有任何條目——例如使用者移除了唯一提供 hook 的外掛）
+    # 也被判成 UNPARSEABLE：既擋掉 baseline 比對，又是 cry-wolf，日後真的格式變更時
+    # 這個警告已經沒有訊號價值。（2026-08-08 實測命中。）
+    #
+    # ⚠️ 但收窄判斷式很容易**開出洗白路徑**——hooks 是 read-only 心智模型之外的執行面，
+    # 「把有 hook 誤報成零」代價最高。所以上面列了四個形跡訊號，涵蓋 TOML 對同一份資料的
+    # 不同寫法：子表頭（含不認得的引號形式）、裸表本體、**dotted key**、**inline table**。
+    #   ③ 是本次收窄一度弄丟的：`hooks.state.myhook = {...}` 舊版靠字面比對抓得到，
+    #      只看表頭的版本會漏 → 已補回並加回歸案。
+    #   ④ 是**舊版就漏**的（字面 `hooks.state` 不出現），順手一起補。
+    # ⚠️ 形跡**不是**只在「解析 0 筆」時才檢查。混合案（一筆認得 ＋ 一筆異形）若只看
+    # items 數，異形那筆會完全隱形、而且 items>0 讓整段看起來健康。有形跡就代表
+    # 「這個檔裡有我讀不懂的 hooks 條目」，數量多寡不影響這個結論。
+    if ($evidence) { $h.Status = 'UNPARSEABLE' }
   } catch { $h.Status = 'FAILED' }
   $snap['hooks'] = $h
 
@@ -177,7 +206,25 @@ function Show-CapabilitySurface {
   # 唯讀盤點 worker 每次派工實際帶著的能力面（啟用外掛 / MCP / 關鍵旗標）。
   # 全走本地 snapshot、無模型推理，故每次呼叫都印（即使命中 24h smoke 快取），好抓升級造成的能力面漂移。
   param($snap)
-  Write-Output "=== Codex worker 能力面（唯讀盤點）==="
+  # 這一段刻意放在 **24h 快取 gate 之前**：快取命中會直接 exit 0，放在後面等於
+# 「最常見的重跑路徑永遠看不到實際被叫起的是哪一支 codex」——那正是它要解決的問題。
+# （2026-08-08 Codex 合併前審查 F5。）
+#
+# ⚠️ **只比對路徑，絕不執行**任何在 PATH 上解析到的東西。同日教訓：初版用
+# `Get-Command codex | Select -First 1` 再 `cmd /c "<path>" --version`；原生安裝的 .exe
+# 被移除後第一個匹配變成 **C:\npm\codex.ps1**（PowerShell 解析順序 ExternalScript 排在
+# .cmd 之前），而 **cmd.exe 不執行 .ps1 —— 它用檔案關聯開啟，彈出記事本並卡住等它關閉**
+# （實測一次呼叫掛滿 10 分鐘）。為了印個版本號去執行 PATH 上解析到的路徑，爆炸半徑遠大於價值。
+#
+# ⚠️ 有 seam 注入（合成測試臺）時不查 PATH：那等於伸手到沙箱外，會讓 anti-live 斷言看到真實路徑。
+$pathCodex = if ($env:CODEX_CHECK_CODEX_CMD) { $null } else { Get-Command codex -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1 }
+Write-Output "使用的 codex: $codexCmd"
+if ($pathCodex -and $pathCodex.Source -and ($pathCodex.Source -ne $codexCmd)) {
+  Write-Output ("⚠️ PATH 上的 codex 是**另一支**：{0}" -f $pathCodex.Source)
+  Write-Output ("   skill 一律用上面那支（寫死路徑）。兩者版本可能不同，**`codex --version` 相符不構成證據**；")
+  Write-Output ("   要確認 worker 實際版本，看下方 installed／smoke test 的輸出。")
+}
+Write-Output "=== Codex worker 能力面（唯讀盤點）==="
 
   $p = $snap['plugins']
   if ($p.Status -eq 'FAILED') { Write-Output "啟用外掛: (查詢失敗)" }
@@ -204,8 +251,10 @@ function Show-CapabilitySurface {
 
   $h = $snap['hooks']
   if ($h.Status -eq 'FAILED') { Write-Output "受信任 hooks: (解析失敗)" }
-  elseif ($h.Status -eq 'UNPARSEABLE') { Write-Output "受信任 hooks: (UNPARSEABLE -- config 有 hooks.state 段但解析 0 筆，疑序列化格式變更，請人工確認)" }
+  elseif ($h.Status -eq 'UNPARSEABLE') { Write-Output "受信任 hooks: (UNPARSEABLE -- config 有 hooks.state 的條目形跡但解析 0 筆，疑序列化格式變更，請人工確認)" }
   elseif ($h.Items.Count) { Write-Output ("受信任 hooks ({0}): {1}" -f $h.Items.Count, ($h.Items -join ', ')) }
+  # 明確印出「零筆」。舊版在這個情況什麼都不印，讀的人分不出「查過、沒有」與「根本沒查」。
+  else { Write-Output "受信任 hooks: 0 筆（config 沒有 hooks.state 條目）" }
 
   # skill 依賴旗標探測：升級後旗標從 exec --help 消失＝consult/exec 腳本可能已不相容，要大聲講。
   $fl = $snap['exec_flags']
