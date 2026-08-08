@@ -22,15 +22,15 @@
 
 ## 1. 受驗 SHA 與 blob
 
-**受驗 SHA：`ff07129`**（分支 `fix/a2-migration-probe-2026-08-08`）。
-
-先核對 blob，不符就停手回報（代表你抓到的不是這個版本）：
+**受驗版本＝分支 `fix/a2-migration-probe-2026-08-08` 的尖端。**
+**釘子是下面這 7 筆 blob，不是 SHA**——這樣「之後又補了一個只改 README 的 commit」
+不會讓你以為版本不對。任何一筆不符就停手回報。
 
 ```bash
 cd <你的 Codex-for-CC checkout>
-git fetch && git checkout ff07129
+git fetch && git checkout fix/a2-migration-probe-2026-08-08
 for f in tools/probe-gate-registration.js tests/probe-gate-registration.test.js \
-         docs/MIGRATION-hook-settings-target.md docs/AI-INSTALL.md README.md \
+         docs/MIGRATION-hook-settings-target.md docs/AI-INSTALL.md \
          macos/settings.snippet.json "macos/skills/超級模式/references/orchestration.md" \
          docs/linux-platform-notes.md; do
   printf '%-58s %s\n' "$f" "$(git rev-parse "HEAD:$f" | cut -c1-12)"
@@ -43,10 +43,12 @@ done
 | `tests/probe-gate-registration.test.js` | `f00e2bef0e95` |
 | `docs/MIGRATION-hook-settings-target.md` | `0e05e9a7b801` |
 | `docs/AI-INSTALL.md` | `665bd77389fa` |
-| `README.md` | `8bc7ac283878` |
 | `macos/settings.snippet.json` | `a903d6aac575` |
 | `macos/skills/超級模式/references/orchestration.md` | `a4dd320b3285` |
 | `docs/linux-platform-notes.md` | `afa9cafd5d3e` |
+
+> `README.md` 與本檔**刻意不列入**：它們是敘述性文件、不影響任何一項驗證，
+> 而且補釘 SHA 時還會再動一次。把它們放進釘子只會製造假的「版本不符」。
 
 ## 2. 要跑的項目
 
