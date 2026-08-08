@@ -13,9 +13,15 @@
  *
  * **fail-fast，而且是「先全部預檢、再全部複製」**：任何一步失敗就中止並回非 0，
  * **不會印出 `backup ts=`**。所以「有印出 ts」才等於「該備份的都完成且逐位元組比對過」。
- * 預檢與複製分兩段，是為了避免「第一個檔備份成功、第二個檔中止」的半完成狀態。
+ * 預檢與複製分兩段，是為了讓大部分的失敗在**還沒動手之前**就攔下來。
  *
- * 退出碼：0 = 全部完成（或本來就沒有檔案要備份）；1 = 中止，未產生任何備份。
+ * 退出碼：0 = 全部完成（或本來就沒有檔案要備份）；1 = 中止。
+ *
+ * ⚠️ **中止時「什麼都沒留下」是 best-effort，不是保證**（2026-08-09 合併前審查第五輪
+ * 指出先前的絕對宣稱守不住）：預檢階段中止確實什麼都還沒建；但複製階段中止時，
+ * 本工具只是**盡力**回收本次登記過的備份路徑，並如實印出回收了什麼、哪些刪不掉。
+ * `unlink` 自己可能失敗，`copyFileSync` 也不是原子操作。
+ * 真正的保證要靠 staging 目錄＋完成 marker，那屬於 `installer-rewrite-spec.md` 的範圍。
  *
  * **已知範圍（不要當成比實際更強的保證）**：
  *   ・**不是交易式的。** 預檢到複製之間若有人把來源換成 symlink、或建立了預檢時
@@ -36,15 +42,28 @@ const os = require("os");
 const path = require("path");
 const crypto = require("crypto");
 
+// 中止一律走 BAIL：設 exitCode 後拋出、由最外層接住，讓程序**自然結束**。
+// ⚠️ 刻意不呼叫 `process.exit()` —— Node 官方文件明講它會截斷尚未完成的 stdout／stderr 寫入。
+const BAIL = Symbol("bail");
+const bail = () => {
+  process.exitCode = 1;
+  throw BAIL;
+};
+
 // 預檢階段的中止：此時什麼都還沒建立，所以「未產生任何備份」是真的。
 const die = (msg) => {
   console.error(msg + "，中止（未產生任何備份）");
-  process.exit(1);
+  bail();
 };
 
 // 複製階段的中止：前面的檔案可能已經備好了，所以**不能**照抄上面那句話。
-// 這裡把本次已建立的備份刪掉再中止，讓「全部成功，或什麼都沒留下」成為固定不變量
-// ——刪掉是安全的：來源檔完全沒被動過，這些備份是本次剛建的。
+// 這裡**盡力**把本次登記過的備份路徑刪掉，並如實回報回收了什麼、哪些刪不掉。
+//
+// ⚠️ **這是 best-effort，不是保證。** 先前檔頭寫「全部成功，或什麼都沒留下」是
+// **守不住的宣稱**（2026-08-09 合併前審查第五輪指出）：unlink 自己可能失敗，
+// 而且在「有並行程序」的前提下，別的程序若先把同一路徑換掉，unlink 會刪到替代物。
+// 這支工具假設你在自己的機器上手動操作；真正的保證要靠 staging 目錄＋完成 marker，
+// 那屬於 installer-rewrite-spec 的範圍。
 const dieAfterCopy = (msg, created) => {
   const removed = [];
   const stuck = [];
@@ -53,6 +72,7 @@ const dieAfterCopy = (msg, created) => {
       fs.unlinkSync(p);
       removed.push(p);
     } catch (e) {
+      if (e.code === "ENOENT") continue; // 登記了但根本沒建出來，不算殘留
       stuck.push(p + "（" + e.code + "）");
     }
   }
@@ -60,72 +80,88 @@ const dieAfterCopy = (msg, created) => {
   if (removed.length) console.error("  已回收本次建立的備份：" + removed.join("、"));
   if (stuck.length) console.error("  ⚠️ 這些備份刪不掉，請自行處理：" + stuck.join("、"));
   if (!removed.length && !stuck.length) console.error("  （未產生任何備份）");
-  process.exit(1);
+  bail();
 };
 
-const two = (n) => String(n).padStart(2, "0");
-const d = new Date();
-const ts =
-  String(d.getFullYear()) + two(d.getMonth() + 1) + two(d.getDate()) + "-" +
-  two(d.getHours()) + two(d.getMinutes()) + two(d.getSeconds());
+function run() {
+  const two = (n) => String(n).padStart(2, "0");
+  const d = new Date();
+  const ts =
+    String(d.getFullYear()) + two(d.getMonth() + 1) + two(d.getDate()) + "-" +
+    two(d.getHours()) + two(d.getMinutes()) + two(d.getSeconds());
 
-const home = os.homedir();
-const targets = [
-  path.join(home, ".claude", "settings.json"),
-  path.join(home, ".claude", "settings.local.json"),
-];
+  const home = os.homedir();
+  const targets = [
+    path.join(home, ".claude", "settings.json"),
+    path.join(home, ".claude", "settings.local.json"),
+  ];
 
-const sha = (p) => crypto.createHash("sha256").update(fs.readFileSync(p)).digest("hex");
+  const sha = (p) => crypto.createHash("sha256").update(fs.readFileSync(p)).digest("hex");
 
-// ── 第一段：全部預檢，不動任何東西 ────────────────────────────────────
-const plan = [];
-for (const f of targets) {
-  let st;
-  try {
-    st = fs.lstatSync(f); // lstat，不跟隨 link
-  } catch (e) {
-    if (e.code === "ENOENT") {
-      console.log(f + "  不存在，略過");
-      continue;
+  // ── 第一段：全部預檢，不動任何東西 ────────────────────────────────────
+  const plan = [];
+  for (const f of targets) {
+    let st;
+    try {
+      st = fs.lstatSync(f); // lstat，不跟隨 link
+    } catch (e) {
+      if (e.code === "ENOENT") {
+        console.log(f + "  不存在，略過");
+        continue;
+      }
+      die(f + " 狀態讀取失敗：" + e.code);
     }
-    die(f + " 狀態讀取失敗：" + e.code);
+    if (st.isSymbolicLink()) die(f + " 是 symlink／reparse point，狀態不明");
+    if (!st.isFile()) die(f + " 存在但不是一般檔案");
+
+    const bak = f + ".bak-" + ts;
+    let exists = true;
+    try {
+      fs.lstatSync(bak);
+    } catch (e) {
+      if (e.code === "ENOENT") exists = false;
+      else die(bak + " 狀態讀取失敗：" + e.code);
+    }
+    // 撞名就停，不要覆蓋既有備份（同一秒重跑會撞到，等一秒再跑）
+    if (exists) die("已存在 " + bak + "（同一秒重跑？等一秒再試）");
+
+    plan.push({ src: f, bak });
   }
-  if (st.isSymbolicLink()) die(f + " 是 symlink／reparse point，狀態不明");
-  if (!st.isFile()) die(f + " 存在但不是一般檔案");
 
-  const bak = f + ".bak-" + ts;
-  let exists = true;
-  try {
-    fs.lstatSync(bak);
-  } catch (e) {
-    if (e.code === "ENOENT") exists = false;
-    else die(bak + " 狀態讀取失敗：" + e.code);
+  if (!plan.length) {
+    console.log("沒有需要備份的 settings 檔。");
+    console.log("backup ts=" + ts);
+    return;
   }
-  // 撞名就停，不要覆蓋既有備份（同一秒重跑會撞到，等一秒再跑）
-  if (exists) die("已存在 " + bak + "（同一秒重跑？等一秒再試）");
 
-  plan.push({ src: f, bak });
-}
+  // ── 第二段：複製並逐位元組比對 ────────────────────────────────────────
+  // 中途失敗會**盡力**回收本次登記過的備份（best-effort，不是不變量——見檔頭）。
+  const created = [];
+  for (const item of plan) {
+    // **先登記再動手。** `copyFileSync` 不是原子的：失敗前可能已經建出／寫了一部分目的檔，
+    // Node 只承諾「嘗試」移除它。等複製成功才登記的話，那種半個檔就不在回收清單裡。
+    created.push(item.bak);
+    try {
+      // COPYFILE_EXCL：預檢到這裡之間若有人搶先建了同名檔，這裡會 EEXIST 而不是覆蓋掉它。
+      fs.copyFileSync(item.src, item.bak, fs.constants.COPYFILE_EXCL);
+      // sha() 也要在 try 內：讀取失敗若逸出，會變成未捕捉例外而**整個繞過回收**。
+      if (sha(item.src) !== sha(item.bak)) {
+        dieAfterCopy(item.bak + " 備份不完整（雜湊不符）", created);
+      }
+    } catch (e) {
+      if (e === BAIL) throw e; // 雜湊不符已經在上面回報並回收過了
+      dieAfterCopy("備份 " + item.src + " 失敗：" + (e && e.code ? e.code : e && e.message), created);
+    }
+    console.log(item.bak + "  OK");
+  }
 
-if (!plan.length) {
-  console.log("沒有需要備份的 settings 檔。");
   console.log("backup ts=" + ts);
-  process.exit(0);
 }
 
-// ── 第二段：複製並逐位元組比對 ────────────────────────────────────────
-// 不變量：**要嘛全部備份成功，要嘛什麼都沒留下。** 中途失敗會回收本次建立的備份。
-const created = [];
-for (const item of plan) {
-  try {
-    // COPYFILE_EXCL：預檢到這裡之間若有人搶先建了同名檔，這裡會 EEXIST 而不是覆蓋掉它。
-    fs.copyFileSync(item.src, item.bak, fs.constants.COPYFILE_EXCL);
-  } catch (e) {
-    dieAfterCopy("複製 " + item.src + " 失敗：" + e.code, created);
-  }
-  created.push(item.bak);
-  if (sha(item.src) !== sha(item.bak)) dieAfterCopy(item.bak + " 備份不完整（雜湊不符）", created);
-  console.log(item.bak + "  OK");
+// 最外層：BAIL 是我們自己的中止訊號，接住後**自然結束**（exitCode 已在 bail() 設好）。
+// 其他例外照常往上拋，讓 Node 印 stack —— 不要把真正的 bug 吞掉。
+try {
+  run();
+} catch (e) {
+  if (e !== BAIL) throw e;
 }
-
-console.log("backup ts=" + ts);

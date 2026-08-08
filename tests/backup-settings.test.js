@@ -42,12 +42,26 @@ function newHome(name) {
   fs.mkdirSync(path.join(h, ".claude"), { recursive: true });
   return h;
 }
-function run(home) {
-  const r = spawnSync(process.execPath, [tool], {
-    encoding: "utf8",
-    env: Object.assign({}, process.env, { HOME: home, USERPROFILE: home }),
-  });
+// fixedMs：用 --require 預載固定時鐘，讓子程序的 `new Date()` 停在指定時刻。
+// 這樣「同一秒撞名」可以確定性觸發，不必賭時鐘。
+function run(home, fixedMs) {
+  const args = fixedMs === undefined
+    ? [tool]
+    : ["--require", path.join(__dirname, "helpers", "fixed-clock.js"), tool];
+  const env = Object.assign({}, process.env, { HOME: home, USERPROFILE: home });
+  if (fixedMs !== undefined) env.FIXED_CLOCK_MS = String(fixedMs);
+  const r = spawnSync(process.execPath, args, { encoding: "utf8", env });
   return { status: r.status, out: (r.stdout || "") + (r.stderr || "") };
+}
+
+// 與 tools/backup-settings.js 相同的時間戳格式（本地時區、到秒）
+function tsOf(ms) {
+  const two = (x) => String(x).padStart(2, "0");
+  const d = new Date(ms);
+  return (
+    String(d.getFullYear()) + two(d.getMonth() + 1) + two(d.getDate()) + "-" +
+    two(d.getHours()) + two(d.getMinutes()) + two(d.getSeconds())
+  );
 }
 function baks(home) {
   return fs.readdirSync(path.join(home, ".claude")).filter((f) => f.includes(".bak-")).sort();
@@ -113,43 +127,38 @@ check("unicode-and-bom-preserved", (a) => {
   a(fs.readFileSync(path.join(h, ".claude", b[0])).equals(Buffer.from(body, "utf8")), "位元組不相同（BOM 或編碼掉了）");
 });
 
-// 撞名必須**確定性**觸發，不能靠「剛好同一秒」。做法：把未來 5 秒的候選備份檔名
-// 全部預先建好在**第二個**目標上，工具無論落在哪一秒都會撞到。
-// （先前寫法是跑兩次賭同一秒，跨秒就 SKIP —— 那等於把「沒驗到」包成綠燈。）
-function tsCandidates(n) {
-  const two = (x) => String(x).padStart(2, "0");
-  const out = [];
-  for (let i = 0; i < n; i++) {
-    const d = new Date(Date.now() + i * 1000);
-    out.push(
-      String(d.getFullYear()) + two(d.getMonth() + 1) + two(d.getDate()) + "-" +
-      two(d.getHours()) + two(d.getMinutes()) + two(d.getSeconds())
-    );
-  }
-  return out;
-}
+// 撞名用**固定時鐘**確定性觸發：預載 tests/helpers/fixed-clock.js 把子程序的
+// `new Date()` 釘死，測試就知道工具會用哪一個時間戳，只預建那唯一一個檔名。
+// （先前是「預建未來 5 秒的候選」去賭時鐘，落出視窗就 SKIP —— 等於把沒驗到包成綠燈。
+//  現在若工具沒有中止，那是**真的回歸**，直接 FAIL，不再有 SKIP 這條逃生口。）
+const FIXED_MS = Date.parse("2026-08-09T03:04:05");
 
 check("collision-aborts-without-partial", (a) => {
   const h = newHome("collision");
   fs.writeFileSync(path.join(h, ".claude", "settings.json"), MAIN);
   fs.writeFileSync(path.join(h, ".claude", "settings.local.json"), LOCAL);
-  const cands = tsCandidates(5);
-  for (const ts of cands) {
-    fs.writeFileSync(path.join(h, ".claude", "settings.local.json.bak-" + ts), "佔位");
-  }
+  // 只擋**第二個**目標，用來證明「撞名在預檢階段就攔下，第一個檔也不會被備份」
+  const collide = path.join(h, ".claude", "settings.local.json.bak-" + tsOf(FIXED_MS));
+  fs.writeFileSync(collide, "佔位");
   const before = baks(h).length;
-  const r = run(h);
-  // 注入自我檢查：若工具居然成功了，代表 5 秒視窗沒涵蓋到 —— 那是沒驗到，標 SKIP
-  if (r.status === 0) {
-    skipped.push("collision-aborts-without-partial（工具的 ts 落在 5 秒候選之外，撞名未觸發）");
-    pass--;
-    return;
-  }
-  a(r.status === 1, "退出碼 " + r.status + "（預期 1）");
+
+  const r = run(h, FIXED_MS);
+  a(r.status === 1, "退出碼 " + r.status + "（預期 1；固定時鐘下撞名是必然的，沒中止＝回歸）");
   a(r.out.includes("已存在"), "沒有回報撞名");
+  a(r.out.includes(tsOf(FIXED_MS)), "回報的時間戳不是固定時鐘的值，代表注入沒生效");
   a(!r.out.includes("backup ts="), "中止了卻仍印出 backup ts=");
-  // 關鍵：撞名是在**預檢**階段發現的，所以 settings.json 那份也不該被備份
   a(baks(h).length === before, "中止後備份數 " + baks(h).length + "（預期 " + before + "，代表完全沒動手）");
+});
+
+// 固定時鐘的**正向對照**：同一個 FIXED_MS、但沒有預先佔位時必須成功。
+// 沒有這條的話，上面那案可能是因為「注入本身把工具弄壞了」而通過。
+check("fixed-clock-control-group", (a) => {
+  const h = newHome("fixed-clock-ok");
+  fs.writeFileSync(path.join(h, ".claude", "settings.json"), MAIN);
+  const r = run(h, FIXED_MS);
+  a(r.status === 0, "退出碼 " + r.status + "（預期 0）");
+  a(r.out.includes("backup ts=" + tsOf(FIXED_MS)), "沒有用固定時鐘的時間戳");
+  a(baks(h).length === 1, "備份數 " + baks(h).length + "（預期 1）");
 });
 
 check("directory-instead-of-file", (a) => {

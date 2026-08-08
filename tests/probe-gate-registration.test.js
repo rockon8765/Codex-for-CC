@@ -129,6 +129,14 @@ const CASES = [
   { id: "args-element-not-string", main: settings({ matcher: MATCHER, hooks: [{ type: "command", command: "node", args: [7, "/x/super-mode-consult-gate.js"] }] }), exit: 1, want: ["PreToolUse[0].hooks[0].args[0] 不是字串（是 number）"] },
   // 不相干的 exec-form handler（args 裡沒有 needle）不能被算進來
   { id: "ok-unrelated-exec-form", main: settings({ matcher: "Bash", hooks: [{ type: "command", command: "node", args: ["/other/hook.js"] }] }), exit: 0, want: ["gate 條目：0 個", "兩邊都沒有 gate"] },
+
+  // ---- 釘住「本工具**不驗**什麼」（範圍說明的正面對照）------------------
+  // 這兩個形狀依官方 schema 是不合法的，但本工具**刻意放行**——它不是 schema 驗證器，
+  // 對不相干的條目過度 fail-closed 會把使用者的 migration 擋死。
+  // 之所以要用測試釘住：這一句先前寫錯過兩次（先寫成「無關的畸形會被略過」，
+  // 與實作相反；再寫成「唯二例外」，漏了這一類）。文案與行為必須被同一組斷言綁住。
+  { id: "scope-nongate-bad-type-passes", main: settings({ matcher: "Bash", hooks: [{ type: 7, command: "node /other/hook.js" }] }), exit: 0, want: ["gate 條目：0 個", "兩邊都沒有 gate", "非 gate 的 handler 不驗 type 的型別"] },
+  { id: "scope-command-type-without-command-passes", main: settings({ matcher: "Bash", hooks: [{ type: "command" }] }), exit: 0, want: ["gate 條目：0 個", "兩邊都沒有 gate"] },
 ];
 
 // ── 執行 ────────────────────────────────────────────────────────────────

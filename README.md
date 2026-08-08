@@ -43,11 +43,12 @@
 > ⚠️ 這裡**釘死 endpoint SHA，刻意不寫 `..HEAD`**——寫 `HEAD` 的話，下一個 commit 就會讓這段驗證宣稱悄悄擴張到沒驗過的改動上。
 > **macOS**：**撰寫當下未原生驗證**（本機無 Mac），**後於 2026-08-09 在真機補驗完成，七項全綠**——macOS 26.6.1 arm64／內建 `bash 3.2.57`／Node v26.4.0／`uid=501` 非 root，受驗 `f530cd6`、9 筆 blob 全符：probe **42/42**、gate-cases **117/117**、`matcher-contract` exit 0、`run-posix.sh` **68/68**、反向驗證 **6 PASS／36 FAIL**（PASS 清單經程式化比對恰為那 6 個對照組）、`backup-settings --strict` **8/8 SKIP 0**。詳見 [`docs/HANDOFF-macos-a2-2026-08-08.md`](docs/HANDOFF-macos-a2-2026-08-08.md)。
 > **`SKIP 0` 是這趟最重要的收穫**：symlink 拒絕與「複製階段回收」兩條守衛在 Windows 因權限驗不到，在 macOS 都真的執行了。
-> ⚠️ 受驗 SHA `f530cd6` 與本列釘的 endpoint 之間有一個 commit 動過 `tools/probe-gate-registration.js`，但**只有註解、無可執行行變動**，故行為結論延用成立；blob 已不同。
+> ⛔ **但那趟的數字對應的是 `f530cd6`，其後合併前審查第五輪的修正動了受測程式碼的行為**（`process.exit()` → `process.exitCode` 自然結束；`backup-settings` 的回收登記時機與 best-effort 契約；probe 的範圍輸出）。因此 **A-1／A-5／A-7 需要在 macOS 補跑一次**——上面那三個數字（42/42、6 PASS/36 FAIL、8/8）是舊版的，目前應為 **44/44、7 PASS/37 FAIL、9/9**。
+> **不受影響、仍然成立的是**：gate-cases 117/117、`matcher-contract` exit 0、`run-posix.sh` 68/68、三份 snippet JSON（那些檔的 blob 完全沒動），以及三項 §4 診斷（BSD `e.code`＝`EISDIR`、假 `HOME` 生效、`halt-exec-form` 因對的理由停手）。
 > （保留「撰寫當下未原生驗證」這個時序，是因為那是當時誠實的狀態。）
-> **Windows**（Node v24.16.0）：`tests/probe-gate-registration.test.js` **42/42**；`tests/backup-settings.test.js` **6 PASS／0 FAIL／2 SKIP**（symlink 案需要建 symlink 的權限、rollback 案靠 `chmod 000` 做變異注入，兩者 Windows 都做不到 → **明確標 SKIP 並計入摘要，不是靜默跳過**）；`tests/ai-install/run-windows.ps1` **69/69**（pwsh 7 與 Windows PowerShell 5.1 各跑一次）；gate-cases **109/109**；`codex-check` **188/188**；三平台 `matcher-contract` 皆 exit 0（該檔與 `5cc50e0` **同 blob**，本批未改它）。
-> **Linux**（WSL2 ext4 家目錄、**fresh clone** 而非複製工作目錄，Node v22.23.1）：probe **42/42**、`backup-settings` **8/8 SKIP 0**（symlink 守衛與 rollback 變異注入在這裡都真的跑到，`uid 1000` 非 root）、gate-cases **121/121**、`run-posix.sh` **68/68**（基準值，本批不該改變它）、`bash -n` 全過。兩支新測試都已接進 [`linux.yml`](.github/workflows/linux.yml)；⚠️ **`tests/ai-install/` 仍不在 CI 內**，那部分依舊只有人工證據。
-> **反向驗證**：對 `5cc50e0` 的舊 heredoc probe 跑同一套 42 案 → **6 PASS／36 FAIL**，通過的 6 個**恰為**行為刻意未改變的對照組（清單在 handoff §3）。
+> **Windows**（Node v24.16.0）：`tests/probe-gate-registration.test.js` **44/44**；`tests/backup-settings.test.js` **7 PASS／0 FAIL／2 SKIP**（symlink 案需要建 symlink 的權限、rollback 案靠 `chmod 000` 做變異注入，兩者 Windows 都做不到 → **明確標 SKIP 並計入摘要，不是靜默跳過**）；`tests/ai-install/run-windows.ps1` **69/69**（pwsh 7 與 Windows PowerShell 5.1 各跑一次）；gate-cases **109/109**；`codex-check` **188/188**；三平台 `matcher-contract` 皆 exit 0（該檔與 `5cc50e0` **同 blob**，本批未改它）。
+> **Linux**（WSL2 ext4 家目錄、**fresh clone** 而非複製工作目錄，Node v22.23.1）：probe **44/44**、`backup-settings` **9/9 SKIP 0**（symlink 守衛與 rollback 變異注入在這裡都真的跑到，`uid 1000` 非 root）、gate-cases **121/121**、`run-posix.sh` **68/68**（基準值，本批不該改變它）、`bash -n` 全過。兩支新測試都已接進 [`linux.yml`](.github/workflows/linux.yml)；⚠️ **`tests/ai-install/` 仍不在 CI 內**，那部分依舊只有人工證據。
+> **反向驗證**：對 `5cc50e0` 的舊 heredoc probe 跑同一套 44 案 → **7 PASS／37 FAIL**，通過的 7 個**恰為**行為刻意未改變的對照組（清單在 handoff §3）。
 > **probe 的範圍限制（寫在它自己的輸出裡）**：只判斷 shell form，看到 exec form（handler 帶 `args`）一律停手；不驗 command 指到的檔案存不存在；needle 比對大小寫敏感，**Windows 上只差路徑大小寫的重複註冊看不見**；它不是 settings 的 schema 驗證器。
 > **本批的暴險面**：四個新增檔（兩支工具 ＋ 兩支測試）都是純 Node；未新增任何 shell 腳本，也未改動 `run-posix.sh`／`codex-check`／`matcher-contract`，所以 BSD vs GNU 的 `sed`／`awk`／`find`／`cp` 語義差異不在本批範圍內。
 >
@@ -208,9 +209,10 @@ cp    "macos/hooks/super-mode-consult-gate.js" ~/.claude/hooks/
 #    並把絕對路徑改成你自己家目錄的路徑。
 #    ⚠️ 不要用 settings.local.json —— 家目錄那份不是 user scope，只有從家目錄
 #    啟動 Claude Code 時才生效（見 docs/verify-settings-scope.md）。
-#    ⚠️ 這一步不是冪等的（照字面合併會 append 出第二筆）。動手前先跑
-#    `node tools/probe-gate-registration.js`，照它印的判定走 —— 不要自己按筆數推規則，
-#    「已經有一筆」可能那一筆只在 settings.local.json（等於沒生效）。見 docs/AI-INSTALL.md 步驟 2。
+#    ⚠️ 合併的**完整步驟照 docs/AI-INSTALL.md 步驟 2 做，本節刻意不複述**。
+#    那一節有兩道 probe：動手前先數一次，合併後再跑一次當驗收。
+#    少做後者的話，把 handler 誤寫成 type:"prompt" 會讓下面的驗證全綠，
+#    但 Claude Code 只有 type:"command" 才會執行 command —— gate 根本不會被叫起。
 # 4. 驗證：
 node "$HOME/.claude/skills/超級模式/tests/run-gate-tests.js"        # 應全數 PASS（案例數見 gate-cases.json）
 node "$HOME/.claude/skills/超級模式/tests/matcher-contract.test.js" # ★ 必跑，見下方說明
@@ -227,9 +229,10 @@ cp    "linux/hooks/super-mode-consult-gate.js" ~/.claude/hooks/
 #    node 也要寫絕對路徑，否則 hook 會靜默不跑。
 #    ⚠️ 不要用 settings.local.json —— 家目錄那份不是 user scope，只有從家目錄
 #    啟動 Claude Code 時才生效（見 docs/verify-settings-scope.md）。
-#    ⚠️ 這一步不是冪等的（照字面合併會 append 出第二筆）。動手前先跑
-#    `node tools/probe-gate-registration.js`，照它印的判定走 —— 不要自己按筆數推規則，
-#    「已經有一筆」可能那一筆只在 settings.local.json（等於沒生效）。見 docs/AI-INSTALL.md 步驟 2。
+#    ⚠️ 合併的**完整步驟照 docs/AI-INSTALL.md 步驟 2 做，本節刻意不複述**。
+#    那一節有兩道 probe：動手前先數一次，合併後再跑一次當驗收。
+#    少做後者的話，把 handler 誤寫成 type:"prompt" 會讓下面的驗證全綠，
+#    但 Claude Code 只有 type:"command" 才會執行 command —— gate 根本不會被叫起。
 # 4. 驗證（linux/ 每次 push 都跑 ubuntu-latest CI，這裡是驗你這台機器的安裝結果）：
 node "$HOME/.claude/skills/超級模式/tests/run-gate-tests.js"        # 應全數 PASS（案例數見 gate-cases.json）
 node "$HOME/.claude/skills/超級模式/tests/matcher-contract.test.js" # ★ 必跑，見下方說明
@@ -241,9 +244,10 @@ bash "$HOME/.claude/skills/超級模式/tests/run-e2e.sh"               # 應全
 Copy-Item -Recurse ".\windows\skills\超級模式" "$env:USERPROFILE\.claude\skills\"
 Copy-Item ".\windows\hooks\super-mode-consult-gate.js" "$env:USERPROFILE\.claude\hooks\"
 # 然後把 hook 接到 ~/.claude/settings.json（見 windows/settings.snippet.json）。
-# ⚠️ 這一步不是冪等的（照字面合併會 append 出第二筆）。動手前先跑
-# `node tools\probe-gate-registration.js`，照它印的判定走 —— 不要自己按筆數推規則。
-# 見 docs\AI-INSTALL.md 步驟 2。
+# ⚠️ 合併的完整步驟照 docs\AI-INSTALL.md 步驟 2 做，本節刻意不複述。
+# 那一節有兩道 probe：動手前先數一次，合併後再跑一次當驗收。
+# 少做後者的話，把 handler 誤寫成 type:"prompt" 會讓下面的驗證全綠，
+# 但 Claude Code 只有 type:"command" 才會執行 command —— gate 根本不會被叫起。
 # 驗證：
 node "$env:USERPROFILE\.claude\skills\超級模式\tests\run-gate-tests.js"        # 應全數 PASS
 node "$env:USERPROFILE\.claude\skills\超級模式\tests\matcher-contract.test.js" # ★ 必跑，見下方說明

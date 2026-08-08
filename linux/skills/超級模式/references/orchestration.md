@@ -96,11 +96,10 @@ SKILL.md 的 §2 / §3 / §3.5 / §5 的詳細範本與程序。用到才讀。
 - **擋不到 Codex 子程序自己寫的檔**——`codex-exec.sh` 一放行，Codex CLI 之後的檔案改動不逐一經過 Claude Code hook。
 
 **註冊（部署）**：把下面合併進 `~/.claude/settings.json`（hook 設定變更下個 session 才生效）。
-⚠️ **這一步不是冪等的**：照字面合併會在陣列尾端再 append 一筆，重跑安裝就多一筆重複的
-gate handler。動手前先在 **Codex-for-CC 的 checkout 根目錄**跑
-`node tools/probe-gate-registration.js`（唯讀）並照它印的判定走——**不要自己按筆數推規則**
-（「已經有一筆」那筆可能只在 `settings.local.json`，等於沒生效）。
-判斷表見同一份 checkout 的 `docs/AI-INSTALL.md` 步驟 2（skill 裝到 `~/.claude/` 後不含 `docs/`）。
+⚠️ **合併的完整步驟照 Codex-for-CC checkout 裡的 `docs/AI-INSTALL.md` 步驟 2 做，這裡刻意不複述**
+（skill 裝到 `~/.claude/` 後不含 `docs/`，要回 checkout 看）。那一節有兩道 probe：動手前先數一次、
+合併後再跑一次當驗收；少做後者的話，把 handler 誤寫成 `type:"prompt"` 會讓下面的測試全綠，
+但 Claude Code 只有 `type:"command"` 才會執行 `command`——gate 根本不會被叫起。
 路徑改成你的家目錄；若 `node` 不在系統 PATH（如可攜式安裝），`command` 開頭的 `node` 也要換成
 絕對路徑（如 `/home/user/.local/node/bin/node`），否則 hook 會**靜默不跑、gate 形同虛設**。
 ⚠️ **不要放 `settings.local.json`**——2026-07-28 macOS 實測確認家目錄那份**不是** user scope，
