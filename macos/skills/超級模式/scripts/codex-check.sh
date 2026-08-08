@@ -176,7 +176,7 @@ collect_capability_snapshot() {
           }
           inbare && $0 !~ /^[[:space:]]*$/ && $0 !~ /^[[:space:]]*#/ { print "body"; next }
           /hooks\.state/ { print "dotted"; next }
-          inhooks && $0 ~ /^[[:space:]]*state[[:space:]]*=/ { print "inline" }
+          inhooks && $0 ~ /^[[:space:]]*state[[:space:]]*[.=]/ { print "inline" }
         ')"
         [ -n "$hooks_evidence" ] && cap_hooks_status="UNPARSEABLE"
       fi

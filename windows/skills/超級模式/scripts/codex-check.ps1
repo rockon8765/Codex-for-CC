@@ -160,7 +160,7 @@ function Get-CapabilitySnapshot {
         }
         if ($inBare -and $ln.Trim() -ne '' -and $ln.Trim() -notmatch '^#') { $evidence = $true }   # ② 裸表底下有實質內容
         elseif ($ln -match 'hooks\.state')                  { $evidence = $true }   # ③ dotted key：hooks.state.x = ...
-        elseif ($inHooks -and $ln -match '^\s*state\s*=')    { $evidence = $true }   # ④ [hooks] 底下 state = { inline table }
+        elseif ($inHooks -and $ln -match '^\s*state\s*[.=]') { $evidence = $true }   # ④ [hooks] 底下的 state ＝ 或 state.<id> ＝
       }
     }
     $h.Items = @($h.Items | Select-Object -Unique | Sort-Object)

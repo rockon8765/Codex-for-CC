@@ -708,7 +708,8 @@ function t_b_hooks_alt_serializations {  # TOML 的其他寫法不得被洗白�
   # 三者只要解析不出 items，就必須 UNPARSEABLE——把有 hook 誤報成零，代價比誤報格式變更高得多。
   foreach ($c in @(
     @{ n = 'dotted-key'; toml = "hooks.state.myhook = { trusted = true }" },
-    @{ n = 'inline-table'; toml = "[hooks]`r`nstate = { `"myhook:abc`" = { trusted = true } }" }
+    @{ n = 'inline-table'; toml = "[hooks]`r`nstate = { `"myhook:abc`" = { trusted = true } }" },
+    @{ n = 'hooks-dotted-subkey'; toml = "[hooks]`r`nstate.myhook = { trusted = true }" }
   )) {
     $script:currentTest = "b_hooks_alt_$($c.n)"
     Setup

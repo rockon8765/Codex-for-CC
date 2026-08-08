@@ -391,6 +391,12 @@ t_b_hooks_alt_serializations() {  # TOML 的其他寫法不得被洗白成「0 �
   invoke_check update CODEX_STUB_PLUGINS=alpha
   if [ "$rc" -eq 2 ]; then assert b_hooks_alt "[inline-table] 拒寫 baseline exit 2" 0; else assert b_hooks_alt "[inline-table] 拒寫 baseline exit 2（實際 $rc）" 1; fi
 
+  setup; mkdir -p "$fake_home/.codex"
+  printf '[hooks]\nstate.myhook = { trusted = true }\n' > "$fake_home/.codex/config.toml"
+  run_check CODEX_STUB_PLUGINS=alpha
+  printf '%s' "$out" | grep -qF '受信任 hooks: (UNPARSEABLE'; assert b_hooks_alt "[hooks-dotted-subkey] 必須 UNPARSEABLE" $?
+  if printf '%s' "$out" | grep -qF '受信任 hooks: 0 筆'; then assert b_hooks_alt "[hooks-dotted-subkey] 不得報 0 筆" 1; else assert b_hooks_alt "[hooks-dotted-subkey] 不得報 0 筆" 0; fi
+
   # 對照組：純註解的空表仍須判為合法零筆（證明上面不是「一律 UNPARSEABLE」）
   setup; mkdir -p "$fake_home/.codex"
   printf "[hooks.state]\n# nothing here\n\n[shell]\nA = 'b'\n" > "$fake_home/.codex/config.toml"
