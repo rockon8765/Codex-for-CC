@@ -39,7 +39,7 @@
 > **例外：Linux 自 2026-07-26 起有持續性的原生覆蓋。** [`.github/workflows/linux.yml`](.github/workflows/linux.yml) 讓每次 push／PR 都在 `ubuntu-latest` 上跑完整 `linux/` 回歸（含一道變異測試守住平台語義）。所以 linux 的「目前 tip 是否原生驗證過」不必再靠人工回想——看 CI 狀態即可。Windows 與 macOS 目前**沒有** CI，仍靠人工原生驗證。
 >
 > **本次 delta 的驗證分布（2026-08-09，`5cc50e0..70f305d`：A2 —— MIGRATION 的 probe 抽成 repo 腳本並 fail-closed、判定表拆 1／≥2、第 2 節改 handler 粒度、備份改用跨平台 `tools/backup-settings.js`、10 處註冊入口改成「跑 probe 照它印的判定走」）。**
-> （本列之後只有**一個補釘本行 SHA 的 commit**，它只動 `README.md`，未動任何受測檔——處理方式與 2026-08-04 那批的 `e1ec53f` 相同。受測檔的真正釘子是 handoff 的 **9 筆 blob**。）
+> （`70f305d` 是**最後一個動到受測檔**的 commit；其後只有補釘本行 SHA、回寫 macOS 結果、更新 backlog 這類**純文件** commit，未動任何受測檔——處理方式與 2026-08-04 那批的 `e1ec53f` 相同。受測檔的真正釘子是 handoff 的 **10 筆 blob**，可自行核對。）
 > ⚠️ 這裡**釘死 endpoint SHA，刻意不寫 `..HEAD`**——寫 `HEAD` 的話，下一個 commit 就會讓這段驗證宣稱悄悄擴張到沒驗過的改動上。
 > **macOS**：**撰寫當下未原生驗證**（本機無 Mac），**後於 2026-08-09 在真機補驗完成，七項全綠**——macOS 26.6.1 arm64／內建 `bash 3.2.57`／Node v26.4.0／`uid=501` 非 root，受驗 `f530cd6`、9 筆 blob 全符：probe **42/42**、gate-cases **117/117**、`matcher-contract` exit 0、`run-posix.sh` **68/68**、反向驗證 **6 PASS／36 FAIL**（PASS 清單經程式化比對恰為那 6 個對照組）、`backup-settings --strict` **8/8 SKIP 0**。詳見 [`docs/HANDOFF-macos-a2-2026-08-08.md`](docs/HANDOFF-macos-a2-2026-08-08.md)。
 > **第二趟 delta 重驗也已完成**（受驗 `27f462e`，10 筆 blob 全符）：第五輪審查的修正動了受測程式碼的行為（`process.exit()` → `process.exitCode` 自然結束、`backup-settings` 的回收登記時機與 best-effort 契約、probe 的範圍輸出、新增固定時鐘 helper），故重跑 A-1／A-5／A-7 → **44/44**、**7 PASS／37 FAIL**（PASS 集合經 `diff` 比對為 EXACT MATCH）、**9/9 SKIP 0**。A-2／A-3／A-4／A-6 的檔案 blob 未動，第一趟結果續用。
