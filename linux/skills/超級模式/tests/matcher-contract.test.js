@@ -10,13 +10,66 @@
  * 本測試把兩邊釘死：hook 認為要攔的每個工具名，都必須出現在 settings 的 matcher 裡；
  * 反向也檢查 matcher 沒有多出 hook 不認識的字面工具名（避免只改 matcher 卻忘了改 hook）。
  *
- * 用法：node tests/matcher-contract.test.js   （exit 0 = 通過、非 0 = 失敗）
+ * 用法（exit 0 = 通過、非 0 = 失敗）：
+ *
+ *   node tests/matcher-contract.test.js --repo
+ *       驗 repo 的 settings.snippet.json ＋ repo 的 hook。CI 與安裝前檢查用。
+ *
+ *   node tests/matcher-contract.test.js --live
+ *       驗 ~/.claude/settings.json ＋ ~/.claude/hooks/super-mode-consult-gate.js。
+ *       這是「真正會被 Claude Code 載入的那一對」，安裝後驗收與診斷用。
+ *       **從 checkout 執行也可以**——這正是它存在的理由：舊版沒有這個模式，
+ *       repo 佈局排他會讓你在 checkout 裡永遠只驗到 repo snippet，
+ *       於是 MIGRATION §3.1 宣稱的「驗 live」其實做不到。
+ *
+ *   node tests/matcher-contract.test.js --settings <path> --hook <path>
+ *       明確指定一對。兩個旗標必須成對——只給 settings 會變成拿別處的 hook
+ *       去對它，比對結果沒有意義。
+ *
+ *   node tests/matcher-contract.test.js            （**已淘汰**，仍可執行）
+ *       沿用舊的自動判斷並印出 deprecation 提醒。呼叫端改完後會改成硬錯誤。
  */
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
 
-const hookPath = path.join(__dirname, "..", "..", "..", "hooks", "super-mode-consult-gate.js");
+const USAGE =
+  "用法：--repo | --live | --settings <path> --hook <path>（成對）\n" +
+  "      不給旗標＝已淘汰的自動判斷，仍可執行但會印提醒。";
+const die = (msg) => {
+  console.error("FAIL: " + msg);
+  process.exit(2);
+};
+
+const argv = process.argv.slice(2);
+let mode = null;
+let argSettings = null;
+let argHook = null;
+for (let i = 0; i < argv.length; i++) {
+  const a = argv[i];
+  if (a === "--repo" || a === "--live") {
+    if (mode) die("不能同時指定 --repo 與 --live\n" + USAGE);
+    mode = a.slice(2);
+  } else if (a === "--settings" || a === "--hook") {
+    const v = argv[++i];
+    if (v === undefined || v.startsWith("--")) die(a + " 後面要接路徑\n" + USAGE);
+    if (a === "--settings") argSettings = v;
+    else argHook = v;
+  } else {
+    die("未知參數：" + a + "\n" + USAGE);
+  }
+}
+if ((argSettings === null) !== (argHook === null)) {
+  // 只給一半＝拿別處的 hook 去對這份 settings，比對結果沒有意義，而且會安靜地誤導。
+  die("--settings 與 --hook 必須成對出現\n" + USAGE);
+}
+if (argSettings !== null && mode) die("--settings/--hook 不能與 --repo/--live 併用\n" + USAGE);
+
+const repoHook = path.join(__dirname, "..", "..", "..", "hooks", "super-mode-consult-gate.js");
+const liveHook = path.join(os.homedir(), ".claude", "hooks", "super-mode-consult-gate.js");
+// 舊行為（自動判斷）一律用「與本測試檔相鄰」的那個 hook。安裝後佈局下，
+// __dirname 就在 ~/.claude/skills/… 底下，所以那份剛好就是 live 的 hook。
+let hookPath = mode === "live" ? liveHook : mode === "repo" ? repoHook : argHook !== null ? argHook : repoHook;
 
 // repo 佈局用 settings.snippet.json；安裝後(live)佈局沒有那個檔，改查真正生效的 settings —
 // live 的 settings 才是決定 hook 會不會被叫起的真值，所以裝到 ~/.claude 之後這支測試更有意義。
@@ -71,38 +124,76 @@ if (!fs.existsSync(hookPath)) {
 // 不准因為它壞掉／沒註冊 hook 就退去讀家目錄的 settings ——
 // 那會讓「待出貨的 snippet 是壞的」被開發者自己機器上的舊設定掩蓋而 PASS。
 // 只有在 repo snippet **真的不存在**（= live 佈局）時，才改驗使用者的 settings.json。
+const describe = (c) =>
+  c.state === "missing" ? "不存在" : c.state === "invalid" ? c.why : "裡沒有註冊本 hook";
+const LIVE_HINT =
+  "\n\nhook 必須註冊在 ~/.claude/settings.json（user scope）。" +
+  "\n⚠️ ~/.claude/settings.local.json 不是 user scope —— 只有從家目錄啟動 Claude Code 時" +
+  "\n   才會被當成專案層檔案讀到，從其他目錄啟動就完全不生效。" +
+  "\n若你剛照 AI-INSTALL 步驟 2 合併過，請確認合併的是 ~/.claude/settings.json。";
+
 let snippetPath;
-const repo = classify(repoSnippet);
-if (repo.state !== "missing") {
-  if (repo.state !== "ok") {
-    console.error(
-      "FAIL: repo 的 settings.snippet.json " +
-        (repo.state === "invalid" ? repo.why : "沒有註冊本 hook") +
-        "\n  " + repoSnippet +
-        "\n這是待出貨的檔案，不能用家目錄的 settings 掩蓋它。"
-    );
+if (mode === "repo") {
+  const c = classify(repoSnippet);
+  if (c.state !== "ok") {
+    console.error("FAIL: repo 的 settings.snippet.json " + describe(c) + "\n  " + repoSnippet);
     process.exit(1);
   }
   snippetPath = repoSnippet;
-} else {
-  const live = classify(liveSettings);
-  if (live.state !== "ok") {
-    console.error(
-      "FAIL: " +
-        (live.state === "missing"
-          ? "找不到 " + liveSettings
-          : live.state === "invalid"
-            ? liveSettings + " " + live.why
-            : liveSettings + " 裡沒有註冊本 hook") +
-        "\n\nhook 必須註冊在 ~/.claude/settings.json（user scope）。" +
-        "\n⚠️ ~/.claude/settings.local.json 不是 user scope —— 只有從家目錄啟動 Claude Code 時" +
-        "\n   才會被當成專案層檔案讀到，從其他目錄啟動就完全不生效。" +
-        "\n若你剛照 AI-INSTALL 步驟 2 合併過，請確認合併的是 ~/.claude/settings.json。"
-    );
+} else if (mode === "live") {
+  const c = classify(liveSettings);
+  if (c.state !== "ok") {
+    console.error("FAIL: " + liveSettings + " " + describe(c) + LIVE_HINT);
     process.exit(1);
   }
   snippetPath = liveSettings;
+} else if (argSettings !== null) {
+  const c = classify(argSettings);
+  if (c.state !== "ok") {
+    console.error("FAIL: " + argSettings + " " + describe(c));
+    process.exit(1);
+  }
+  snippetPath = argSettings;
+} else {
+  // ---- 已淘汰的自動判斷（保留原行為，只多印一行提醒）----
+  // 兩階段淘汰：本階段仍照舊執行，等所有呼叫端都標上旗標之後再改成硬錯誤。
+  console.error(
+    "⚠️ deprecated: 沒有指定 --repo / --live，正在使用舊的自動判斷。\n" +
+    "   自動判斷在 repo 佈局下**一定**驗 repo snippet，無法驗 live；請改用明確旗標。\n" +
+    "   " + USAGE
+  );
+  // repo 佈局**排他**：只要 settings.snippet.json 存在，就一定驗它，
+  // 不准因為它壞掉／沒註冊 hook 就退去讀家目錄的 settings ——
+  // 那會讓「待出貨的 snippet 是壞的」被開發者自己機器上的舊設定掩蓋而 PASS。
+  const repo = classify(repoSnippet);
+  if (repo.state !== "missing") {
+    if (repo.state !== "ok") {
+      console.error(
+        "FAIL: repo 的 settings.snippet.json " + describe(repo) +
+          "\n  " + repoSnippet +
+          "\n這是待出貨的檔案，不能用家目錄的 settings 掩蓋它。"
+      );
+      process.exit(1);
+    }
+    snippetPath = repoSnippet;
+  } else {
+    const live = classify(liveSettings);
+    if (live.state !== "ok") {
+      console.error(
+        "FAIL: " +
+          (live.state === "missing" ? "找不到 " + liveSettings : liveSettings + " " + describe(live)) +
+          LIVE_HINT
+      );
+      process.exit(1);
+    }
+    snippetPath = liveSettings;
+  }
 }
+
+// 一律印出實際受驗的兩條路徑。這支測試的整個價值在於「比對的是哪一對」，
+// 只印 PASS/FAIL 會讓人以為驗到了 live，其實驗的是 repo snippet（舊版就是這樣）。
+console.log("受驗 settings: " + snippetPath);
+console.log("受驗 hook:     " + hookPath);
 
 const hookSrc = fs.readFileSync(hookPath, "utf8").replace(/^﻿/, "");
 const snippet = JSON.parse(fs.readFileSync(snippetPath, "utf8").replace(/^﻿/, ""));

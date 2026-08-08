@@ -188,7 +188,7 @@ cp    "macos/hooks/super-mode-consult-gate.js" ~/.claude/hooks/
 #    先數再動手，判斷表見 docs/AI-INSTALL.md 步驟 2。
 # 4. 驗證：
 node "$HOME/.claude/skills/超級模式/tests/run-gate-tests.js"        # 應全數 PASS（案例數見 gate-cases.json）
-node "$HOME/.claude/skills/超級模式/tests/matcher-contract.test.js" # ★ 必跑，見下方說明
+node "$HOME/.claude/skills/超級模式/tests/matcher-contract.test.js" --live # ★ 必跑，見下方說明
 bash "$HOME/.claude/skills/超級模式/tests/run-e2e.sh"               # 應全數 passed
 ```
 
@@ -206,7 +206,7 @@ cp    "linux/hooks/super-mode-consult-gate.js" ~/.claude/hooks/
 #    先數再動手，判斷表見 docs/AI-INSTALL.md 步驟 2。
 # 4. 驗證（linux/ 每次 push 都跑 ubuntu-latest CI，這裡是驗你這台機器的安裝結果）：
 node "$HOME/.claude/skills/超級模式/tests/run-gate-tests.js"        # 應全數 PASS（案例數見 gate-cases.json）
-node "$HOME/.claude/skills/超級模式/tests/matcher-contract.test.js" # ★ 必跑，見下方說明
+node "$HOME/.claude/skills/超級模式/tests/matcher-contract.test.js" --live # ★ 必跑，見下方說明
 bash "$HOME/.claude/skills/超級模式/tests/run-e2e.sh"               # 應全數 passed
 ```
 
@@ -219,7 +219,7 @@ Copy-Item ".\windows\hooks\super-mode-consult-gate.js" "$env:USERPROFILE\.claude
 # 先數再動手，判斷表見 docs/AI-INSTALL.md 步驟 2。
 # 驗證：
 node "$env:USERPROFILE\.claude\skills\超級模式\tests\run-gate-tests.js"        # 應全數 PASS
-node "$env:USERPROFILE\.claude\skills\超級模式\tests\matcher-contract.test.js" # ★ 必跑，見下方說明
+node "$env:USERPROFILE\.claude\skills\超級模式\tests\matcher-contract.test.js" --live # ★ 必跑，見下方說明
 ```
 
 > ★ **`matcher-contract` 不是可選項。** hook 裡的攔截清單**只有在 settings 的 PreToolUse `matcher` 也列到該工具名時才會生效**；matcher 漏合併時，另兩支測試（它們是**直接呼叫** `decide()`）照樣全綠，但真實情況是 hook 根本不會被叫起。這支測試把兩邊的清單釘死。

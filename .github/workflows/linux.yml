@@ -78,7 +78,7 @@ jobs:
       # 這支抓的是「hook 的攔截清單」與「settings matcher」漂移 —— 另外兩支測試都是直接
       # 呼叫 decide()，matcher 漏列時它們照樣全綠，但真實情況是 hook 根本不會被叫起。
       - name: matcher-contract
-        run: node "linux/skills/超級模式/tests/matcher-contract.test.js"
+        run: node "linux/skills/超級模式/tests/matcher-contract.test.js" --repo
 
       - name: e2e（會印 GATE_UNDER_TEST / GATE_BLOB 供核對）
         run: bash "linux/skills/超級模式/tests/run-e2e.sh"

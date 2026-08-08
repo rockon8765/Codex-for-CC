@@ -231,16 +231,32 @@ echo "backup ts=$ts"
 
 ### 3.1 靜態：matcher 是否真的合併進去了
 
+⛔ **用你 checkout 的那份 verifier，不要用 `~/.claude` 底下已安裝的那份。**
+你是 2026-07-28 以前安裝的，所以**已安裝的那份就是會假綠的舊版**：
+它的候選清單還含 `settings.local.json`，於是 gate 只註冊在 local 時它照樣 PASS。
+拿它來驗「我修好了沒」，等於用壞掉的尺量。
+
+> ⚠️ **舊版會把 `--live` 靜默忽略。** 2026-08-08 實測：`1aeb010` 那版收到不認識的旗標
+> 不會報錯，照樣跑它的自動判斷、照樣印 PASS。所以「我有加 `--live` 啊」**不構成**
+> 你驗到了 live 的證據——**只有 checkout 的新版才真的支援這個旗標**。
+> 新版會把實際受驗的兩條路徑印出來，請以那兩行為準。
+
 ```bash
-node ~/.claude/skills/超級模式/tests/matcher-contract.test.js; echo "exit=$?"
+cd <你 clone 的 Codex-for-CC>
+# macOS 用 macos/、Linux 用 linux/
+node "macos/skills/超級模式/tests/matcher-contract.test.js" --live; echo "exit=$?"
 ```
 
-- `exit=0` → matcher 與 hook 的工具清單一致
-- `exit=1` 且訊息說「找不到已註冊本 hook 的 settings」→ 2.2 沒搬成功，回去檢查
+`--live` 會明確驗 `~/.claude/settings.json` ＋ `~/.claude/hooks/super-mode-consult-gate.js`
+這一對，並把兩條路徑印出來——**請核對印出來的確實是你的家目錄**。
 
-> 這支測試在 2026-07-28 之前**會假綠**：它的候選清單含 `settings.local.json`，
-> 找到就 PASS，等於驗了一份 Claude Code 根本不載入的檔案。現在已移除該候選，
-> 並移除 `|| candidates[0]` 的 fallback——找不到就直接 FAIL。
+- `exit=0` → matcher 與 hook 的工具清單一致
+- `exit=1` 且訊息說 `~/.claude/settings.json` 裡沒有註冊本 hook → 第 2 節沒做成功，回去檢查
+- `exit=2` → 參數用錯了（例如只給 `--settings` 沒給 `--hook`）
+
+> 舊版沒有 `--live`：它採「repo 佈局排他」，只要 checkout 裡有 `settings.snippet.json`
+> 就一定驗那份，**從 checkout 根本驗不到 live**。所以本節在 2026-08-08 以前
+> 宣稱的「驗 live」其實做不到——這也是加上明確旗標的主因。
 
 ### 3.2 端到端：真的會被叫起嗎
 

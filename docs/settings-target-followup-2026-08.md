@@ -132,7 +132,7 @@
 | 1 | 三台唯讀 installed census（Windows／macOS／Linux）——釘 OS、Claude Code 版本、installed `matcher-contract` 的 blob、`settings.json`／`settings.local.json` 的 gate handler 數 | ☐ **需 Mac／Linux 持有者執行**；只當具名樣本，不外推 |
 | 2 | B1：兩處回滾加子樹掃描（`$sbak` **僅在選中時**掃；live 不存在＝**無子樹可掃**，不得當掃描失敗）＋ 針對性測試 | ✅ Windows／Linux；**macOS 待原生驗證** |
 | 3 | A2：probe 逐層驗形狀並 fail-closed；第 2 節改 handler 粒度＋補「main 已有一筆」分支；10 處註冊入口改冪等／衝突停手 | ✅ Windows／Linux；**macOS 待原生驗證** |
-| 4 | A1：`--repo`／`--live` 顯式模式、印出實際受驗路徑、修 §1.1 的 4 處相對路徑 | ☐ |
+| 4 | A1：`--repo`／`--live` 顯式模式、印出實際受驗路徑、修 §1.1 的 4 處相對路徑 | ✅ Windows／Linux；**macOS 待原生驗證** |
 | 5 | C：泛化為「任何 `settings.json` 寫入者」並具名 plugin manager | ☐ |
 | 6 | D：README 驗證區塊（寫「**後於 07-31 完成複驗**」，不要竄改當時的誠實記錄）、README 浮動 `..HEAD` 釘死、backlog L28／7→8／「可 promote」、舊 Mac handoff 標 archived | ☐ |
 | 7 | README legacy notice（**排在 #3 之後**）| ☐ |
@@ -186,6 +186,35 @@ probe 以假 `HOME` 餵 **9 種**輸入實測（Node v24.16.0），**9/9 符合�
 > 之下把子程序的 stderr 變成終止性 `NativeCommandError`，在 `[M1]` 就中斷。
 > 實測 `1aeb010` 的乾淨 worktree 同樣如此，**與本批改動無關**。正確寫法：
 > `pwsh -File .\tests\ai-install\run-windows.ps1 -Shell powershell`。
+
+## 4.3 A1 的驗證紀錄（2026-08-08）
+
+`matcher-contract.test.js`（三平台同一 blob）加上 `--repo`／`--live`／`--settings <p> --hook <p>`
+三種明確模式，一律印出實際受驗的兩條路徑；不給旗標＝**兩階段淘汰的第一階段**
+（印 deprecation 到 stderr、行為與退出碼完全不變）。15 個指令型呼叫點全部標上旗標。
+
+**`--live` 為什麼是功能缺口而非潔癖**：舊版用 `__dirname` 解 repo snippet 且「repo 佈局排他」，
+所以**從 checkout 執行永遠只驗 repo snippet**。`--live` 現在明確驗
+`~/.claude/settings.json` ＋ `~/.claude/hooks/super-mode-consult-gate.js` 這一對
+（hook 也要跟著換，否則會拿 checkout 的 hook 去對 live 的 settings）。
+
+**反向驗證（對 `1aeb010` 實跑）**：
+
+| 舊版行為 | 實測結果 |
+|---|---|
+| 從 checkout 無旗標 | PASS —— 驗的是 repo snippet，但輸出不說是哪一份 |
+| 從 checkout 加 `--live` | **旗標被靜默忽略，照樣 PASS** |
+
+第二列是本項最重要的發現：**舊的 installed verifier 收到 `--live` 會假綠**。
+所以 `MIGRATION §3.1` 改成「用 checkout 的 verifier」是必要條件，不是建議，
+且該節已寫明這個實測。
+
+| 參數驗證 | 退出碼 |
+|---|---|
+| `--settings` 缺 `--hook`（或反之）／`--repo --live` 併用／`--settings` 與 `--repo` 併用／未知旗標／`--settings` 後缺值 | 全部 **2** |
+
+回歸：三平台 `--repo` exit 0、gate **109／117／121**、三份 snippet JSON 可解析、
+`tests/ai-install` Windows **86/86**。
 
 ## 5. 沿用 v4 的紀律（這幾條仍然有效）
 

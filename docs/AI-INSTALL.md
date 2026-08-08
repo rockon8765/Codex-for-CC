@@ -25,12 +25,12 @@
 macOS / Linux（Linux 把 `macos/` 換成 `linux/`）:
 ```bash
 node "macos/skills/超級模式/tests/run-gate-tests.js"        # 這裡就 FAIL → repo 版本本身有問題，別安裝，回報使用者
-node "macos/skills/超級模式/tests/matcher-contract.test.js" # hook 的工具清單 vs settings matcher 是否一致
+node "macos/skills/超級模式/tests/matcher-contract.test.js" --repo # hook 的工具清單 vs settings matcher 是否一致
 ```
 Windows:
 ```powershell
 node ".\windows\skills\超級模式\tests\run-gate-tests.js"        # 這裡就 FAIL → 別安裝
-node ".\windows\skills\超級模式\tests\matcher-contract.test.js" # hook 的工具清單 vs settings matcher 是否一致
+node ".\windows\skills\超級模式\tests\matcher-contract.test.js" --repo # hook 的工具清單 vs settings matcher 是否一致
 ```
 
 **1b. 備份既有 live（若存在）——記住印出的時間戳 `ts`，回滾要用**
@@ -322,14 +322,14 @@ hook 在啟用前是 fail-open 且停用的——安裝它不影響一般 sessio
 **macOS / Linux**
 ```bash
 node ~/.claude/skills/超級模式/tests/run-gate-tests.js        # 應全數 PASS
-node ~/.claude/skills/超級模式/tests/matcher-contract.test.js # ★ 必跑，見下方說明
+node ~/.claude/skills/超級模式/tests/matcher-contract.test.js --live # ★ 必跑，見下方說明
 bash ~/.claude/skills/超級模式/tests/run-e2e.sh               # 應全數 passed（會印 GATE_UNDER_TEST 供核對）
 ```
 
 **Windows**
 ```powershell
 node "$env:USERPROFILE\.claude\skills\超級模式\tests\run-gate-tests.js"        # 應全數 PASS
-node "$env:USERPROFILE\.claude\skills\超級模式\tests\matcher-contract.test.js" # ★ 必跑，見下方說明
+node "$env:USERPROFILE\.claude\skills\超級模式\tests\matcher-contract.test.js" --live # ★ 必跑，見下方說明
 ```
 
 > ★ **`matcher-contract` 是步驟 2 的驗收，不是可選項。** 另外兩支測試都是**直接呼叫** `decide()`，
