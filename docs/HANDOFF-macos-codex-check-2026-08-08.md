@@ -1,6 +1,26 @@
 # HANDOFF — macOS 原生驗證：codex-check hooks 三態（2026-08-08）
 
-> ## ⛔ 不要安裝這個分支
+> ## ✅ 已完成（2026-08-08 同日回報）
+>
+> **環境**：macOS 26.6.1 arm64、內建 `bash 3.2.57`、`awk version 20200816`
+> （`/usr/bin/awk`）。**確認是 BSD／one-true-awk，不是 gawk** —— 正是本批要驗的 userland。
+> 2 筆 blob 全符，`bash -n` 通過。
+>
+> | 步驟 | 結果 |
+> |---|---|
+> | 2-1 三個 hooks 案例 | **`TOTAL 10 FAIL 0`**，含 `b_hooks_unp`（舊行為保住）、`b_hooks_empty`、以及最關鍵的 `b_hooks_gone — hooks 消失必須報成漂移` |
+> | 2-2 全套回歸 | **`TOTAL 126 FAIL 0`**，`^FAIL` 零行 |
+> | 2-3 反向驗證 | **`FAIL 6`**（兩個新案例各 3 條），含 `b_hooks_gone — hooks 消失必須報成漂移`；兩條 PASS 是前置條件，符合「前置成立、判定失效」的預期形狀 |
+>
+> **我在 WSL2 跨宿主跑時 FAIL 的那 4 個 cache／mtime 案例，在原生 macOS 上全部通過**，
+> 且 Mac 端貼了**正面證據**（逐條 `PASS: h4_future_mtime` 等），不是只給「沒有 FAIL」。
+> 我先前「那是 `cp -R` 造成的環境問題、非本批回歸」的判定因此得到證實。
+>
+> `awk` 的 `[[:space:]]`／`next`／多重 `~` 比對在 one-true-awk 與 gawk 行為一致。
+>
+> **本檔自此僅作過程紀錄保留，不需要再執行。** 下方內文刻意不改寫。
+
+> ## ⛔（歷史）不要安裝這個分支
 > 只在 Windows 原生與 WSL2 跨宿主跑過，**macOS 未經真機驗證**。
 > 全程在隔離 worktree 內，不要複製任何檔案進 `~/.claude`。
 
