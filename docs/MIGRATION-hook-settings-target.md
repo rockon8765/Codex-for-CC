@@ -18,8 +18,8 @@
 > **probe 已從本文件抽成 [`tools/probe-gate-registration.js`](../tools/probe-gate-registration.js)。**
 > 原因有二：內嵌的 bash heredoc 在 Windows 的 PowerShell 跑不動（而「重複註冊」三平台都會發生，
 > `AI-INSTALL` 步驟 2 會叫三平台的人都跑它）；而且內嵌在 markdown 裡的邏輯沒有任何回歸案守著。
-> 現在有 [`tests/probe-gate-registration.test.js`](../tests/probe-gate-registration.test.js)：**30 案**，
-> 對修訂前那版（`5cc50e0`）反向驗證為 **5 PASS／25 FAIL**，通過的 5 個恰為行為未改變的對照組。
+> 現在有 [`tests/probe-gate-registration.test.js`](../tests/probe-gate-registration.test.js)：**33 案**，
+> 對修訂前那版（`5cc50e0`）反向驗證為 **6 PASS／27 FAIL**，通過的 6 個恰為行為未改變的對照組。
 >
 > ⚠️ **證據範圍**：probe 的行為有跨平台的自動化回歸案；第 2 節的修訂是**文件層的靜態修正**，
 > **未**在真實受影響的 macOS／Linux 環境端到端驗證。
@@ -56,7 +56,15 @@ node tools/probe-gate-registration.js
 ```
 
 **三平台同一條指令**（Windows 的 PowerShell、macOS／Linux 的 bash 都照抄）。
-它是唯讀的，不會改任何檔案。先看**退出碼**：
+它是唯讀的，不會改任何檔案。
+
+> 這支 probe 住在**本 repo 的 checkout 裡**（安裝時不會被複製到 `~/.claude/`）。
+> 手邊沒有 checkout 就重新 clone 一份——你當初就是從它安裝的，而且 probe 唯讀，
+> clone 下來只為了跑它不會有任何副作用。
+> 它先前是內嵌在本節的 bash heredoc，那形態在 Windows 的 PowerShell 跑不動，
+> 也沒有任何回歸案守著，2026-08-08 抽出來。
+
+先看**退出碼**：
 
 | 退出碼 | 意義 | 該做什麼 |
 |---|---|---|

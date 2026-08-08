@@ -99,6 +99,12 @@ const CASES = [
   { id: "ok-none-nongate-handler", main: settings({ matcher: "Bash", hooks: [{ type: "command", command: "node /other/hook.js" }] }), exit: 0, want: ["gate 條目：0 個", "兩邊都沒有 gate"] },
   { id: "ok-bom", main: { raw: "\uFEFF" + JSON.stringify(settings(gateEntry())) }, exit: 0, want: ["正常，不用修"] },
   { id: "ok-entry-without-hooks-key", main: settings({ matcher: "Bash" }, gateEntry()), exit: 0, want: ["gate 條目：1 個", "正常，不用修"] },
+  // 使用者本來就有的、與本 skill 無關的 PreToolUse 條目：不能被算進來，也不能觸發停手
+  { id: "ok-gate-plus-unrelated-entry", main: settings({ matcher: "Bash", hooks: [{ type: "command", command: "node /other/hook.js" }] }, gateEntry()), exit: 0, want: ["gate 條目：1 個", "正常，不用修"] },
+  // 同一個 entry 裡兩筆**相同**的 gate handler：others=0，不該判停手，該判重複註冊
+  { id: "ok-two-gate-same-entry", main: settings({ matcher: MATCHER, hooks: [gateHandler(), gateHandler()] }), exit: 0, want: ["有 2 筆 gate", "已經重複註冊"], deny: ["停手"] },
+  // 讀取錯誤（非 ENOENT）：settings.json 是目錄。錯誤碼各平台可能不同，只斷言前綴。
+  { id: "read-error-directory", main: { dir: true }, exit: 1, want: ["讀取失敗：", "無法解析或形狀不合"] },
 ];
 
 // ── 執行 ────────────────────────────────────────────────────────────────
@@ -108,9 +114,12 @@ const failed = [];
 
 function writeFixture(dir, name, value) {
   if (value === undefined) return; // 檔案刻意不存在
-  const body = value !== null && typeof value === "object" && typeof value.raw === "string"
-    ? value.raw
-    : JSON.stringify(value, null, 2);
+  const isPlain = value !== null && typeof value === "object" && !Array.isArray(value);
+  if (isPlain && value.dir === true) {
+    fs.mkdirSync(path.join(dir, name), { recursive: true }); // 讓 readFileSync 撞非 ENOENT 的錯
+    return;
+  }
+  const body = isPlain && typeof value.raw === "string" ? value.raw : JSON.stringify(value, null, 2);
   fs.writeFileSync(path.join(dir, name), body);
 }
 
