@@ -38,7 +38,7 @@
 >
 > **例外：Linux 自 2026-07-26 起有持續性的原生覆蓋。** [`.github/workflows/linux.yml`](.github/workflows/linux.yml) 讓每次 push／PR 都在 `ubuntu-latest` 上跑完整 `linux/` 回歸（含一道變異測試守住平台語義）。所以 linux 的「目前 tip 是否原生驗證過」不必再靠人工回想——看 CI 狀態即可。Windows 與 macOS 目前**沒有** CI，仍靠人工原生驗證。
 >
-> **本次 delta 的驗證分布（2026-08-08，`5cc50e0..aaca3c7`：A2 —— MIGRATION 的 probe 抽成 repo 腳本並 fail-closed、判定表拆 1／≥2、第 2 節改 handler 粒度、備份改用跨平台 `tools/backup-settings.js`、10 處註冊入口改成「跑 probe 照它印的判定走」）。**
+> **本次 delta 的驗證分布（2026-08-08，`5cc50e0..429c28c`：A2 —— MIGRATION 的 probe 抽成 repo 腳本並 fail-closed、判定表拆 1／≥2、第 2 節改 handler 粒度、備份改用跨平台 `tools/backup-settings.js`、10 處註冊入口改成「跑 probe 照它印的判定走」）。**
 > （本列之後只有**一個補釘本行 SHA 的 commit**，它只動 `README.md`，未動任何受測檔——處理方式與 2026-08-04 那批的 `e1ec53f` 相同。受測檔的真正釘子是 handoff 的 **9 筆 blob**。）
 > ⚠️ 這裡**釘死 endpoint SHA，刻意不寫 `..HEAD`**——寫 `HEAD` 的話，下一個 commit 就會讓這段驗證宣稱悄悄擴張到沒驗過的改動上。
 > ⚠️ **macOS 尚未原生驗證**，交接文件見 [`docs/HANDOFF-macos-a2-2026-08-08.md`](docs/HANDOFF-macos-a2-2026-08-08.md)。在收到回報之前，**不要**把本批當成三平台等價驗證過。
