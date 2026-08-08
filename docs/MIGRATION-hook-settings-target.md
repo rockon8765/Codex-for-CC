@@ -3,7 +3,7 @@
 > 2026-07-28。**只影響 macOS 與 Linux**，且只影響 **2026-07-28 以前**照舊版
 > `AI-INSTALL.md` 安裝的人。Windows 一直都是對的，不受影響。
 
-> **2026-08-08 修訂。** 本文件**下列四個**缺陷已修。**「已修」只涵蓋這四條**——
+> **2026-08-08 修訂。** 本文件**下列五個**缺陷已修。**「已修」只涵蓋這五條**——
 > 其餘章節不在本次修訂範圍內，特別是第 3.1 節（見該節開頭的 ⛔）：
 >
 > 1. 第 1 節的 probe 對「JSON 合法但形狀不對」**不 fail-closed**——`hooks.PreToolUse`
@@ -17,13 +17,21 @@
 > 4. 新舊 probe **都**只在 `command` 裡找 needle，因此漏掉 Claude Code 官方支援的
 >    **exec form**（`{"type":"command","command":"node","args":["…gate.js"]}`）。那會被數成 0、
 >    判成「兩邊都沒有 gate」，接著 `AI-INSTALL` 步驟 2 叫人再加一筆——
->    **這支診斷自己製造出它要防的重複註冊**。現在 `command` 與 `args` 一起比對。
+>    **這支診斷自己製造出它要防的重複註冊**。現在看到 exec form 一律**停手（exit 3）**：
+>    不宣稱看得懂它，但也不再給出會造成重複註冊的答案。
+> 5. 第 2 節的備份先前只有 bash 版，Windows 使用者被導去 `AI-INSTALL` 步驟 1b，
+>    但 1b **只備 `settings.json`**，漏掉 B 分支真正會刪的 `settings.local.json`。
+>    改成三平台共用的 [`tools/backup-settings.js`](../tools/backup-settings.js)。
 >
 > **probe 已從本文件抽成 [`tools/probe-gate-registration.js`](../tools/probe-gate-registration.js)。**
 > 原因有二：內嵌的 bash heredoc 在 Windows 的 PowerShell 跑不動（而「重複註冊」三平台都會發生，
 > `AI-INSTALL` 步驟 2 會叫三平台的人都跑它）；而且內嵌在 markdown 裡的邏輯沒有任何回歸案守著。
-> 現在有 [`tests/probe-gate-registration.test.js`](../tests/probe-gate-registration.test.js)：**40 案**，
-> 對修訂前那版（`5cc50e0`）反向驗證為 **7 PASS／33 FAIL**，通過的 7 個恰為行為未改變的對照組。
+> 現在有 [`tests/probe-gate-registration.test.js`](../tests/probe-gate-registration.test.js)：**42 案**，
+> 對修訂前那版（`5cc50e0`）反向驗證為 **7 PASS／35 FAIL**，通過的 7 個恰為行為未改變的對照組。
+>
+> ⚠️ **這支 probe 的範圍刻意很窄**，它自己會把範圍印出來：不驗路徑存在、不驗 hook 真的
+> 會被叫起、needle 比對大小寫敏感（Windows 上只差大小寫的重複註冊看不見）、
+> **不是 settings 的 schema 驗證器**（與 gate 無關的畸形條目會被略過，免得把 migration 擋死）。
 >
 > ⚠️ **證據範圍**：probe 的行為有跨平台的自動化回歸案；第 2 節的修訂是**文件層的靜態修正**，
 > **未**在真實受影響的 macOS／Linux 環境端到端驗證。
@@ -127,31 +135,24 @@ ls ~/.claude/projects/ 2>/dev/null
 
 ### 2.1 先備份
 
-```bash
-set -euo pipefail
-ts=$(date +%Y%m%d-%H%M%S)
-for f in ~/.claude/settings.json ~/.claude/settings.local.json; do
-  [ -e "$f" ] || [ -L "$f" ] || continue
-  if [ -L "$f" ]; then echo "$f 是 symlink，狀態不明，中止"; exit 1; fi
-  if [ ! -f "$f" ]; then echo "$f 存在但不是一般檔案，中止"; exit 1; fi
-  b="$f.bak-$ts"
-  if [ -e "$b" ] || [ -L "$b" ]; then echo "已存在 $b，等一秒後重跑，中止"; exit 1; fi
-  cp "$f" "$b"
-  cmp -s "$f" "$b" || { echo "$b 備份不完整，中止"; exit 1; }
-done
-echo "backup ts=$ts"
+```
+cd <你 clone 的 Codex-for-CC>
+node tools/backup-settings.js
 ```
 
-> 這段是 **fail-fast** 的：任何一步失敗就中止，**不會印出 `ts`**。
-> 所以「有印出 `ts`」才等於「該備份的都備份完成且逐位元組比對過」。
-> 舊版沒有 `set -e`、沒有撞名拒絕、也沒有 `cmp` 驗證——`cp` 失敗仍會一路跑到底印出
-> `backup ts=`，接著你就會在「以為有備份」的狀態下手動改 settings。
+**三平台同一條指令。** 它會備份 `~/.claude/settings.json` 與 `~/.claude/settings.local.json`
+（不存在的略過），檔名加 `.bak-<時間戳>`。
 
-> **Windows**：用 [`AI-INSTALL.md`](AI-INSTALL.md) 步驟 **1b** 的 PowerShell 備份區塊
-> ——它會一併備份 `settings.json`，而且有 `tests/ai-install/run-windows.ps1` 測試臺守著
-> （pwsh 與 Windows PowerShell 5.1 各驗一次）。
-> **這裡刻意不另寫一份 PowerShell 版本**：同一段備份邏輯寫兩遍，遲早演化到不一致——
-> 這個 repo 已經為此付過兩次代價。
+> 這支是 **fail-fast** 的：任何一步失敗就中止並回非 0，**不會印出 `backup ts=`**。
+> 所以「有印出 `ts`」才等於「該備份的都完成且逐位元組比對過」。
+> 而且它**先全部預檢、再全部複製**——避免「第一個檔備份好、第二個檔中止」的半完成狀態。
+>
+> **為什麼是 Node 而不是 bash ＋ PowerShell 兩份**：第 2 節的 **B 分支三平台都會用到**，
+> 而 B 會**刪除** `settings.local.json` 裡的 gate handler。先前這裡只有 bash 版，
+> Windows 使用者曾被導去用 `AI-INSTALL` 步驟 1b —— 但 1b 是「安裝前的三件式備份」，
+> 它**只備 `settings.json`**，正好漏掉 B 真正會刪的那個檔。
+> 同一段備份邏輯寫成兩份 shell 版本則遲早演化到不一致。
+> 回歸案：[`tests/backup-settings.test.js`](../tests/backup-settings.test.js)。
 
 ### 2.2 手動修正（**刻意不提供自動腳本**，理由見下）
 
@@ -160,8 +161,8 @@ echo "backup ts=$ts"
 > 舊版叫你搬「整個條目」，於是：outer entry 還掛著別的 hook 時，
 > 搬過去會把不相關的 hook 一併升到 user scope，刪掉則會把它們一併移除。
 >
-> **先數清楚再動手。** 「`command` 含 `super-mode-consult-gate` 的 **handler**」
-> 在兩個檔各有幾個？第 1 節的 probe 印的就是這個數字。
+> **先數清楚再動手。** 「跑 `super-mode-consult-gate` 的 **handler**」在兩個檔各有幾個？
+> 第 1 節的 probe 印的就是這個數字（它只判斷 shell form；exec form 會直接叫你停手）。
 >
 > ⚠️ **probe 退出碼 3 ＝ 停手**：本文件涵蓋不了，請開 issue 或人工判斷。
 > **停手條件由 probe 機械判定，本文件刻意不再抄一份**——上一次同一條規則寫兩遍，

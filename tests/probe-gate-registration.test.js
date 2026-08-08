@@ -110,12 +110,16 @@ const CASES = [
   { id: "read-error-directory", main: { dir: true }, exit: 1, want: ["讀取失敗：", "無法解析或形狀不合"] },
 
   // ---- exec form（Claude Code 官方支援的第二種 command hook 形態）-------
-  // needle 在 args 裡、command 只是 "node"。只找 command 會數成 0，
-  // 於是 AI-INSTALL 步驟 2 判「兩邊都沒有 gate」並叫人再加一筆 = 自己製造重複註冊。
-  { id: "ok-exec-form", main: settings(execEntry()), exit: 0, want: ["gate 條目：1 個", "正常，不用修"], deny: ["兩邊都沒有 gate"] },
-  { id: "ok-duplicate-exec-form", main: settings(execEntry(), execEntry()), exit: 0, want: ["有 2 筆 gate", "已經重複註冊"] },
-  // shell form ＋ exec form 混用：文字上不同，保守停手
-  { id: "halt-mixed-forms", main: settings(gateEntry()), local: settings(execEntry()), exit: 3, want: ["停手"] },
+  // 本工具**只判斷 shell form**：看到 exec form 一律 exit 3。
+  // 理由見 tools/probe-gate-registration.js 的註解——判「正常」會與必跑的
+  // matcher-contract（也只看 command）矛盾，判「沒有 gate」則會叫人再加一筆。
+  { id: "halt-exec-form", main: settings(execEntry()), exit: 3, want: ["exec form", "停手"], deny: ["正常，不用修", "兩邊都沒有 gate"] },
+  { id: "halt-duplicate-exec-form", main: settings(execEntry(), execEntry()), exit: 3, want: ["exec form", "停手"], deny: ["已經重複註冊"] },
+  { id: "halt-mixed-forms", main: settings(gateEntry()), local: settings(execEntry()), exit: 3, want: ["exec form", "停手"], deny: ["正常，不用修"] },
+  // needle 出現在 args 但根本不是在跑 gate —— 舊寫法會判「正常，已裝好」，是假陽性
+  { id: "halt-echo-args-needle", main: settings({ matcher: MATCHER, hooks: [{ type: "command", command: "echo", args: ["super-mode-consult-gate"] }] }), exit: 3, want: ["exec form", "停手"], deny: ["正常，不用修"] },
+  // 只有 args、沒有 command：官方 schema 要求 command，但這裡不當 schema 驗證器，一律停手
+  { id: "halt-args-only-no-command", main: settings({ matcher: MATCHER, hooks: [{ type: "command", args: ["/x/super-mode-consult-gate.js"] }] }), exit: 3, want: ["exec form", "停手"], deny: ["正常，不用修"] },
   { id: "exec-form-type-prompt", main: settings({ matcher: MATCHER, hooks: [{ type: "prompt", command: "node", args: ["/x/super-mode-consult-gate.js"] }] }), exit: 1, want: ['type 是 "prompt"'], deny: ["正常，不用修"] },
   { id: "args-not-array", main: settings({ matcher: MATCHER, hooks: [{ type: "command", command: "node", args: "/x/super-mode-consult-gate.js" }] }), exit: 1, want: ["PreToolUse[0].hooks[0].args 不是陣列（是 string）"] },
   { id: "args-element-not-string", main: settings({ matcher: MATCHER, hooks: [{ type: "command", command: "node", args: [7, "/x/super-mode-consult-gate.js"] }] }), exit: 1, want: ["PreToolUse[0].hooks[0].args[0] 不是字串（是 number）"] },

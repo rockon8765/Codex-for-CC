@@ -16,6 +16,13 @@
  *   1 = 讀不到或形狀不合 —— 先修好再重跑，不要往下做（fail-closed）
  *   3 = 停手：需要人工判斷，本 repo 的文件涵蓋不了
  *
+ * **範圍（刻意很窄，不要把它當成別的東西）**：
+ *   ・它數的是「gate 註冊了幾筆」，**不是** settings 的 schema 驗證器 ——
+ *     與 gate 無關的畸形條目會被略過，免得把使用者的 migration 擋死。
+ *   ・只判斷 shell form；**看到 exec form（handler 帶 `args`）一律 exit 3**。
+ *   ・不驗 command 指到的檔案存不存在，也不驗 hook 真的會被叫起。
+ *   ・needle 比對大小寫敏感 —— Windows 上兩筆只差路徑大小寫的重複註冊看不見。
+ *
  * 為什麼形狀不合一定要 fail-closed：舊版寫
  * `for (const entry of (j.hooks && j.hooks.PreToolUse) || [])`，當 `hooks.PreToolUse`
  * 是**字串**時會逐字元迭代、靜默數成 0，於是判定成「兩邊都沒有 gate……照 AI-INSTALL
@@ -43,6 +50,7 @@ function scan(label, p) {
     say("形狀不合：" + why);
     return { ok: false };
   };
+  const execForm = []; // 命中 needle 但屬 exec form —— 不計數，改走停手
 
   let raw;
   try {
@@ -50,7 +58,7 @@ function scan(label, p) {
   } catch (e) {
     if (e.code === "ENOENT") {
       say("檔案不存在");
-      return { ok: true, n: 0, handlers: [] };
+      return { ok: true, n: 0, handlers: [], execForm };
     }
     say("讀取失敗：" + e.code);
     return { ok: false };
@@ -69,14 +77,14 @@ function scan(label, p) {
   if (!isObj(j)) return bad("頂層不是物件（是 " + typeName(j) + "）");
   if (!("hooks" in j)) {
     say("沒有 hooks 段 —— gate 條目：0 個");
-    return { ok: true, n: 0, handlers: [] };
+    return { ok: true, n: 0, handlers: [], execForm };
   }
   if (!isObj(j.hooks)) return bad("hooks 不是物件（是 " + typeName(j.hooks) + "）");
 
   const pre = j.hooks.PreToolUse;
   if (pre === undefined) {
     say("沒有 hooks.PreToolUse —— gate 條目：0 個");
-    return { ok: true, n: 0, handlers: [] };
+    return { ok: true, n: 0, handlers: [], execForm };
   }
   if (!Array.isArray(pre)) return bad("hooks.PreToolUse 不是陣列（是 " + typeName(pre) + "）");
 
@@ -96,11 +104,17 @@ function scan(label, p) {
       if (h.command !== undefined && typeof h.command !== "string") {
         return bad(hat + ".command 不是字串（是 " + typeName(h.command) + "）");
       }
-      // **exec form 也要算。** Claude Code 的 command hook 有兩種形態：
+      // Claude Code 的 command hook 有兩種形態：
       //   shell form  { "type":"command", "command":"node /x/super-mode-consult-gate.js" }
       //   exec form   { "type":"command", "command":"node", "args":["/x/super-mode-consult-gate.js"] }
-      // 只在 command 裡找 needle 會把 exec form 數成 0，於是 AI-INSTALL 步驟 2 判「兩邊都沒有
-      // gate」並叫人再加一筆——**這支診斷自己製造出它要防的重複註冊**。
+      // **本工具只判斷 shell form；看到 exec form 一律停手。** 兩個理由：
+      //   1. `matcher-contract.test.js`（安裝流程規定必跑）目前也只看 `command`，
+      //      對 exec form 會回報「沒有註冊本 hook」。這裡若自作主張判「正常」，
+      //      使用者會拿到兩個互相矛盾的結論，而且照樣過不了安裝驗收。
+      //   2. `args` 存在與否會改變 runtime 語義（直接 exec vs 經 shell），
+      //      光比字串無法安全判斷兩筆註冊是不是「同一筆」。
+      // 停手至少讓人知道要找人；判「兩邊都沒有 gate」則會讓 AI-INSTALL 步驟 2 再加一筆，
+      // 也就是這支診斷自己製造出它要防的重複註冊。
       if (h.args !== undefined && !Array.isArray(h.args)) {
         return bad(hat + ".args 不是陣列（是 " + typeName(h.args) + "）");
       }
@@ -113,7 +127,7 @@ function scan(label, p) {
           argv.push(h.args[a]);
         }
       }
-      if (h.command === undefined && !argv.length) continue;
+      if (h.command === undefined && h.args === undefined) continue;
       const haystack = [h.command === undefined ? "" : h.command].concat(argv).join(" ");
       if (!haystack.includes(NEEDLE)) continue;
       // 命中字串還不夠：canonical 註冊是 { "type": "command", "command": ... }。
@@ -126,6 +140,15 @@ function scan(label, p) {
           "（必須是 \"command\"）"
         );
       }
+      // exec form：不計數、改記到停手清單。
+      if (h.args !== undefined) {
+        execForm.push({ where: hat, command: h.command === undefined ? null : h.command, args: argv });
+        continue;
+      }
+      // 走到這裡一定是 shell form，`command` 必須是字串才算數得上一筆 gate。
+      if (typeof h.command !== "string") {
+        return bad(hat + " 命中 gate 但沒有可用的 command 字串");
+      }
       gateIdx.push({ k, argv });
     }
 
@@ -135,20 +158,21 @@ function scan(label, p) {
     if (entry.matcher !== undefined && typeof entry.matcher !== "string") {
       return bad(at + ".matcher 不是字串（是 " + typeName(entry.matcher) + "）");
     }
+    // 只有 shell form 會走到這裡（exec form 已進 execForm 並會讓整支停手），
+    // 所以 handlers 一律沒有 args，一致性比對只需要 (matcher, command)。
     const others = entry.hooks.length - gateIdx.length;
     for (const g of gateIdx) {
       handlers.push({
         matcher: entry.matcher === undefined ? "" : entry.matcher,
-        command: entry.hooks[g.k].command === undefined ? null : entry.hooks[g.k].command,
-        args: g.argv,
+        command: entry.hooks[g.k].command,
         others,
         where: at + ".hooks[" + g.k + "]",
       });
     }
   }
 
-  say("gate 條目：" + handlers.length + " 個");
-  return { ok: true, n: handlers.length, handlers };
+  say("gate 條目：" + handlers.length + " 個" + (execForm.length ? "（另有 " + execForm.length + " 筆 exec form，見下）" : ""));
+  return { ok: true, n: handlers.length, handlers, execForm };
 }
 
 const home = os.homedir();
@@ -165,6 +189,18 @@ const tag = (file) => (h) => Object.assign({ file }, h);
 const all = mainRes.handlers.map(tag("settings.json")).concat(localRes.handlers.map(tag("settings.local.json")));
 
 // ── 停手條件（機械判定，文件不再自己摘要一份）────────────────────────────
+// 0. exec form：本工具的辨識能力到不了，而且必跑的 matcher-contract 也看不到它。
+const execAll = mainRes.execForm.map(tag("settings.json")).concat(localRes.execForm.map(tag("settings.local.json")));
+if (execAll.length) {
+  for (const h of execAll) {
+    console.log("  " + h.file + " " + h.where + "  command=" + JSON.stringify(h.command) + "  args=" + JSON.stringify(h.args));
+  }
+  console.log("判定：停手 —— 上面是 exec form（handler 帶 `args`）的 gate 註冊，本工具無法判斷。請人工確認。");
+  console.log("      理由：安裝流程規定必跑的 matcher-contract 目前也只看 `command`，會對它回報");
+  console.log("      「沒有註冊本 hook」；而 `args` 存在與否會改變 runtime 語義，光比字串無法");
+  console.log("      安全判斷兩筆註冊是不是同一筆。這裡若判「正常」或「沒有 gate」都會誤導。");
+  process.exit(3);
+}
 // 1. 含 gate 的 outer entry 底下還掛著別的 handler：整筆搬移／刪除會動到不相干的 hook。
 const shared = all.filter((h) => h.others > 0);
 if (shared.length) {
@@ -179,18 +215,14 @@ if (shared.length) {
 //    會被判成 B（純減法），使用者刪光 local 只留下壞的那筆，重跑還會得到「正常」。
 const seen = [];
 for (const h of all) {
-  const key = JSON.stringify([h.matcher, h.command, h.args]);
+  const key = JSON.stringify([h.matcher, h.command]);
   if (!seen.includes(key)) seen.push(key);
 }
 if (all.length >= 2 && seen.length > 1) {
-  console.log("  共 " + all.length + " 筆 gate handler，出現 " + seen.length + " 種不同的 (matcher, command, args)：");
+  console.log("  共 " + all.length + " 筆 gate handler，出現 " + seen.length + " 種不同的 (matcher, command)：");
   for (const k of seen) {
     const v = JSON.parse(k);
-    console.log(
-      "    matcher=" + JSON.stringify(v[0]) +
-      "  command=" + JSON.stringify(v[1]) +
-      (v[2] && v[2].length ? "  args=" + JSON.stringify(v[2]) : "")
-    );
+    console.log("    matcher=" + JSON.stringify(v[0]) + "  command=" + JSON.stringify(v[1]));
   }
   console.log("判定：停手 —— 多筆 gate handler 的 matcher／command 不一致，無法判斷該留哪一筆。請人工判斷。");
   process.exit(3);
@@ -211,12 +243,11 @@ if (all.length) {
   console.log("");
   console.log("已註冊的 gate handler：");
   for (const h of all) {
-    console.log(
-      "  " + h.file + " " + h.where +
-      "  command=" + JSON.stringify(h.command) +
-      (h.args.length ? "  args=" + JSON.stringify(h.args) : "")
-    );
+    console.log("  " + h.file + " " + h.where + "  command=" + JSON.stringify(h.command));
   }
-  console.log("⚠️ 本 probe 只驗**註冊的形狀**，不驗 command／args 指到的檔案是否真的存在，");
-  console.log("   也不驗 hook 真的會被叫起。端到端沒被 deny 時，先核對上面印出來的路徑還在不在。");
+  console.log("⚠️ 本 probe 只數「gate 註冊了幾筆」，範圍刻意很窄：");
+  console.log("   ・不驗 command 指到的檔案是否真的存在，也不驗 hook 真的會被叫起");
+  console.log("   ・needle 比對大小寫敏感；Windows 上兩筆只差路徑大小寫的重複註冊看不見");
+  console.log("   ・不是 settings 的 schema 驗證器：與 gate 無關的畸形條目它會略過");
+  console.log("   端到端沒被 deny 時，先核對上面印出來的路徑還在不在。");
 }

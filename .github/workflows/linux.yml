@@ -86,6 +86,11 @@ jobs:
       - name: probe-gate-registration 回歸
         run: node "tests/probe-gate-registration.test.js"
 
+      # 這裡也是 CI 唯一會**真的建出 symlink** 的地方（Windows 非管理員建不了，
+      # 那邊該案會標 SKIP）。所以這一步同時是那條守衛的原生覆蓋。
+      - name: backup-settings 回歸
+        run: node "tests/backup-settings.test.js"
+
       - name: e2e（會印 GATE_UNDER_TEST / GATE_BLOB 供核對）
         run: bash "linux/skills/超級模式/tests/run-e2e.sh"
 
