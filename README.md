@@ -38,20 +38,27 @@
 >
 > **例外：Linux 自 2026-07-26 起有持續性的原生覆蓋。** [`.github/workflows/linux.yml`](.github/workflows/linux.yml) 讓每次 push／PR 都在 `ubuntu-latest` 上跑完整 `linux/` 回歸（含一道變異測試守住平台語義）。所以 linux 的「目前 tip 是否原生驗證過」不必再靠人工回想——看 CI 狀態即可。Windows 與 macOS 目前**沒有** CI，仍靠人工原生驗證。
 >
-> **本次 delta 的驗證分布（2026-08-04，`67a7ae6..1aeb010`：測試臺注入點補 rc＋型別前置檢查、`consult-schema` 退出契約、consult-gate 攔截面宣稱收斂）。**
+> **本次 delta 的驗證分布（2026-08-08，`5cc50e0..PIN_A2_SHA`：A2 —— MIGRATION 的 probe 抽成 repo 腳本並 fail-closed、判定表拆 1／≥2、第 2 節改 handler 粒度、10 處註冊入口改成「跑 probe 照它印的判定走」）。**
+> ⚠️ **macOS 尚未原生驗證**，交接文件見 [`docs/HANDOFF-macos-a2-2026-08-08.md`](docs/HANDOFF-macos-a2-2026-08-08.md)。在收到回報之前，**不要**把本批當成三平台等價驗證過。
+> **Windows**（Node v24.16.0）：`tests/probe-gate-registration.test.js` **40/40**；`tests/ai-install/run-windows.ps1` **69/69**（pwsh 7 與 Windows PowerShell 5.1 各跑一次）；gate-cases **109/109**；`codex-check` **188/188**；三平台 `matcher-contract` 皆 exit 0（該檔與 `5cc50e0` **同 blob**，本批未改它）。
+> **Linux**（WSL2 ext4 家目錄、**fresh clone** 而非複製工作目錄，Node v22.23.1）：probe **40/40**、gate-cases **121/121**、`run-posix.sh` **68/68**（基準值，本批不該改變它）、`bash -n` 全過。本批已把 probe 回歸接進 [`linux.yml`](.github/workflows/linux.yml)；⚠️ **`tests/ai-install/` 仍不在 CI 內**，那部分依舊只有人工證據。
+> **反向驗證**：對 `5cc50e0` 的舊 heredoc probe 跑同一套 40 案 → **7 PASS／33 FAIL**，通過的 7 個**恰為**行為刻意未改變的對照組（清單在 handoff §3）。
+> **本批的暴險面**：兩個新增檔都是純 Node；未新增任何 shell 腳本，也未改動 `run-posix.sh`／`codex-check`／`matcher-contract`，所以 BSD vs GNU 的 `sed`／`awk`／`find`／`cp` 語義差異不在本批範圍內。
+>
+> **前一次 delta 的驗證分布（2026-08-04，`67a7ae6..1aeb010`：測試臺注入點補 rc＋型別前置檢查、`consult-schema` 退出契約、consult-gate 攔截面宣稱收斂）。**
 > ⚠️ 這裡**釘死 endpoint SHA，刻意不寫 `..HEAD`**——寫 `HEAD` 的話，下一個 commit 就會讓這段驗證宣稱悄悄擴張到沒驗過的改動上。
 > **Windows**：`tests/ai-install/run-windows.ps1` **69/69**，**pwsh 7 與 Windows PowerShell 5.1 兩種 shell 各跑一次**皆 exit 0；gate-cases 109/109、`matcher-contract`、`class-b-8dot3`、`consult-schema` 10/10（in-process 與 `-File` 兩種呼叫皆 exit 0）。
 > **Linux**：WSL2（ext4 家目錄、完整 repo 複製）`run-posix.sh` **68/68**。⚠️ **CI 不覆蓋這個 delta**——[`linux.yml`](.github/workflows/linux.yml) 只跑 `linux/` 內的測試，**不含頂層 `tests/ai-install/`**，所以 badge 綠燈不能拿來當本批的證據。
 > **macOS**：已在 macOS 26.6 (25G72) arm64／內建 `bash 3.2.57(1)-release`（`which -a bash` 只有 `/bin/bash`，確認非 Homebrew 5.x）**對 `e1ec53f` 原生跑過 `run-posix.sh` 68/68 exit 0**（其後的 commit 只動 README，`run-posix.sh` 的 blob 未再變動，故該驗證對目前 tip 仍成立）。中途的 `9491719` 另跑過 67/67，並做過**帶對照組**的變異注入牙齒檢查（斷鏈 symlink 佔位 → 只有 rc 項抓得到；拿掉 rc 項則假綠 PASS）。兩次比對確認 67→68 的 +1 全部落在 `[M5]`：`run-posix.sh` 共 **13 個具名區塊**（`C1`／`C2`／`M1`–`M10`／`C3`），其餘 **12 個**案數逐項相同、無非預期漂移。
 > 本批未改動 hook、腳本與 payload 機制（三平台 SKILL.md 的變更為純文件），故未重跑 `run-e2e.sh`／`codex-check` 測試臺。
 >
-> **前一次 delta 的驗證分布（2026-07-27，context-engineering 整理：矛盾修正 ＋ 三層去重 ＋ 參數互斥 ＋ FIX-PLAN 移出 payload）。**
+> **再前一次 delta 的驗證分布（2026-07-27，context-engineering 整理：矛盾修正 ＋ 三層去重 ＋ 參數互斥 ＋ FIX-PLAN 移出 payload）。**
 > **Windows**：已在 win32 原生通過 gate-cases **109/109**、`matcher-contract`、NTFS 8.3 短名測試、`consult-schema` **10/10**；三支改過的 `.ps1` 保留 UTF-8 BOM 且 `Parser::ParseFile` 全 PARSE OK。新增的「deny 訊息含子代理分支」案例做過**變異測試**：換回舊 hook 會變 108/109，失敗的只有那一筆。
 > **Linux**：已在 WSL2（ext4／glibc／Node v22.23.1，**從 git checkout 而非 Windows 工作目錄複製**）原生通過 gate-cases **121/121**、`consult-schema` **4/4**、`matcher-contract`、`run-e2e.sh` 11/11、`bash -n` 全過。GitHub CI 於本批推上遠端後才會跑，**綠燈與否以 CI 狀態為準**。
 > **macOS**：**撰寫當下未原生驗證**（本機無 Mac），**後於 2026-07-31 在 Mac 真機補驗完成**——對分支尖端 `6f7839b` 整批重跑：gate-cases **117/117**、`matcher-contract` exit 0、`consult-schema` **4/4**、`run-e2e` **11/11**（`GATE_BLOB=f1781d6e59a06c78d43ae074545f08ea5f0740d3`）、`run-posix.sh` **64/64**。詳見 [`docs/backlog.md`](docs/backlog.md) 的「2026-07-27 批次的 macOS 原生驗證」列。
 > （保留「撰寫當下未驗證」這個時序，是因為那是當時誠實的狀態；直接改寫成「已驗證」會抹掉「這批曾經帶著未驗證狀態進 main」這個事實。）
 >
-> **再前一次 delta 的驗證分布（2026-07-26，Opus 5 對齊 ＋ gate 內建工具面補齊）。**
+> **更早一次 delta 的驗證分布（2026-07-26，Opus 5 對齊 ＋ gate 內建工具面補齊）。**
 > **Windows**：已在 win32 原生通過 gate-cases 108/108、`matcher-contract`、NTFS 8.3 短名測試，live 部署後另複驗一次。
 > **macOS**：已在 darwin arm64 原生通過 gate-cases 116/116、`matcher-contract`、`run-e2e.sh` 11/11，並核對受測 hook 確實是 worktree 內那份。
 >

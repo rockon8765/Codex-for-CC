@@ -1,0 +1,117 @@
+# macOS 原生驗證交接：A2（MIGRATION probe 抽成 repo 腳本）
+
+> **狀態：pending。** 本批在 Windows 與 Linux(WSL2/ext4) 皆綠，**macOS 未原生驗證**。
+> 在收到回報之前，不要把本批當成三平台等價驗證過。
+
+## 0. 為什麼需要 macOS 這一趟
+
+本批把 `docs/MIGRATION-hook-settings-target.md` 第 1 節內嵌的 bash heredoc probe
+抽成 **repo 內的 Node 腳本**，並補上跨平台的 committed 回歸案。
+新增的兩個 `.js` 是純 Node（理論上平台無關），但：
+
+- `os.homedir()` 在各平台的解析來源不同（POSIX 讀 `HOME`、Windows 讀 `USERPROFILE`），
+  測試臺**兩個都設**，需要在 BSD userland 實證這個做法成立。
+- 非 ENOENT 讀取錯誤的 `e.code`（案例 `read-error-directory` 用「settings.json 是目錄」觸發）
+  在 BSD 上未必與 Linux 相同。斷言刻意只比前綴「讀取失敗：」，需要實證這個放寬是夠的。
+- 三份 `settings.snippet.json` 的 `_comment` 與兩份 `orchestration.md` 有改動，
+  其中 macOS 那兩份屬 macOS payload。
+
+**沒有**新增任何 shell 腳本，也沒有動 `tests/ai-install/run-posix.sh`／`codex-check`／
+`matcher-contract`（後者與 `main` 同 blob）。所以 BSD vs GNU 的 `sed`／`awk`／`find`／`cp`
+語義差異**不在本批的暴險面**。
+
+## 1. 受驗 SHA 與 blob
+
+**受驗 SHA：`ff07129`**（分支 `fix/a2-migration-probe-2026-08-08`）。
+
+先核對 blob，不符就停手回報（代表你抓到的不是這個版本）：
+
+```bash
+cd <你的 Codex-for-CC checkout>
+git fetch && git checkout ff07129
+for f in tools/probe-gate-registration.js tests/probe-gate-registration.test.js \
+         docs/MIGRATION-hook-settings-target.md docs/AI-INSTALL.md README.md \
+         macos/settings.snippet.json "macos/skills/超級模式/references/orchestration.md" \
+         docs/linux-platform-notes.md; do
+  printf '%-58s %s\n' "$f" "$(git rev-parse "HEAD:$f" | cut -c1-12)"
+done
+```
+
+| 檔 | 期望 blob（前 12 碼）|
+|---|---|
+| `tools/probe-gate-registration.js` | `383364e1cd7c` |
+| `tests/probe-gate-registration.test.js` | `f00e2bef0e95` |
+| `docs/MIGRATION-hook-settings-target.md` | `0e05e9a7b801` |
+| `docs/AI-INSTALL.md` | `665bd77389fa` |
+| `README.md` | `8bc7ac283878` |
+| `macos/settings.snippet.json` | `a903d6aac575` |
+| `macos/skills/超級模式/references/orchestration.md` | `a4dd320b3285` |
+| `docs/linux-platform-notes.md` | `afa9cafd5d3e` |
+
+## 2. 要跑的項目
+
+**全部唯讀**，不會動你的 `~/.claude`。測試臺用假 `HOME` 開 temp 目錄，跑完自己清掉。
+
+| # | 指令 | 期望 |
+|---|---|---|
+| **A-1** | `node tests/probe-gate-registration.test.js` | `TOTAL 40  PASS 40  FAIL 0`，exit 0 |
+| **A-2** | `node "macos/skills/超級模式/tests/run-gate-tests.js"` | `PASS 117/117` |
+| **A-3** | `node "macos/skills/超級模式/tests/matcher-contract.test.js"; echo "exit=$?"` | `exit=0`（此檔與 `main` 同 blob，跑它是為了確認改過的 `_comment` 沒破壞 JSON）|
+| **A-4** | `bash tests/ai-install/run-posix.sh` | `PASS=68 FAIL=0`（**基準值，本批不該改變它**）|
+| **A-5** | 反向驗證，見下方 §3 | `TOTAL 40  PASS 7  FAIL 33` |
+| **A-6** | `node -e 'for (const p of ["windows","macos","linux"]) JSON.parse(require("fs").readFileSync(p+"/settings.snippet.json","utf8"))'` | 無輸出、exit 0 |
+
+> `node` 在你的機器上若不在 PATH（可攜式安裝），請用絕對路徑。回報時附 `node -v`。
+
+## 3. A-5 反向驗證（**這一項最重要**）
+
+新回歸案必須對**修正前**版本 FAIL，否則只是裝飾。把 `5cc50e0` 那版內嵌的 heredoc probe
+抽出來，用 `--probe` 指向它：
+
+```bash
+git show 5cc50e0:docs/MIGRATION-hook-settings-target.md \
+  | awk "/^node - <<'PROBE'$/{f=1;next} /^PROBE$/{f=0} f" > /tmp/legacy-probe.js
+
+# 牙齒檢查：抽出來的必須真的是舊版，否則等於拿新版對新版比
+grep -q 'for (const entry of (j.hooks && j.hooks.PreToolUse) || \[\])' /tmp/legacy-probe.js \
+  && echo '舊版特徵行 OK' || echo '抽取失敗，停手'
+grep -q '形狀不合' /tmp/legacy-probe.js && echo '抽到新版了，停手' || echo '確認不含新版字串'
+
+node tests/probe-gate-registration.test.js --probe /tmp/legacy-probe.js
+```
+
+**期望 `PASS 7  FAIL 33`**，而且通過的 7 個必須**恰為**這幾個對照組
+（它們是行為刻意未改變的案子）：
+
+```
+ok-normal, ok-none-both-missing, ok-none-nongate-handler, ok-bom,
+ok-entry-without-hooks-key, ok-gate-plus-unrelated-entry, ok-unrelated-exec-form
+```
+
+> ⚠️ **只核對 `FAIL 33` 這個數字不夠。** 請把完整的 FAIL 清單貼回來——
+> 2026-08-08 就是因為只看總數，差點漏掉「失敗的不是該失敗的那幾條」。
+> 特別留意 `top-null` 與 `pretooluse-object`：舊版對它們的**退出碼湊巧也是 1**
+> （未捕捉的 TypeError），只有字串斷言抓得到差別。
+
+## 4. 額外的唯讀診斷（做得到就做，會把「數字對」升級成「因為對的理由而對」）
+
+1. **A-1 裡跟平台最相關的兩個案子**，印出實際訊息確認是因為預期的原因通過：
+   - `read-error-directory` —— 在 BSD 上 `e.code` 實際是什麼？（斷言只比前綴，請回報實際值）
+   - `ok-exec-form` —— 確認 needle 是從 `args` 命中而不是碰巧從 `command`
+2. **`os.homedir()` 的假 HOME 是否真的生效**：跑一次
+   `HOME=/tmp/nonexistent-xyz node tools/probe-gate-registration.js`，
+   應印「檔案不存在」兩行 ＋「兩邊都沒有 gate」，exit 0。
+   若它讀到你**真正的**家目錄，那是測試臺的假 HOME 機制在 macOS 失效，**請立刻回報**。
+
+## 5. 回報格式
+
+```
+環境：macOS <版本> <arch>／bash <版本>／node <版本>／Claude Code <版本>
+blob：8 筆 全符 / 不符（列出）
+A-1 ... A-6：實際輸出（數字 ＋ exit code）
+A-5 的 FAIL 清單：完整貼上
+§4 的兩項診斷：實際訊息
+```
+
+回報後我會把結果回寫到 README「本次 delta 的驗證分布」的 macOS 那一列，並把本檔標為已完成。
+**在那之前，README 那一列會維持「撰寫當下未原生驗證」。**
