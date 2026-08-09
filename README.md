@@ -38,14 +38,59 @@
 >
 > **例外：Linux 自 2026-07-26 起有持續性的原生覆蓋。** [`.github/workflows/linux.yml`](.github/workflows/linux.yml) 讓每次 push／PR 都在 `ubuntu-latest` 上跑完整 `linux/` 回歸（含一道變異測試守住平台語義）。所以 linux 的「目前 tip 是否原生驗證過」不必再靠人工回想——看 CI 狀態即可。Windows 與 macOS 目前**沒有** CI，仍靠人工原生驗證。
 >
+> ## ⛔ 本批的**驗證資產**目前不可信（2026-08-09，macOS 原生驗證後撤下宣稱）
+>
+> macOS 真機驗證的結論是：**產品判定邏輯全綠**（A-0 blob 14/14、A-1 168/168、A-2 68/68、
+> A-3 70/70、A-4 `RESULT_CODE=OK`、A-5 117/117、A-6 68/68 於 bash 3.2.57、
+> A-7 11/11 且 `GATE_BLOB` 相符、A-8 9/9；BSD 的 `readFileSync(dir)` 確認為 `EISDIR`；
+> 假 HOME 未洩漏；loader guard 成對確認非死碼）——**但我加的驗證資產本身有缺陷**，
+> 其中一項是靜默假綠。所以：
+>
+> **在修正批次落地之前，不要把本批的驗證結果當成通過的依據**，也不要據此做 release
+> 或安裝背書。已知缺陷（都已獨立復驗，非推測）：
+>
+> 1. **`tests/probe-verdict-cases.test.js` 靜默假綠。** 它印 `56/56`，但 exec form 五案
+>    釘的期望值是 `UNSUPPORTED_EXEC_FORM`（那是 `matcher-contract` 的 code），
+>    probe 的真 verdict 是 `HALT_EXEC_FORM`。之所以 PASS：`gate-registration.js` 的
+>    `HALT_EXEC_FORM` 分支**說明文字裡**含字面 `RESULT_CODE=UNSUPPORTED_EXEC_FORM`，
+>    而該測試用**未錨定**的 regex 取第一筆，抓到的是散文裡那個假標記。
+>    連帶：coverage 直方圖統計的是**期望值**不是實測值。
+> 2. **`tests/matcher-contract-cli.test.js` 的 oracle 是 substring 比對**，
+>    且 stdout 與 stderr 被無分隔串接。實測 `"RESULT_CODE=OK_WITH_DUPLICATES"`
+>    **包含** `"RESULT_CODE=OK"` → 前綴碰撞可放行。70 案中只有 46 案釘了 marker。
+> 3. **A-0 身分缺口**：`matcher-contract-cli` 硬編 `CANON_PLAT="windows"`，
+>    所以它在任何平台都讀 **Windows** 的 hook 與 snippet，而 macOS handoff 的 blob 表
+>    只釘 macOS 版本。（我原本的註解寫「三平台受測檔逐位元相同」——那對
+>    `matcher-contract.test.js` 與 `lib/` 成立，但 **hook 與 snippet 三平台是不同的**。）
+> 4. 較次要但確定：fixture 樹的唯讀 fingerprint 只比**檔案大小**；
+>    module digest 測試只驗有 `sha256=` 不核對值；`INTENTIONAL_DIFFS` 只驗「有差」
+>    不驗差在哪；`oldStack` 是單向斷言。
+>
+> 修正清單記在 [`docs/backlog.md`](docs/backlog.md)。**產品程式碼未發現行為缺陷**，
+> 所以採 fix-forward（不回退），但在修好之前這一段的「綠」不成立。
+>
 > **本次 delta 的驗證分布（2026-08-09b，基準 `5da2624`：gate 辨識抽成三平台共用模組 ＋ `matcher-contract` 的 `--repo`／`--live` 顯式模式）。**
 > ⚠️ **本批刻意不釘 endpoint SHA，改釘 blob。** 理由很實際：補釘 SHA 的那個 commit 自己就會讓尖端前進，於是宣稱永遠落後一格。受測檔的釘子是 [`docs/HANDOFF-macos-shared-parser-2026-08-09.md`](docs/HANDOFF-macos-shared-parser-2026-08-09.md) §1 的 blob 表，可逐筆 `git hash-object` 核對。
 > **改了什麼**：「哪個 handler 是本 gate、它會不會真的攔得住」收斂到 `<platform>/skills/超級模式/lib/gate-registration.js`（三平台**逐位元相同**、隨 skill 安裝進 live），`tools/probe-gate-registration.js` 與三份 `matcher-contract.test.js` 共用它。順帶攔下**四類「有註冊但不會 gate」**的設定：頂層 `disableAllHooks: true`（總開關）、`type` 不是 `command`、handler 帶 `if`／`async`／`asyncRewake`、以及 matcher 因為走 regex 路徑而一個工具都命中不了。
 > **macOS**：⚠️ **未原生驗證（本機無 Mac），本批的 macOS 狀態為 `pending`。** 下方 A2 那批記載的「`matcher-contract` 同 blob、本批未改它」對**那一批**仍然成立，但**本批改了它**，所以那句話不能延用到現在的 tip。需要 Mac 真機重驗的清單與判準見上面那份 handoff。
 > **📌 這是維護者的風險裁示，不是「已驗證」。** 2026-08-09 維護者裁定**先併 main、macOS 走合併後 handoff**（沿用 A2 那批的先例）。合併前審查同意這個取捨，但要求明文記為風險裁示——所以寫在這裡：**`main` 上這批的 macOS 覆蓋是零。** 殘餘風險面被本批的性質限縮到 Node／path 行為：本批**未新增任何 shell 腳本**，也未動 hook 本體／`run-posix.sh`／`codex-check`，所以 BSD vs GNU 的 `sed`／`awk`／`find`／`cp` 差異不在範圍內；真正待驗的是原生 `os.homedir()`、含中文路徑的 Unicode 正規化（`require()` 解路徑會受影響）、以及 `readFileSync` 對目錄的錯誤碼（A2 那批已在 macOS 實測為 `EISDIR`，本批的 `UNREADABLE` 路徑再次依賴它）。**任何一項不符請照實回報，不要改測試去迎合。**
-> **Windows**（Node v24.16.0）：`tests/gate-registration.test.js` **168/168**；`tests/probe-gate-registration.test.js` **68/68**（基準 44，本批 +24）；`tests/matcher-contract-cli.test.js` **70/70**；`tests/probe-verdict-cases.test.js` **56/56**（涵蓋 12 種 `RESULT_CODE`）；三平台 `matcher-contract --repo` 皆 exit 0；gate-cases **109/109**；`tests/backup-settings.test.js` **7 PASS／2 SKIP**；`tests/ai-install/run-windows.ps1` **69/69**（pwsh 7 與 Windows PowerShell 5.1 各跑一次）；`codex-check` **188/188**。
+> **Windows**（Node v24.16.0）：`tests/gate-registration.test.js` **168/168**；`tests/probe-gate-registration.test.js` **68/68**（基準 44，本批 +24）；`tests/matcher-contract-cli.test.js` **70/70**；`tests/probe-verdict-cases.test.js` **56/56**（⚠️ 這個 56/56 **不可信**，見本節開頭的 ⛔；它印的「涵蓋 12 種」統計的是**期望值**不是實測值，而 exec form 五案的期望值本身是錯的）；三平台 `matcher-contract --repo` 皆 exit 0；gate-cases **109/109**；`tests/backup-settings.test.js` **7 PASS／2 SKIP**；`tests/ai-install/run-windows.ps1` **69/69**（pwsh 7 與 Windows PowerShell 5.1 各跑一次）；`codex-check` **188/188**。
 > **Linux**（WSL2 ext4 家目錄、**fresh clone** 而非複製工作目錄，Node v22.23.1）：`gate-registration` **168/168 `--strict` SKIP 0**、probe **68/68**、`matcher-contract-cli` **70/70**、`probe-verdict-cases` **56/56**、gate-cases **121/121**、`backup-settings --strict` **9/9 SKIP 0**、`run-posix.sh` **68/68**、`run-e2e.sh` **11/11**。
-> **輸出不變的界線（不要讀成「完全不變」）**：比對工具**已進 repo**——[`tests/probe-verdict-cases.test.js`](tests/probe-verdict-cases.test.js)，56 個 fixture **逐案釘死** `RESULT_CODE` 與退出碼（涵蓋 **12 種** code），`--baseline <git-ref>` 另可與任一 ref 逐位元比對判定區。對 `origin/main` 的結果：**判定區相同 45/56**，不同的 **11 筆全部在檔內「已知的刻意差異」清單裡並各附理由**——5 筆是 exec form 的理由文案（舊句子在本批之後變成假的），6 筆是本批修掉的假綠（`if`／`async`／總開關 ×3／`timeout:0`）。清單以外的任何差異都會讓測試失敗。
+> **輸出不變的界線（不要讀成「完全不變」）**：比對工具在 [`tests/probe-verdict-cases.test.js`](tests/probe-verdict-cases.test.js)。
+> **判定區相同 45/56、不同的 11 筆全在檔內「已知的刻意差異」清單裡**——這個數字**是成立的**，
+> macOS 真機以固定 baseline 復現到完全相同的結果（5 筆是 exec form 的理由文案，
+> 6 筆是本批修掉的假綠：`if`／`async`／總開關 ×3／`timeout:0`）。
+> ⚠️ **但要用完整 SHA 當 baseline，不能用 `origin/main`：**
+>
+> ```bash
+> node tests/probe-verdict-cases.test.js --baseline 5da2624e5f3f103f80ecca520f8ad272d2715ef5
+> ```
+>
+> 我原本寫「`--baseline <git-ref>` 可與**任一** ref 比對」並以 `origin/main` 舉例，
+> **兩者都撤下**。合併之後 `origin/main` 就是受測版本自己，實測變成 **0/56 相同、45 FAIL**
+> （baseline 端每案 `TOOL_INTEGRITY_ERROR`）。而「任一 ref」也做不到：本批**新增**了
+> `lib/gate-registration.js`，比它更早的 ref 沒有那個模組，topology 不同。
+> 目前只有 `5da2624` 這個固定 baseline 被驗證過。
 > ⚠️ **這一段是重寫過的，前兩版都不可靠。** 第一版報「47/47 逐位元相同」，但當時的比對工具把「local 檔不存在」寫成 `null`，實際寫出一個**內容為 `null`** 的檔，於是幾乎每個 fixture 都落在 `SHAPE_ERROR`——數字是真的，涵蓋的分支遠少於宣稱。第二版改用「至少 6 種 code」當自我檢查，但合併前審查指出那仍可能讓大部分案子坍縮而通過，而且工具沒進 repo、宣稱無法重現。現在改成**逐案釘死 code**並把工具提交進 CI。
 > **反向驗證（逐案核對，不只比總數）**：probe 對 `5da2624` 版 → **54 PASS／14 FAIL**，失敗的**恰好**是那 14 個；對 `5cc50e0` 的舊 heredoc → **10 PASS／51 FAIL**，與既有紀錄的 7/37 對得上（44 案的 7/37 ＋ 新案的 3/14）。`matcher-contract-cli` 對 blob `5edaa7e` → **70/70 全部符合宣告的舊行為**（每案都宣告 `oldExit`，少數另宣告 `oldWant`／`oldStack`，所以這是對舊版的**正面刻畫**而非「會失敗」）。其中三案**舊版退出碼也是 1**，只有訊息抓得到差別。
 > **非空驗證**：共用模組做了 17 個變異注入，每個都先自我檢查「注入是否成功」（錨點存在 ＋ 替換後 bytes 不同 ＋ 磁碟內容真的變了），**17/17 被恰好正確的案子抓到**，Windows 與 Linux 各跑一次。

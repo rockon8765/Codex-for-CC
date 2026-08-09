@@ -1,6 +1,49 @@
 # macOS 原生驗證交接：gate 辨識共用模組 ＋ A1 顯式模式（2026-08-09）
 
-> **狀態：`pending`，而且這批**已經併進 `main`**。**
+> ## ⛔ 狀態：**已執行完畢，結論 BLOCK。本文件的部分指令是壞的，不要照原樣重跑。**
+>
+> macOS 於 2026-08-09 跑完全部項目：**產品判定邏輯 A-0～A-10 全綠**，
+> 三項 §4 診斷也都拿到答案。**但驗證資產本身有缺陷**，且**本文件有三處錯誤**——
+> 都是驗證者發現並由維護者復驗的：
+>
+> | 本文件的錯誤 | 正確做法 |
+> |---|---|
+> | A-3c／A-9／A-10 用 `origin/main` 當「舊版」 | 合併後它就是受測版本自己。**改用完整 SHA `5da2624e5f3f103f80ecca520f8ad272d2715ef5`** |
+> | A-9 的防呆是「bytes > 4000 ＋ `node --check`」 | 實測對「抽到現行版」**兩道全過** —— 防呆只擋空檔、擋不住抽錯版本。**改用 literal blob guard**（見下） |
+> | §4-1 說「BSD 若非 `EISDIR`，A-1 的 `A14` 會失敗」 | **假的。** `A14` 是 `sourceReadError(label, path, "EISDIR")`，把字串當**資料**注入，任何 OS 都綠。A-2／A-3 也只驗「讀取失敗：」前綴 |
+>
+> 另外 §3 的正向對照清單列了兩個**已不存在**的 case id（見該節）。
+>
+> **修正版指令**（macOS 已用這組跑出交接檔宣告的期望值）：
+>
+> ```bash
+> # A-3c
+> node tests/probe-verdict-cases.test.js --baseline 5da2624e5f3f103f80ecca520f8ad272d2715ef5
+> #   → 56/56、且印「判定區與 5da2624 相同：45/56（不同 11，共宣告 11 筆）」
+>
+> # A-9：舊 probe 的 blob 必須是 4ac2afb5ca1d99dab7840e0e66804e1a5eacb446
+> D=$(mktemp -d) && git show 5da2624e5f3f103f80ecca520f8ad272d2715ef5:tools/probe-gate-registration.js > "$D/probe-old.js"
+> test "$(git hash-object "$D/probe-old.js")" = 4ac2afb5ca1d99dab7840e0e66804e1a5eacb446 \
+>   || { echo "抽到的不是預期的舊 blob，停手"; exit 1; }
+> node tests/probe-gate-registration.test.js --probe "$D/probe-old.js"
+> #   → TOTAL 68 PASS 54 FAIL 14（整體 exit 1 是**預期**）
+>
+> # A-10：舊 matcher 的 blob 必須是 5edaa7efe4fd3e5ebac79442c4b01d106463d4df
+> git show 5da2624e5f3f103f80ecca520f8ad272d2715ef5:"macos/skills/超級模式/tests/matcher-contract.test.js" > "$D/mc-old.js"
+> test "$(git hash-object "$D/mc-old.js")" = 5edaa7efe4fd3e5ebac79442c4b01d106463d4df \
+>   || { echo "抽到的不是預期的舊 blob，停手"; exit 1; }
+> node tests/matcher-contract-cli.test.js --target "$D/mc-old.js"    # → 70/70
+> ```
+>
+> ⚠️ **A-3b（`probe-verdict-cases.test.js` 的 56/56）本身是假綠**，修正批次落地前不要
+> 拿它當通過依據。理由與其餘缺陷見 [`README.md`](../README.md) 開頭的 ⛔ 與
+> [`docs/backlog.md`](backlog.md)。
+>
+> ⚠️ **A-0 的身分表不完整**：`matcher-contract-cli.test.js` 硬編 `CANON_PLAT="windows"`，
+> 所以 A-3 實際讀的是 **Windows** 的 hook 與 snippet，而下面的 blob 表只釘 macOS 版本。
+> 混合樹有可能 A-0 全符而 A-3 仍在驗別的平台輸入。修正批次會處理。
+>
+> **這批**已經併進 `main`**。**
 >
 > 2026-08-09 維護者裁定「先併 main、macOS 走合併後 handoff」（沿用 A2 那批的先例），
 > 合併前審查同意該取捨但要求明文記為**風險裁示**。所以請注意：
@@ -109,9 +152,13 @@ integrity-lonely-probe, integrity-mirror-divergence, integrity-mirror-absent
 
 > 其餘新案在舊版**也應該 PASS** —— 它們是守衛不是修復（`type-http`／`type-mcp-tool`／
 > `type-agent`／`unsafe-async-false-passes`／`benign-fields-pass`／`shape-beats-unsafe`／
-> `once-must-pass`／`kill-switch-local-only-ignored`／`kill-switch-false-passes`／
-> `kill-switch-string-not-honored`／`integrity-staged-tree-ok`）。
+> `once-must-pass`／`kill-switch-false-passes`／`integrity-staged-tree-ok`）。
 > **若它們也失敗，代表你的量測有問題，不是發現。**
+>
+> ⚠️ **本清單先前多列了 `kill-switch-local-only-ignored` 與 `kill-switch-string-not-honored`
+> 兩個 id，已刪除。** 它們不是改名而已 —— 那兩案的**語義**在第 6 刀從「舊版應 PASS」
+> 變成了「預期 FAIL」（新 id `kill-switch-local-halts`／`kill-switch-string-is-shape-error`
+> 已經在上面那 14 筆失敗集合裡）。把它們列在正向對照裡是自相矛盾的。
 
 ```bash
 # A-10：舊版 matcher-contract（blob 5edaa7e）
