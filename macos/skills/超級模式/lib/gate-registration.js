@@ -68,10 +68,38 @@ const LEGAL_TYPES = ["command", "http", "mcp_tool", "prompt", "agent"];
  */
 const UNSAFE_FIELDS = [
   { name: "if", policy: "present" },
-  { name: "once", policy: "truthy" },
   { name: "async", policy: "truthy" },
   { name: "asyncRewake", policy: "truthy" },
 ];
+
+/*
+ * **`once` 刻意不在上面那張表裡，而且不准再加回去。**
+ *
+ * 2026-08-09 的合併前審查抓到：本檔一度把 `once:true` 列為不安全並讓兩支工具 exit 1。
+ * 那是**誤紅**——官方 hooks reference 明講 `once`
+ * 「Only honored for hooks declared in skill frontmatter; **ignored in settings files**
+ * and agent frontmatter」。settings 檔裡的 `once` 根本不生效，所以它既不會讓 gate 失效，
+ * 也不該讓既有使用者的安裝驗收由綠變紅。
+ *
+ * 這個錯誤的來源值得記下來：第一次查官方文件時，摘要把 `once` 列成「所有 hook type 通用」
+ * 而**漏掉了那句限定**。教訓＝欄位語義要看原文的限定子句，不要只看欄位表。
+ *
+ * `tests/gate-registration.test.js` 有一條斷言釘住「`once:true` 必須放行」。
+ */
+const IGNORED_IN_SETTINGS = ["once"];
+
+/*
+ * `disableAllHooks: true` —— settings 的**總開關**，把所有 hook 一起關掉。
+ * 官方 settings 文件：「Disable all hooks and any custom status line」；
+ * hooks 文件另註明它遵循 managed settings 階層（managed 層的 hook 只有 managed 層關得掉）。
+ *
+ * 這是 open-world schema 的一個**例外**，必須具名擋下：它是「JSON 完全合法、gate 註冊完全
+ * 正確、但 gate 一定不會被叫起」的最乾淨案例。修正前兩支工具都印「正常／PASS」。
+ *
+ * ⚠️ 範圍誠實：本模組只看 caller 餵進來的檔案。專案層 `.claude/settings.json` 或
+ * managed 層若設了這個旗標，這裡看不到。
+ */
+const KILL_SWITCH = "disableAllHooks";
 
 const isObj = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
 const typeName = (v) => (v === null ? "null" : Array.isArray(v) ? "陣列" : typeof v);
@@ -136,6 +164,7 @@ function scanSource(source) {
     path: source.path,
     shortLabel: source.shortLabel === undefined ? source.label : source.shortLabel,
     candidates: [],
+    killSwitch: false,
   };
 
   if (source.kind === "missing") return Object.assign(base, { status: "missing" });
@@ -155,6 +184,9 @@ function scanSource(source) {
   const shape = (shapeError) => Object.assign(base, { status: "shape-error", shapeError });
 
   if (!isObj(j)) return shape({ kind: "top-not-object", typeName: typeName(j) });
+  // 總開關要在任何「gate 註冊得好不好」的判斷**之前**記下來 —— 它一開，後面全部無意義。
+  // 只認 `true`（`"true"`／1 之類不是官方形態，不替使用者猜）。
+  base.killSwitch = j[KILL_SWITCH] === true;
   if (!("hooks" in j)) return Object.assign(base, { status: "ok", emptyReason: "no-hooks" });
   if (!isObj(j.hooks)) return shape({ kind: "hooks-not-object", typeName: typeName(j.hooks) });
 
@@ -293,6 +325,11 @@ function assessProbe(sources) {
 
   if (scans.some(isBroken)) return out("SHAPE_ERROR", 1);
 
+  // 總開關排在所有「註冊得好不好」的判定之前 —— 它一開，gate 註冊得再完美也不會被叫起。
+  // ⚠️ 只看 `settings.json`：`settings.local.json` 不是 user scope（2026-07-28 macOS 實測），
+  // 那份裡的旗標對 user hooks 不生效，所以不該據它擋人。
+  if (main.killSwitch) return out("HOOKS_DISABLED", 1);
+
   const unsafe = allShell.concat(allExec).filter((c) => c.unsafe.length);
   if (unsafe.length) return out("UNSAFE_FIELD", 1, { unsafe });
 
@@ -337,6 +374,9 @@ function assessMatcher(input) {
     return out(scan.shapeError.kind === "bad-type" ? "BAD_TYPE" : "SHAPE_ERROR", 1);
   }
 
+  // 總開關：使用者明確指定要驗這一份，所以不論它是哪一份，看到就擋。
+  if (scan.killSwitch) return out("HOOKS_DISABLED", 1);
+
   const unsafe = scan.candidates.filter((c) => c.unsafe.length);
   if (unsafe.length) return out("UNSAFE_FIELD", 1, { unsafe });
 
@@ -348,9 +388,14 @@ function assessMatcher(input) {
   if (!shell.length) return out("NO_GATE", 1);
 
   const keys = identityKeys(shell);
+  // ⚠️ matcher 集合要算**全部** candidate，不能只算 shell form。
+  // 2026-08-09 合併前審查抓到的假綠：canonical shell 一筆 ＋ matcher 不同的 exec 一筆
+  // → 只算 shell 會得到「只有一種 matcher」→ OK_WITH_DUPLICATES exit 0，
+  // renderer 還會宣稱「matcher 相同」。那直接違反本模組自己宣告的規則
+  //（多筆 gate 且 matcher 不一致 → AMBIGUOUS_MATCHER）。
   const matchers = [];
-  for (const c of shell) if (!matchers.includes(c.matcher)) matchers.push(c.matcher);
-  if (matchers.length > 1) return out("AMBIGUOUS_MATCHER", 1, { matchers, shell });
+  for (const c of scan.candidates) if (!matchers.includes(c.matcher)) matchers.push(c.matcher);
+  if (matchers.length > 1) return out("AMBIGUOUS_MATCHER", 1, { matchers, shell, exec });
 
   const chosen = shell[0];
   const dupes = shell.length > 1 || exec.length > 0;
@@ -416,7 +461,6 @@ function scanLine(s) {
 // ——`tests/gate-registration.test.js` 有一條斷言會在漏掉時 FAIL。
 const UNSAFE_WHY = {
   if: "把 gate 限縮到符合該規則的工具，其餘工具完全不受攔",
-  once: "首次叫用後就被移除，之後整個 session 不設防",
   async: "非阻塞背景執行，PreToolUse 的 deny 來不及生效",
   asyncRewake: "非阻塞背景執行（多了 exit 2 喚醒），PreToolUse 的 deny 來不及生效",
 };
@@ -440,9 +484,13 @@ function scopeLines() {
     "   ・它**不是 settings 的 schema 驗證器**。實際會驗、驗不過就非 0 的只有這些欄位：",
     "       PreToolUse 是陣列／每個 entry 是物件／entry.hooks 若存在是陣列／",
     "       每個 handler 是物件／handler.command 若存在是字串／handler.args 若存在是字串陣列。",
-    "     命中 needle 之後才另外驗 handler.type === \"command\"（合法值有 command／http／",
+    "     另外會驗頂層的 " + KILL_SWITCH + "（true ＝ 所有 hook 停用，具名擋下）；",
+    "     命中 needle 之後才驗 handler.type === \"command\"（合法值有 command／http／",
     "     mcp_tool／prompt／agent，只有 command 會執行 command 欄位）、該 entry 的 matcher",
-    "     型別，以及 if／once／async／asyncRewake 這幾個會讓 gate 不阻擋的欄位。",
+    "     型別，以及 if／async／asyncRewake 這幾個會讓 gate 不阻擋的欄位。",
+    "     ⚠️ **不驗** once —— 官方明訂它在 settings 檔會被忽略（只對 skill frontmatter 生效），",
+    "     所以在這裡擋它是誤紅。也不驗 timeout 的大小（極小值可能讓 gate 來不及回應，",
+    "     但本 repo 尚未用真 runtime 證實，不憑推測擋人）。",
     "     **不驗**的例子：沒有 hooks 鍵的 entry 直接略過；非 gate 的 handler 不驗 type 的型別，",
     "     也不驗 type:\"command\" 是否真的帶了 command —— 這些都會 exit 0 放行。",
   ];
@@ -454,6 +502,12 @@ function renderProbe(v) {
   if (v.code === "SHAPE_ERROR") {
     // fail-closed：形狀不明時不可以讓人拿 exit 0 當成「已確認沒問題」
     out.push("判定：有檔案無法解析或形狀不合 —— 先修好再重跑，不要往下做。");
+  } else if (v.code === "HOOKS_DISABLED") {
+    out.push("判定：**所有 hook 都被停用** —— settings.json 設了 " + KILL_SWITCH + ": true。");
+    out.push("      gate 就算註冊得完全正確也不會被叫起。把它移除或改成 false 再重跑。");
+    out.push("      官方說明是「Disable all hooks and any custom status line」。");
+    out.push("      ⚠️ 本工具只看家目錄那兩個檔：專案層 .claude/settings.json 或 managed 層");
+    out.push("      若也設了這個旗標，這裡看不到。");
   } else if (v.code === "UNSAFE_FIELD") {
     for (const c of v.unsafe) {
       for (const f of c.unsafe) {
@@ -472,9 +526,9 @@ function renderProbe(v) {
         "  args=" + JSON.stringify(c.args));
     }
     out.push("判定：停手 —— 上面是 exec form（handler 帶 `args`）的 gate 註冊，本工具無法判斷。請人工確認。");
-    out.push("      理由：安裝流程規定必跑的 matcher-contract 目前也只看 `command`，會對它回報");
-    out.push("      「沒有註冊本 hook」；而 `args` 存在與否會改變 runtime 語義，光比字串無法");
-    out.push("      安全判斷兩筆註冊是不是同一筆。這裡若判「正常」或「沒有 gate」都會誤導。");
+    out.push("      理由：`args` 存在與否會改變 runtime 語義（直接 exec vs 經 shell），");
+    out.push("      光比字串無法安全判斷兩筆註冊是不是同一筆。這裡若判「正常」或「沒有 gate」都會誤導。");
+    out.push("      matcher-contract 對同一份輸入會回報 RESULT_CODE=UNSUPPORTED_EXEC_FORM，兩邊一致。");
   } else if (v.code === "HALT_SHARED_ENTRY") {
     for (const c of v.shared) {
       out.push("  " + hatOf(c) + " 所在的 entry 底下還有 " + c.siblings + " 個非 gate 的 handler");
@@ -513,33 +567,102 @@ function renderProbe(v) {
   return out.concat(scopeLines(), ["", "RESULT_CODE=" + v.code]).join("\n");
 }
 
+// ── matcher 的 runtime 語義 ───────────────────────────────────────────────
 /*
- * matcher-contract 的 adapter。`ctx` = { mode, settingsPath, hookPath }。
+ * **這一段的存在理由是修正前的比對方式與 runtime 不一致。**
  *
- * **一律先印兩條實際受驗的路徑**，含早退路徑 —— 這支測試的整個價值在於「比對的是哪一對」，
- * 只印 PASS/FAIL 會讓人以為驗到了 live，其實驗的是 repo snippet（修正前就是這樣）。
+ * 官方 hooks reference 的 matcher 判定規則：
+ *   `"*"`／`""`／省略                                  → 全部匹配
+ *   只含字母、數字、`_`、`-`、空白、`,`、`|`            → 精確字串，或以 `|`／`,` 分隔的精確清單
+ *   **含其他任何字元 → JavaScript 正規表達式（unanchored）**
+ *
+ * 關鍵事實：本 repo 的 canonical matcher 含 `mcp__.*` 的 `.` 與 `*`，
+ * 所以它**走的是 regex 路徑**，不是精確清單。修正前這支測試一律
+ * `split("|").map(trim)` 當精確清單比，剛好得到相同答案（因為每個 alternative 都是純名字），
+ * 但那是巧合而非等價。合併前審查給出的反例：把 canonical matcher 寫成
+ * `Edit | Write | … | mcp__.*`（`|` 兩側加空白）——
+ *   ・舊比法：trim 之後清單一致 → **PASS**
+ *   ・runtime：仍是 regex，alternative 變成 `Edit `／` Write `，帶字面空白，
+ *     所以 `Edit`、`Write`、`Bash`、`mcp__foo__bar` 全都不匹配 → **gate 從不執行**
+ * 所以現在改成**依規則判定走哪條路，再用該條路的語義實際比對**。
  */
-function matcherAttestation(ctx) {
-  // 這個函式的整個工作就是「告訴使用者剛才驗的是哪一對」，所以欄位缺漏必須**大聲壞掉**，
-  // 不能印出 "undefined"。實例：整合時 CLI 傳的是 {settings, hook}、這裡讀的是
-  // {settingsPath, hookPath}，於是三平台都印「受驗 settings: undefined」而測試照樣 PASS
-  // ——一個專門防假綠的輸出自己變成了假訊息。呼叫端外層有 try/catch，會變成
-  // INTERNAL_ERROR ＋ 非 0，而不是一份看起來正常的報告。
-  for (const k of ["mode", "settingsPath", "hookPath"]) {
-    if (typeof ctx[k] !== "string" || !ctx[k]) {
-      throw new Error("matcherAttestation: ctx." + k + " 缺漏或不是非空字串（得到 " + JSON.stringify(ctx[k]) + "）");
-    }
+const LIST_SAFE_RE = /^[A-Za-z0-9_\-,| \t]*$/;
+// 反向檢查用的代表性 MCP 工具名。用「明顯是範例」的名字，避免有人以為它是真工具。
+const MCP_PROBE = "mcp__example__do_thing";
+
+function evaluateMatcher(matcher) {
+  const raw = matcher === undefined || matcher === null ? "" : String(matcher);
+  if (raw === "*" || raw.trim() === "") return { kind: "all", raw, names: [] };
+  if (LIST_SAFE_RE.test(raw)) {
+    return { kind: "list", raw, names: raw.split(/[|,]/).map((s) => s.trim()).filter(Boolean) };
   }
-  return [
-    "受驗模式：   " + ctx.mode,
-    "受驗 settings: " + ctx.settingsPath,
-    "受驗 hook:     " + ctx.hookPath,
-  ];
+  let regex = null;
+  let regexError = null;
+  try {
+    regex = new RegExp(raw);
+  } catch (e) {
+    regexError = e.message;
+  }
+  // regex 路徑下仍抽出「看起來像字面工具名」的 alternative，供反向檢查用。
+  // ⚠️ 這是**啟發式**：regex 的 alternative 不一定是字面名字。正向檢查用真的比對，
+  // 反向檢查只能盡力而為 —— 文案要如實說。
+  return { kind: "regex", raw, names: raw.split("|").map((s) => s.trim()).filter(Boolean), regex, regexError };
 }
 
-const FIX_NO_APPEND =
-  "  修法：**修改／替換現有那一筆**，不要 append 新的一筆 —— 只重做 AI-INSTALL 步驟 2 會" +
-  "\n        多出第二筆註冊。改完先跑 node tools/probe-gate-registration.js，再跑本測試 --live。";
+/*
+ * 契約比對：hook 要攔的每個工具名，在**runtime 的語義下**都必須被 matcher 命中。
+ * 回傳結構化 problems，由 renderMatcherContract 產生文案。
+ */
+function checkMatcherContract(matcher, required) {
+  const ev = evaluateMatcher(matcher);
+  const problems = [];
+  if (ev.kind === "regex" && !ev.regex) {
+    problems.push({ code: "REGEX_INVALID", params: { error: ev.regexError } });
+    return { ok: false, ev, problems };
+  }
+  const hits = (name) =>
+    ev.kind === "all" ? true : ev.kind === "list" ? ev.names.includes(name) : ev.regex.test(name);
+
+  for (const name of required) if (!hits(name)) problems.push({ code: "MISSING_TOOL", params: { name } });
+  if (!hits(MCP_PROBE)) problems.push({ code: "MISSING_MCP", params: { probe: MCP_PROBE } });
+  // 反向：matcher 不該出現 hook 不認識的字面工具名（避免只改 matcher 卻忘了改 hook）。
+  // `"*"`／空字串是「全部匹配」，沒有 alternative 可查，略過。
+  if (ev.kind !== "all") {
+    const known = required.concat(["mcp__.*"]);
+    for (const alt of ev.names) if (!known.includes(alt)) problems.push({ code: "UNKNOWN_ALT", params: { alt } });
+  }
+  return { ok: problems.length === 0, ev, problems };
+}
+
+// ── matcher-contract 的 renderer ─────────────────────────────────────────
+/*
+ * `ctx.kind` 是**機械值**（`"repo"` / `"live"` / `"explicit"`），`ctx.mode` 是給人看的字串。
+ * 兩者分開的理由：**每一條修復建議都必須依受驗目標而不同。**
+ * 重構時我一度只留 `mode`，於是 `--repo` 模式下「待出貨的 snippet 壞了」也會得到
+ * 「hook 必須註冊在 ~/.claude/settings.json、注意 settings.local.json 不是 user scope、
+ * 請確認你合併的是…」這一整段——全部不合語境，而且比修正前**更差**
+ *（舊版對 repo 佈局本來有一句正確的「這是待出貨的檔案」）。
+ * 合併前審查進一步指出：不只 `NO_GATE`，`BAD_TYPE`／`UNSAFE_FIELD`／exec／ambiguous
+ * 也都固定叫人「重跑 probe 與 --live」，而那在 repo／explicit 模式下驗的是另一個目標。
+ */
+const KINDS = ["repo", "live", "explicit"];
+
+function nextStep(kind) {
+  if (kind === "repo") {
+    return "  下一步：這是**待出貨的檔案**，不是你的個人設定。請回報維護者，先不要安裝。";
+  }
+  if (kind === "explicit") {
+    return "  下一步：受驗路徑就印在上面。修那一份，再用**同一組** --settings/--hook 重跑。";
+  }
+  return "  下一步：先跑 node tools/probe-gate-registration.js（它會看兩個檔並數筆數），" +
+    "\n        照它印的判定與 docs/AI-INSTALL.md 步驟 2 修，然後重跑本測試 --live。";
+}
+
+function fixNoAppend(kind) {
+  if (kind !== "live") return nextStep(kind);
+  return "  修法：**修改／替換現有那一筆**，不要 append 新的一筆 —— 只重做 AI-INSTALL 步驟 2 會" +
+    "\n        多出第二筆註冊。\n" + nextStep(kind);
+}
 
 function renderMatcher(v, ctx) {
   const s = v.scan;
@@ -548,23 +671,34 @@ function renderMatcher(v, ctx) {
     if (v.code === "OK_WITH_DUPLICATES") {
       out.push("⚠️ 這份 settings 有 " + v.duplicates + " 筆 shell-form gate handler" +
         (v.exec.length ? "（另有 " + v.exec.length + " 筆 exec form）" : "") +
-        "，matcher 相同所以本測試不擋。");
+        "。它們的 matcher 相同，所以本測試不擋。");
       out.push("   重複註冊是 probe 的職責：請跑 node tools/probe-gate-registration.js。");
     }
     return out.join("\n");
   }
 
-  if (v.code === "MISSING") {
+  if (v.code === "HOOKS_DISABLED") {
+    out.push("FAIL: " + s.path + " 設了 " + KILL_SWITCH + ": true —— **所有 hook 都被停用**。");
+    out.push("  gate 就算註冊得完全正確也不會被叫起。這是 settings 的總開關，");
+    out.push("  官方說明是「Disable all hooks and any custom status line」。");
+    out.push("  把它移除或改成 false 之後再重跑。");
+    out.push("  ⚠️ 本測試只看上面那一份檔案：專案層 .claude/settings.json 或 managed 層若也設了，這裡看不到。");
+    out.push(nextStep(ctx.kind));
+  } else if (v.code === "MISSING") {
     out.push("FAIL: 找不到 " + s.path);
+    out.push(nextStep(ctx.kind));
   } else if (v.code === "UNREADABLE") {
     out.push("FAIL: " + s.path + " " +
       (s.status === "read-error" ? "讀取失敗：" + s.readCode : "JSON 解析失敗：" + s.parseMessage));
+    out.push(nextStep(ctx.kind));
   } else if (v.code === "SHAPE_ERROR" || v.code === "BAD_TYPE") {
     out.push("FAIL: " + s.path + " 形狀不合：" + shapeSentence(s.shapeError));
     if (v.code === "BAD_TYPE") {
       out.push("  Claude Code 的 type 合法值有 command／http／mcp_tool／prompt／agent，");
       out.push("  **只有 command 會執行 command 欄位** —— 其餘四種都等於 gate 不會被叫起。");
-      out.push(FIX_NO_APPEND);
+      out.push(fixNoAppend(ctx.kind));
+    } else {
+      out.push(nextStep(ctx.kind));
     }
   } else if (v.code === "UNSAFE_FIELD") {
     out.push("FAIL: " + s.path + " 裡的 gate 註冊帶了會讓它不阻擋的欄位：");
@@ -573,24 +707,67 @@ function renderMatcher(v, ctx) {
         out.push("  " + hatOf(c) + "  " + f.name + "=" + JSON.stringify(f.value) + " —— " + UNSAFE_WHY[f.name]);
       }
     }
-    out.push(FIX_NO_APPEND);
+    out.push(fixNoAppend(ctx.kind));
   } else if (v.code === "UNSUPPORTED_EXEC_FORM") {
     out.push("FAIL: " + s.path + " 裡的 gate 是 exec form（handler 帶 args），本測試不支援。");
     out.push("  exec form 是 Claude Code 官方支援的形態，**不是**無效註冊 —— 但 args 存在與否");
-    out.push("  會改變 runtime 語義，光比字串無法安全判斷。請跑 node tools/probe-gate-registration.js");
-    out.push("  （它對 exec form 會 exit 3 並要求人工確認）。");
+    out.push("  會改變 runtime 語義，光比字串無法安全判斷。");
+    out.push(nextStep(ctx.kind));
   } else if (v.code === "AMBIGUOUS_MATCHER") {
-    out.push("FAIL: " + s.path + " 有 " + v.shell.length + " 筆 gate handler，但 matcher 不一致：");
+    const total = v.shell.length + v.exec.length;
+    out.push("FAIL: " + s.path + " 有 " + total + " 筆 gate handler（shell " + v.shell.length +
+      "、exec " + v.exec.length + "），但 matcher 不一致：");
     for (const m of v.matchers) out.push("  matcher=" + JSON.stringify(m));
-    out.push("  本測試無法判斷該以哪一筆為準。請跑 node tools/probe-gate-registration.js");
-    out.push("  （它會 exit 3 並列出衝突的註冊）。");
+    out.push("  本測試無法判斷該以哪一筆為準。");
+    out.push(nextStep(ctx.kind));
   } else {
     out.push("FAIL: " + s.path + " 裡沒有註冊本 hook");
     out.push("");
-    out.push("hook 必須註冊在 ~/.claude/settings.json（user scope）。");
-    out.push("⚠️ ~/.claude/settings.local.json 不是 user scope —— 只有從家目錄啟動 Claude Code 時");
-    out.push("   才會被當成專案層檔案讀到，從其他目錄啟動就完全不生效。");
-    out.push("若你剛照 AI-INSTALL 步驟 2 合併過，請確認合併的是 ~/.claude/settings.json。");
+    if (ctx.kind === "repo") {
+      out.push("這是**待出貨的 settings.snippet.json**，不是你的個人設定 —— 它自己就該註冊本 hook。");
+      out.push("**不要安裝**，也不要拿家目錄的 settings 來掩蓋它；請回報維護者。");
+      out.push("（若你其實想驗的是已安裝的那一份，請改用 --live。）");
+    } else if (ctx.kind === "live") {
+      out.push("hook 必須註冊在 ~/.claude/settings.json（user scope）。");
+      out.push("⚠️ ~/.claude/settings.local.json 不是 user scope —— 只有從家目錄啟動 Claude Code 時");
+      out.push("   才會被當成專案層檔案讀到，從其他目錄啟動就完全不生效。");
+      out.push(nextStep(ctx.kind));
+    } else {
+      out.push("你用 --settings 明確指定了這一份，但它裡面沒有 command 含本 hook 檔名的 handler。");
+      out.push(nextStep(ctx.kind));
+    }
+  }
+  return out.join("\n");
+}
+
+const CONTRACT_SENTENCE = {
+  REGEX_INVALID: (p) => "matcher 含 regex 專用字元，但編不成正規表達式：" + p.error,
+  MISSING_TOOL: (p) => "matcher 命中不了 " + p.name + " → hook 不會被叫起，該工具的攔截等於沒生效",
+  MISSING_MCP: (p) => "matcher 命中不了 MCP 工具（測試名 " + p.probe + "）→ 所有 MCP 工具都不會進 hook",
+  UNKNOWN_ALT: (p) => "matcher 多出 hook 不認識的項目 " + p.alt + " → 只改了 matcher 卻沒改 hook？",
+};
+
+function renderMatcherContract(res, ctx, required) {
+  const out = [];
+  for (const p of res.problems) {
+    out.push("FAIL: " + (CONTRACT_SENTENCE[p.code] ? CONTRACT_SENTENCE[p.code](p.params) : p.code));
+  }
+  if (!res.ok) {
+    out.push("");
+    out.push("matcher 現值:   " + JSON.stringify(res.ev.raw));
+    // 印出「runtime 會怎麼解讀它」——這是修正前完全看不到、卻決定一切的資訊。
+    out.push("runtime 解讀為: " + (
+      res.ev.kind === "all" ? "全部匹配（\"*\" 或空字串）"
+        : res.ev.kind === "list" ? "精確清單（只含字母／數字／_／-／空白／, ／| ）"
+          : "**JavaScript 正規表達式（unanchored）** —— 因為它含上述以外的字元"
+    ));
+    if (res.ev.kind === "regex") {
+      out.push("                ⚠️ regex 路徑下，`|` 兩側的空白會變成 regex 的字面內容。");
+      out.push("                例：`Edit | Write` 的第一個 alternative 是 `Edit `（含尾空白），");
+      out.push("                所以工具名 `Edit` **不會**被命中。");
+    }
+    out.push("hook 清單:      " + required.join("|") + "|mcp__.*");
+    out.push(nextStep(ctx.kind));
   }
   return out.join("\n");
 }
@@ -600,15 +777,22 @@ module.exports = {
   LEGAL_TYPES,
   UNSAFE_FIELDS,
   UNSAFE_WHY,
+  IGNORED_IN_SETTINGS,
+  KILL_SWITCH,
+  KINDS,
+  MCP_PROBE,
   sourceRaw,
   sourceMissing,
   sourceReadError,
   scanSource,
   assessProbe,
   assessMatcher,
+  evaluateMatcher,
+  checkMatcherContract,
   shapeSentence,
   scanLine,
   renderProbe,
-  matcherAttestation,
   renderMatcher,
+  renderMatcherContract,
+  nextStep,
 };

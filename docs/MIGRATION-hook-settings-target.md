@@ -266,7 +266,9 @@ node "macos/skills/超級模式/tests/matcher-contract.test.js" --live; echo "ex
   - `NO_GATE` → 第 2 節沒做成功，回去檢查
   - `BAD_TYPE` → handler 的 `type` 不是 `command`（合法值有 `command`／`http`／`mcp_tool`／
     `prompt`／`agent`，**只有 `command` 會執行 `command` 欄位**）
-  - `UNSAFE_FIELD` → handler 帶 `if`／`once`／`async`／`asyncRewake`，gate 不會如預期阻擋
+  - `UNSAFE_FIELD` → handler 帶 `if`／`async`／`asyncRewake`，gate 不會如預期阻擋
+    （**不含 `once`**：官方明訂它在 settings 檔會被忽略，擋它是誤紅）
+  - `HOOKS_DISABLED` → 該檔設了 `disableAllHooks: true`，**所有 hook 都被停用**
   - `AMBIGUOUS_MATCHER`／`SHAPE_ERROR`／`UNSUPPORTED_EXEC_FORM` → 照訊息處理，
     多筆或衝突的情況以第 1 節的 probe 為準
 - `exit=2` → 參數用錯，照它印的用法改

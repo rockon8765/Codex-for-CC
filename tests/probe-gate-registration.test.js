@@ -114,8 +114,9 @@ const CASES = [
 
   // ---- exec form（Claude Code 官方支援的第二種 command hook 形態）-------
   // 本工具**只判斷 shell form**：看到 exec form 一律 exit 3。
-  // 理由見 tools/probe-gate-registration.js 的註解——判「正常」會與必跑的
-  // matcher-contract（也只看 command）矛盾，判「沒有 gate」則會叫人再加一筆。
+  // 理由見模組註解：`args` 存在與否會改變 runtime 語義，光比字串無法安全判斷兩筆註冊
+  // 是不是同一筆；判「沒有 gate」則會叫人再加一筆（自己製造重複註冊）。
+  // matcher-contract 對同一份輸入回報 UNSUPPORTED_EXEC_FORM，兩邊一致。
   // 「大小寫敏感」是範圍說明裡的字串——每個 exit 3 路徑也要印，所以在這裡釘住
   { id: "halt-exec-form", main: settings(execEntry()), exit: 3, want: ["exec form", "判定：停手", "大小寫敏感"], deny: ["正常，不用修", "兩邊都沒有 gate"] },
   { id: "halt-duplicate-exec-form", main: settings(execEntry(), execEntry()), exit: 3, want: ["exec form", "判定：停手"], deny: ["已經重複註冊"] },
@@ -148,10 +149,21 @@ const CASES = [
   // 修正前這五種**兩支工具都印「正常／PASS」**（假 HOME 實測，見 docs/backlog.md）。
   // 官方 hooks reference 有這些欄位，所以它們不是畸形資料，是會生效的設定。
   { id: "unsafe-if", main: settings({ matcher: MATCHER, hooks: [{ type: "command", command: CMD, if: "Bash(git push *)" }] }), exit: 1, want: ["判定：設定不安全", "帶 if=", "其餘工具完全不受攔", "不要 append"], deny: ["判定：正常，不用修。"] },
-  { id: "unsafe-once", main: settings({ matcher: MATCHER, hooks: [{ type: "command", command: CMD, once: true }] }), exit: 1, want: ["帶 once=true", "整個 session 不設防"], deny: ["判定：正常，不用修。"] },
+  // ⚠️ once **不是**不安全欄位：官方明訂它只在 skill frontmatter 生效、settings 檔裡會被忽略。
+  // 本批曾一度擋它（誤紅，會無故弄壞既有使用者的安裝驗收），合併前審查抓到並改回。
+  { id: "once-must-pass", main: settings({ matcher: MATCHER, hooks: [{ type: "command", command: CMD, once: true }] }), exit: 0, want: ["判定：正常，不用修。"], deny: ["設定不安全"] },
   { id: "unsafe-async", main: settings({ matcher: MATCHER, hooks: [{ type: "command", command: CMD, async: true }] }), exit: 1, want: ["帶 async=true", "deny 來不及生效"], deny: ["判定：正常，不用修。"] },
   { id: "unsafe-async-rewake", main: settings({ matcher: MATCHER, hooks: [{ type: "command", command: CMD, asyncRewake: true }] }), exit: 1, want: ["帶 asyncRewake=true"], deny: ["判定：正常，不用修。"] },
-  { id: "unsafe-in-local-too", main: { hooks: { PreToolUse: [] } }, local: settings({ matcher: MATCHER, hooks: [{ type: "command", command: CMD, once: true }] }), exit: 1, want: ["settings.local.json", "帶 once=true"] },
+  { id: "unsafe-in-local-too", main: { hooks: { PreToolUse: [] } }, local: settings({ matcher: MATCHER, hooks: [{ type: "command", command: CMD, async: true }] }), exit: 1, want: ["settings.local.json", "帶 async=true"] },
+
+  // ---- disableAllHooks：settings 的總開關（合併前審查抓到的假綠）------------
+  { id: "kill-switch-main", main: Object.assign({ disableAllHooks: true }, settings(gateEntry())), exit: 1, want: ["所有 hook 都被停用", "disableAllHooks: true", "註冊得完全正確也不會被叫起"], deny: ["判定：正常，不用修。"] },
+  // local 那份不是 user scope，它裡面的旗標對 user hooks 不生效 → 不該據它擋人
+  { id: "kill-switch-local-only-ignored", main: settings(gateEntry()), local: { disableAllHooks: true }, exit: 0, want: ["判定：正常，不用修。"], deny: ["所有 hook 都被停用"] },
+  { id: "kill-switch-false-passes", main: Object.assign({ disableAllHooks: false }, settings(gateEntry())), exit: 0, want: ["判定：正常，不用修。"] },
+  // 只認 true，不替使用者猜非官方形態
+  { id: "kill-switch-string-not-honored", main: Object.assign({ disableAllHooks: "true" }, settings(gateEntry())), exit: 0, want: ["判定：正常，不用修。"] },
+  { id: "kill-switch-beats-unsafe", main: Object.assign({ disableAllHooks: true }, settings({ matcher: MATCHER, hooks: [{ type: "command", command: CMD, async: true }] })), exit: 1, want: ["所有 hook 都被停用"], deny: ["判定：設定不安全"] },
   // 明確關閉不算不安全 —— 否則會無故弄壞把欄位寫成 false 的使用者
   { id: "unsafe-async-false-passes", main: settings({ matcher: MATCHER, hooks: [{ type: "command", command: CMD, async: false, once: false }] }), exit: 0, want: ["判定：正常，不用修。"], deny: ["設定不安全"] },
   // 良性欄位一律放行（不影響 gate 能否阻擋）

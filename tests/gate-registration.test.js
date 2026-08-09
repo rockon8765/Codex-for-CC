@@ -105,14 +105,12 @@ const probe = (main, local) => {
   const v = G.assessProbe({ main: main || missing(L_MAIN), local: local || missing(L_LOCAL) });
   return { code: v.code, exit: v.exit, text: G.renderProbe(v), v };
 };
-const matcher = (src) => {
+// attestation 已移到 matcher-contract 本體（它必須能在模組載入之前印），
+// 所以這裡只驗 renderMatcher。attestation 的案子在 tests/matcher-contract-cli.test.js。
+const matcher = (src, kind) => {
   const v = G.assessMatcher({ settings: src });
-  const ctx = { mode: "repo", settingsPath: src.path, hookPath: "/fake/hook.js" };
-  return {
-    code: v.code, exit: v.exit,
-    text: G.matcherAttestation(ctx).join("\n") + "\n" + G.renderMatcher(v, ctx),
-    v,
-  };
+  const ctx = { kind: kind || "live", mode: kind || "live" };
+  return { code: v.code, exit: v.exit, text: G.renderMatcher(v, ctx), v };
 };
 
 // ════════════════════════════════════════════════════════════════════════
@@ -292,9 +290,8 @@ expect("A35 if 限縮", probe(raw(L_MAIN, settings(entry([gate({ if: "Bash(git p
   hasnt: ["判定：正常，不用修。"],
 });
 
-expect("A36 once", probe(raw(L_MAIN, settings(entry([gate({ once: true })])))), {
-  code: "UNSAFE_FIELD", exit: 1, has: ["帶 once=true", "整個 session 不設防"],
-});
+// A36 原本斷言 `once:true` 是不安全欄位 —— **那是誤紅**，已刪除。
+// 官方明訂 once 在 settings 檔會被忽略；正確行為由 A86～A89 釘住。
 
 expect("A37 async", probe(raw(L_MAIN, settings(entry([gate({ async: true })])))), {
   code: "UNSAFE_FIELD", exit: 1, has: ["帶 async=true", "deny 來不及生效"],
@@ -324,8 +321,8 @@ expect("A42 bad type + async → 形狀優先", probe(raw(L_MAIN, settings(entry
   code: "SHAPE_ERROR", exit: 1, has: ['type 是 "prompt"'], hasnt: ["判定：設定不安全"],
 });
 
-expect("A43 local 帶不安全欄位也要抓到", probe(raw(L_MAIN, { hooks: { PreToolUse: [] } }), raw(L_LOCAL, settings(entry([gate({ once: true })])))), {
-  code: "UNSAFE_FIELD", exit: 1, has: [L_LOCAL, "帶 once=true"],
+expect("A43 local 帶不安全欄位也要抓到", probe(raw(L_MAIN, { hooks: { PreToolUse: [] } }), raw(L_LOCAL, settings(entry([gate({ async: true })])))), {
+  code: "UNSAFE_FIELD", exit: 1, has: [L_LOCAL, "帶 async=true"],
 });
 
 // ── open-world：不相干的畸形／未知欄位一律放行 ──────────────────────────
@@ -385,9 +382,7 @@ expect("A51 echo needle（已知假陽性，範圍說明要提到）", probe(raw
 console.log("\n§A assessMatcher");
 // ════════════════════════════════════════════════════════════════════════
 
-expect("A60 正常一筆", matcher(raw("snippet", settings(entry([gate()])))), {
-  code: "OK", exit: 0, has: ["受驗模式：", "受驗 settings: ", "受驗 hook:     "],
-});
+expect("A60 正常一筆", matcher(raw("snippet", settings(entry([gate()])))), { code: "OK", exit: 0 });
 
 expect("A61 檔案不存在", matcher(missing("live")), {
   code: "MISSING", exit: 1, has: ["找不到 /fake/live"],
@@ -458,16 +453,149 @@ expect("A74 shell + exec 混用", matcher(raw("live", settings(entry([gate()]), 
 // 這條是真的踩到才加的：整合時 CLI 傳 {settings, hook}、這裡讀 {settingsPath, hookPath}，
 // 於是三平台都印「受驗 settings: undefined」而測試照樣 PASS ——
 // 一個專門防假綠的輸出自己變成假訊息。
-for (const missingKey of ["mode", "settingsPath", "hookPath"]) {
-  const ctx = { mode: "repo", settingsPath: "/a", hookPath: "/b" };
-  delete ctx[missingKey];
-  let threw = "";
-  try { G.matcherAttestation(ctx); } catch (e) { threw = e.message; }
-  check("A75 attestation 缺 " + missingKey + " 要拋錯",
-    threw.includes("ctx." + missingKey), threw || "沒有拋錯 —— 會印出 undefined");
+// ── 修復建議必須依 kind 而不同（**每一個 verdict 都要**，不只 NO_GATE）────────
+// 重構時我一度只留給人看的 mode，於是 --repo 也會拿到「hook 必須註冊在
+// ~/.claude/settings.json、settings.local.json 不是 user scope」整段——全部不合語境，
+// 而且比修正前更差（舊版對 repo 佈局本來有一句正確的「這是待出貨的檔案」）。
+// 合併前審查進一步指出：BAD_TYPE／UNSAFE_FIELD／exec／ambiguous 也都固定叫人
+// 「重跑 probe 與 --live」，那在 repo／explicit 模式下驗的是另一個目標。
+{
+  const noGate = raw("snip", settings({ matcher: MATCHER, hooks: [{ type: "command", command: "node /other.js" }] }));
+  const r = matcher(noGate, "repo");
+  check("A76 --repo 的 NO_GATE 講「待出貨的檔案」，不講家目錄",
+    r.code === "NO_GATE" && r.text.includes("待出貨的 settings.snippet.json") &&
+    !r.text.includes("settings.local.json 不是 user scope"), r.text);
+  check("A76 --live 的 NO_GATE 講家目錄與 user scope",
+    matcher(noGate, "live").text.includes("settings.local.json 不是 user scope"), "");
+  check("A76 explicit 的 NO_GATE 只講「你指定的這一份」",
+    matcher(noGate, "explicit").text.includes("你用 --settings 明確指定"), "");
 }
-check("A75 attestation 齊全時正常回三行",
-  G.matcherAttestation({ mode: "live", settingsPath: "/a", hookPath: "/b" }).length === 3, "行數不對");
+// 每個 FAIL verdict 在三種 kind 下都必須給**合語境**的下一步。
+const FAIL_FIXTURES = {
+  BAD_TYPE: settings(entry([{ type: "prompt", command: CMD }])),
+  UNSAFE_FIELD: settings(entry([gate({ async: true })])),
+  UNSUPPORTED_EXEC_FORM: settings(entry([gateExec()])),
+  AMBIGUOUS_MATCHER: settings(entry([gate()], "Bash"), entry([gate()])),
+  HOOKS_DISABLED: Object.assign({ disableAllHooks: true }, settings(entry([gate()]))),
+};
+for (const code of Object.keys(FAIL_FIXTURES)) {
+  for (const kind of ["repo", "live", "explicit"]) {
+    const r = matcher(raw("f", FAIL_FIXTURES[code]), kind);
+    const wrongContext =
+      (kind !== "live" && r.text.includes("重跑本測試 --live")) ||
+      (kind !== "repo" && r.text.includes("待出貨的檔案")) ||
+      (kind !== "explicit" && r.text.includes("同一組 --settings/--hook"));
+    check("A77 " + code + " 在 " + kind + " 給合語境的下一步",
+      r.code === code && r.text.includes("下一步") && !wrongContext,
+      "code=" + r.code + "\n" + r.text);
+  }
+}
+
+// ── disableAllHooks：JSON 合法、gate 註冊完美，但所有 hook 都被關掉 ────────────
+// 這是合併前審查抓到的最乾淨假綠：修正前兩支工具都印「正常／PASS」。
+// 官方 settings 文件：「Disable all hooks and any custom status line」。
+expect("A80 probe：settings.json 的 disableAllHooks",
+  probe(raw(L_MAIN, Object.assign({ disableAllHooks: true }, settings(entry([gate()]))))), {
+    code: "HOOKS_DISABLED", exit: 1,
+    has: ["所有 hook 都被停用", "disableAllHooks: true", "註冊得完全正確也不會被叫起"],
+    hasnt: ["判定：正常，不用修。"],
+  });
+expect("A81 probe：只在 local 設 disableAllHooks 不擋（那份不是 user scope）",
+  probe(raw(L_MAIN, settings(entry([gate()]))), raw(L_LOCAL, { disableAllHooks: true })), {
+    code: "OK_NORMAL", exit: 0, has: ["判定：正常，不用修。"], hasnt: ["所有 hook 都被停用"],
+  });
+expect("A82 probe：disableAllHooks:false 不擋",
+  probe(raw(L_MAIN, Object.assign({ disableAllHooks: false }, settings(entry([gate()]))))), {
+    code: "OK_NORMAL", exit: 0, hasnt: ["HOOKS_DISABLED"],
+  });
+// 只認 true —— 不替使用者猜 "true"／1 這種非官方形態
+expect("A83 probe：disableAllHooks:\"true\"（字串）不算",
+  probe(raw(L_MAIN, Object.assign({ disableAllHooks: "true" }, settings(entry([gate()]))))), {
+    code: "OK_NORMAL", exit: 0,
+  });
+expect("A84 matcher：disableAllHooks", matcher(raw("live", Object.assign({ disableAllHooks: true }, settings(entry([gate()]))))), {
+  code: "HOOKS_DISABLED", exit: 1, has: ["所有 hook 都被停用", "Disable all hooks"],
+});
+// 總開關排在不安全欄位之前 —— 兩者同時存在時，先講「hook 全關了」比較有用
+expect("A85 disableAllHooks 排在 UNSAFE_FIELD 之前",
+  probe(raw(L_MAIN, Object.assign({ disableAllHooks: true }, settings(entry([gate({ async: true })]))))), {
+    code: "HOOKS_DISABLED", exit: 1, hasnt: ["判定：設定不安全"],
+  });
+
+// ── once：官方明訂在 settings 檔會被忽略，所以擋它是誤紅 ─────────────────────
+// 這條是合併前審查抓到我**弄錯**的：我一度把 once 列為不安全並讓兩支工具 exit 1，
+// 那會無故弄壞既有使用者的安裝驗收。
+expect("A86 probe：once:true 必須放行（settings 檔裡它不生效）",
+  probe(raw(L_MAIN, settings(entry([gate({ once: true })])))), {
+    // 只斷言「沒被判成不安全」。範圍說明會**刻意**提到 once（說明它為何不驗），
+    // 所以不能把 "once" 放進 hasnt。
+    code: "OK_NORMAL", exit: 0, has: ["判定：正常，不用修。"], hasnt: ["設定不安全"],
+  });
+expect("A87 matcher：once:true 必須放行", matcher(raw("live", settings(entry([gate({ once: true })])))), {
+  code: "OK", exit: 0,
+});
+check("A88 once 在 IGNORED_IN_SETTINGS、不在 UNSAFE_FIELDS",
+  G.IGNORED_IN_SETTINGS.includes("once") && !G.UNSAFE_FIELDS.some((f) => f.name === "once"),
+  "UNSAFE_FIELDS=" + G.UNSAFE_FIELDS.map((f) => f.name).join(","));
+// exec form ＋ once：once 既然無害，首要結果就該是 exec form 而不是 UNSAFE_FIELD
+expect("A89 exec form ＋ once → 停手（不是不安全）",
+  probe(raw(L_MAIN, settings({ matcher: MATCHER, hooks: [Object.assign(gateExec(), { once: true })] }))), {
+    code: "HALT_EXEC_FORM", exit: 3, hasnt: ["判定：設定不安全"],
+  });
+
+// ── matcher 的 runtime 語義 ─────────────────────────────────────────────
+// 官方規則：只含字母／數字／_／-／空白／,／| → 精確清單；含其他字元 → JS regex（unanchored）。
+const CANON = "Edit|Write|MultiEdit|NotebookEdit|Bash|PowerShell|Monitor|mcp__.*";
+const REQ = ["Edit", "Write", "MultiEdit", "NotebookEdit", "Bash", "PowerShell", "Monitor"];
+check("A90 canonical matcher 走 regex 路徑（因為含 . 與 *）",
+  G.evaluateMatcher(CANON).kind === "regex", G.evaluateMatcher(CANON).kind);
+check("A91 純名字清單走 list 路徑", G.evaluateMatcher("Edit|Write").kind === "list", "");
+check("A92 逗號＋空白也是 list 路徑", G.evaluateMatcher("Edit, Write").kind === "list", "");
+check("A93 \"*\" 與空字串是全部匹配",
+  G.evaluateMatcher("*").kind === "all" && G.evaluateMatcher("").kind === "all", "");
+check("A94 canonical matcher 通過契約", G.checkMatcherContract(CANON, REQ).ok, "");
+// ↓ 合併前審查給的反例：`|` 兩側加空白。舊比法 trim 之後會 PASS，runtime 卻一個都不命中。
+{
+  const spaced = "Edit | Write | MultiEdit | NotebookEdit | Bash | PowerShell | Monitor | mcp__.*";
+  const res = G.checkMatcherContract(spaced, REQ);
+  const missing = res.problems.filter((p) => p.code === "MISSING_TOOL").map((p) => p.params.name);
+  check("A95 regex 路徑下 `|` 兩側空白會讓每個工具名都命中不了",
+    !res.ok && missing.length === REQ.length && res.problems.some((p) => p.code === "MISSING_MCP"),
+    "problems=" + JSON.stringify(res.problems));
+  const txt = G.renderMatcherContract(res, { kind: "live" }, REQ);
+  check("A95 文案要說明 runtime 把它當 regex、空白會變字面內容",
+    txt.includes("正規表達式") && txt.includes("字面內容"), txt);
+}
+// list 路徑下同樣的寫法反而是合法的（沒有 regex 專用字元，官方容許前後空白）
+check("A96 list 路徑容許 `|` 兩側空白",
+  G.checkMatcherContract("Edit | Write | Bash", ["Edit", "Write", "Bash"]).problems
+    .filter((p) => p.code === "MISSING_TOOL").length === 0, "");
+// ⚠️ 這裡的數字要照 **unanchored regex** 的語義算，不是「少列幾個就少幾個」：
+// `Edit|mcp__.*` 這個 regex 也會命中 MultiEdit 與 NotebookEdit（它們含子字串 Edit），
+// 所以真正命中不了的只有 Write／Bash／PowerShell／Monitor 四個。
+// 我第一次把它寫成 REQ.length - 1 = 6，測試立刻抓出來 —— 這正是「照 runtime 語義比對」的價值。
+{
+  const miss = G.checkMatcherContract("Edit|mcp__.*", REQ).problems
+    .filter((p) => p.code === "MISSING_TOOL").map((p) => p.params.name).sort();
+  check("A97 缺工具名會被抓到（依 unanchored regex 語義）",
+    miss.join(",") === "Bash,Monitor,PowerShell,Write", miss.join(","));
+}
+check("A98 多出不認識的字面工具名會被抓到",
+  G.checkMatcherContract(CANON + "|NoSuchTool", REQ).problems.some((p) => p.code === "UNKNOWN_ALT"), "");
+check("A99 編不成 regex 要具名報錯",
+  G.checkMatcherContract("Edit|(unclosed", REQ).problems.some((p) => p.code === "REGEX_INVALID"), "");
+
+// ── shell ＋ exec 混用時 matcher 集合要算全部 candidate ──────────────────────
+// 合併前審查抓到的假綠：只算 shell 會得到「只有一種 matcher」→ exit 0，
+// renderer 還宣稱「matcher 相同」。
+expect("A100 canonical shell ＋ matcher 不同的 exec → 歧義",
+  matcher(raw("live", settings(entry([gate()]), entry([gateExec()], "Bash")))), {
+    code: "AMBIGUOUS_MATCHER", exit: 1, has: ["matcher 不一致", "shell 1", "exec 1"],
+  });
+expect("A101 shell ＋ exec 但 matcher 相同 → 維持 PASS",
+  matcher(raw("live", settings(entry([gate()]), entry([gateExec()])))), {
+    code: "OK_WITH_DUPLICATES", exit: 0, has: ["matcher 相同"],
+  });
 
 // ════════════════════════════════════════════════════════════════════════
 console.log("\n§B 成對契約（刻意的規則差異）");

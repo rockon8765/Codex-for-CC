@@ -321,7 +321,7 @@ if (Test-Path -LiteralPath $stale) { throw "安裝驗證失敗：FIX-PLAN.md 未
 >
 > 2026-08-09 起，「哪個 handler 是本 gate、它會不會真的攔得住」由**單一共用模組**判斷
 > （`skills/超級模式/lib/gate-registration.js`），所以 `type` 不是 `command`、或 handler 帶
-> `if`／`once`／`async`／`asyncRewake` 這類會讓 gate 不阻擋的欄位時，**兩支都會 FAIL**——
+> `if`／`async`／`asyncRewake` 這類會讓 gate 不阻擋的欄位、或頂層設了 `disableAllHooks: true` 時，**兩支都會 FAIL**——
 > 這一類洞不再需要靠「記得多跑一支」來補。（此前 `matcher-contract` 只比對 `command` 字串，
 > `{"type":"prompt", "command":"…gate…"}` 會讓步驟 3 全綠而 gate 根本不會被叫起。）
 >

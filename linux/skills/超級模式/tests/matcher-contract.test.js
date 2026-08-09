@@ -55,6 +55,7 @@
  */
 "use strict";
 
+const crypto = require("crypto");
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
@@ -65,7 +66,10 @@ const MODULE_PATH = path.join(__dirname, "..", "lib", "gate-registration.js");
 
 function loadShared() {
   try {
-    return { ok: true, mod: require(MODULE_PATH) };
+    // 摘要在 require 之前算，而且是從**磁碟內容**算的 —— 印出來讓人能發現「已安裝的
+    // lib/ 是舊版」這種 require 得起來但規則變弱的情形。
+    const digest = crypto.createHash("sha256").update(fs.readFileSync(MODULE_PATH)).digest("hex").slice(0, 16);
+    return { ok: true, mod: require(MODULE_PATH), digest };
   } catch (e) {
     return {
       ok: false,
@@ -138,14 +142,15 @@ function parseArgs(argv) {
  * 「比對的是哪一對」，早退時只印先檢查到的那一條，等於讓人以為驗到了另一個目標。
  */
 function resolveTargets(args) {
-  if (args.mode === "live") return { mode: "live", settingsPath: liveSettings, hookPath: liveHook, deprecated: false };
-  if (args.mode === "repo") return { mode: "repo（與本檔相鄰）", settingsPath: adjacentSnippet, hookPath: adjacentHook, deprecated: false };
+  if (args.mode === "live") return { kind: "live", mode: "live", settingsPath: liveSettings, hookPath: liveHook, deprecated: false };
+  if (args.mode === "repo") return { kind: "repo", mode: "repo（與本檔相鄰）", settingsPath: adjacentSnippet, hookPath: adjacentHook, deprecated: false };
   if (args.settings !== null) {
-    return { mode: "explicit", settingsPath: path.resolve(args.settings), hookPath: path.resolve(args.hook), deprecated: false };
+    return { kind: "explicit", mode: "explicit", settingsPath: path.resolve(args.settings), hookPath: path.resolve(args.hook), deprecated: false };
   }
   // ---- 已淘汰的自動判斷：相鄰 snippet 存在就驗它，否則驗 live ----
   const adjacentExists = fs.existsSync(adjacentSnippet);
   return {
+    kind: adjacentExists ? "repo" : "live",
     mode: "deprecated-auto → " + (adjacentExists ? "相鄰 snippet" : "live"),
     settingsPath: adjacentExists ? adjacentSnippet : liveSettings,
     hookPath: adjacentHook,
@@ -167,6 +172,40 @@ function extractArray(hookSrc, name, problems) {
 // hook 以 `tool === "X"` 形式直接判定的 shell 類工具（不在上面兩個陣列裡）
 const SHELL_TOOLS = ["Bash", "PowerShell", "Monitor"];
 
+/*
+ * attestation 住在**這裡**而不是共用模組裡。理由是它必須能在模組載入**之前**印出來：
+ * 合併前審查指出，模組缺失時原本只印 integrity error，把「一律印出實際受驗的兩條路徑」
+ * 這個承諾漏掉了。它也不含任何規則內容，純粹是本 CLI 的呈現層。
+ *
+ * 欄位缺漏一律**拋錯**，不印 "undefined"。實例：整合時 CLI 傳 {settings, hook}、
+ * 收方讀 {settingsPath, hookPath}，於是三平台都印「受驗 settings: undefined」而測試照樣 PASS
+ * ——一個專門防假綠的輸出自己變成了假訊息。外層 try/catch 會轉成 INTERNAL_ERROR ＋非 0。
+ */
+const KINDS = ["repo", "live", "explicit"];
+
+function attestation(t) {
+  for (const k of ["mode", "settingsPath", "hookPath", "modulePath", "moduleDigest"]) {
+    if (typeof t[k] !== "string" || !t[k]) {
+      throw new Error("attestation: " + k + " 缺漏或不是非空字串（得到 " + JSON.stringify(t[k]) + "）");
+    }
+  }
+  if (!KINDS.includes(t.kind)) {
+    throw new Error("attestation: kind 必須是 " + KINDS.join("／") + "（得到 " + JSON.stringify(t.kind) + "）");
+  }
+  return [
+    "受驗模式：   " + t.mode,
+    "受驗 settings: " + t.settingsPath,
+    "受驗 hook:     " + t.hookPath,
+    // ⚠️ 印出共用模組的實際內容摘要。已安裝的 live 副本可能是舊版：`require()` 成功
+    // 不代表規則是新的（匯出面沒變、規則變弱的舊版照樣載得進來）。摘要是**執行時**從
+    // 檔案算出來的，不是手動維護的版本號，所以不會腐爛。
+    // ⚠️ **它是線索，不是 guard** —— 沒人去比對時它不會讓任何東西失敗。真正的新鮮度只能
+    // 由 checkout 的 verifier（`--live`）或可信 manifest 決定；若 matcher 與模組整包都舊，
+    // 它們無法自證新鮮。這一點記在 docs/backlog.md，本批不建更新系統。
+    "受驗 module:   " + t.modulePath + "  sha256=" + t.moduleDigest,
+  ];
+}
+
 function main() {
   const args = parseArgs(process.argv.slice(2));
   if (!args.ok) {
@@ -174,13 +213,7 @@ function main() {
     return 2;
   }
 
-  const loaded = loadShared();
-  if (!loaded.ok) {
-    console.error(loaded.text);
-    return 1;
-  }
-  const G = loaded.mod;
-
+  // 路徑解析不需要共用模組，所以**先解析、先印**，再載入模組。
   const t = resolveTargets(args);
   if (t.deprecated) {
     console.error(
@@ -189,8 +222,16 @@ function main() {
       "   " + USAGE
     );
   }
-  // **先印兩條路徑，再做任何檢查。** 早退路徑也一樣。
-  console.log(G.matcherAttestation(t).join("\n"));
+  const loaded = loadShared();
+  t.modulePath = MODULE_PATH;
+  t.moduleDigest = loaded.ok ? loaded.digest : "（讀不到，見下方 TOOL_INTEGRITY_ERROR）";
+  // **一律先印四行 attestation，再做任何檢查。** 早退路徑（含模組缺失）也一樣。
+  console.log(attestation(t).join("\n"));
+  if (!loaded.ok) {
+    console.error(loaded.text);
+    return 1;
+  }
+  const G = loaded.mod;
 
   // ---- hook ----
   let hookSrc;
@@ -214,10 +255,9 @@ function main() {
   const verdict = G.assessMatcher({ settings: source });
   const rendered = G.renderMatcher(verdict, t);
   if (verdict.exit !== 0) {
+    // 修復建議一律由 renderMatcher 依 ctx.kind 產生 —— 這裡不要再補一份，
+    // 同一份建議寫兩遍遲早分歧（這批就是在清這種副本）。
     console.error(rendered);
-    if (t.settingsPath === liveSettings || t.mode === "live") {
-      console.error("（受驗目標是 live。若你剛照 AI-INSTALL 步驟 2 合併過，請確認合併的是 " + liveSettings + "。）");
-    }
     console.log("RESULT_CODE=" + verdict.code);
     return verdict.exit;
   }
@@ -238,35 +278,21 @@ function main() {
     return 1;
   }
 
-  const matcher = verdict.matcher;
-  const alternatives = matcher.split("|").map((s) => s.trim()).filter(Boolean);
   const required = mutatingFileTools.concat(mutatingBuiltin, SHELL_TOOLS);
 
-  // 正向：hook 要攔的，matcher 必須列到
-  for (const name of required) {
-    if (!alternatives.includes(name)) {
-      problems.push("matcher 缺少 " + name + " → hook 不會被叫起，該工具的攔截等於沒生效");
-    }
-  }
-  if (!alternatives.includes("mcp__.*")) {
-    problems.push("matcher 缺少 mcp__.* → 所有 MCP 工具都不會進 hook");
-  }
-  // 反向：matcher 不該出現 hook 不認識的字面工具名
-  const known = required.concat(["mcp__.*"]);
-  for (const alt of alternatives) {
-    if (!known.includes(alt)) {
-      problems.push("matcher 多出 hook 不認識的項目 " + alt + " → 只改了 matcher 卻沒改 hook？");
-    }
-  }
-
-  if (problems.length) {
-    for (const p of problems) console.error("FAIL: " + p);
-    console.error("\nmatcher 現值: " + matcher + "\nhook 清單:   " + required.join("|") + "|mcp__.*");
+  // 契約比對交給共用模組，因為它必須**照 runtime 的語義**判定：
+  // matcher 只含字母／數字／_／-／空白／,／| 才是精確清單，含其他字元一律是
+  // JavaScript regex（unanchored）。本 repo 的 canonical matcher 含 `mcp__.*` 的 `.`，
+  // 所以它走的是 regex 路徑 —— 修正前一律 split("|") 當清單比，剛好答案相同但語義不等價。
+  const contract = G.checkMatcherContract(verdict.matcher, required);
+  if (!contract.ok) {
+    console.error(G.renderMatcherContract(contract, t, required));
     console.log("RESULT_CODE=MATCHER_DRIFT");
     return 1;
   }
 
-  console.log("PASS matcher-contract (" + required.length + " 個工具名 + mcp__.* 兩邊一致)");
+  console.log("PASS matcher-contract (" + required.length + " 個工具名 + MCP 兩邊一致，" +
+    "matcher 依 runtime 規則解讀為" + (contract.ev.kind === "regex" ? "正規表達式" : contract.ev.kind === "list" ? "精確清單" : "全部匹配") + ")");
   console.log("RESULT_CODE=" + verdict.code);
   return 0;
 }

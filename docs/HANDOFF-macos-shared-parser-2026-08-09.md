@@ -14,7 +14,8 @@
 
 順帶攔下五種「有註冊但 gate 不會 gate」的設定（修正前**兩支工具都印「正常／PASS」**）：
 `type` 不是 `command`（合法值五種，只有 `command` 會執行 `command` 欄位）、
-handler 帶 `if`／`once`／`async`／`asyncRewake`。
+handler 帶 `if`／`async`／`asyncRewake`；另加頂層 `disableAllHooks: true` 這個總開關。
+**不含 `once`** —— 官方明訂它在 settings 檔會被忽略，擋它是誤紅（本批曾一度擋了，合併前審查抓到並改回）。
 
 `matcher-contract` 另外加了 `--repo`／`--live`／`--settings <p> --hook <p>` 顯式模式。
 
@@ -32,19 +33,19 @@ handler 帶 `if`／`once`／`async`／`asyncRewake`。
 
 | 檔案 | blob |
 |---|---|
-| `macos/skills/超級模式/lib/gate-registration.js` | `3d52e9652a544d1341a91eefcb534b080fb54daa` |
-| `macos/skills/超級模式/tests/matcher-contract.test.js` | `2fa4cd53158cdb86d1064971759baa6b0f689f69` |
-| `macos/settings.snippet.json` | `2e3f923ebf43dafb571d0e96bf080da0d2646197` |
+| `macos/skills/超級模式/lib/gate-registration.js` | `42494bba46d6e2046a2b1145fc595f892eb048af` |
+| `macos/skills/超級模式/tests/matcher-contract.test.js` | `c0e505504de297356b4466d25d656ab805433026` |
+| `macos/settings.snippet.json` | `3dfc88fe9399b645898f22df2e93f9eae930e32d` |
 | `macos/skills/超級模式/references/orchestration.md` | `dccea98cb1fca38a3fe6e146dee7fe39c9fa340e` |
 | `macos/hooks/super-mode-consult-gate.js` | `f1781d6e59a06c78d43ae074545f08ea5f0740d3` |
 | `macos/skills/超級模式/tests/gate-cases.json` | `ded377c801cbe9de40719aa1de816b96df0c789b` |
 | `tools/probe-gate-registration.js` | `ec386d59974d168862aed13bd0fa5190ccb011db` |
-| `tests/probe-gate-registration.test.js` | `6f72100cc38249e9e7d6a5ccaea2b66f347a2625` |
-| `tests/gate-registration.test.js` | `9e88b81040a266e6604dc1bbcbefb1b287810646` |
-| `tests/matcher-contract-cli.test.js` | `45e22459eb79a5f37f05a4429e9e0a5ad9a44b47` |
+| `tests/probe-gate-registration.test.js` | `9194b813d0b2788ef4efe795674ad5dfdda3ff39` |
+| `tests/gate-registration.test.js` | `ab0c11eff53b5c797696ef357c489336f62f1ae3` |
+| `tests/matcher-contract-cli.test.js` | `4bf05a8e0d76ab66150365dbd58943f4e40922cd` |
 | `tests/backup-settings.test.js` | `947ee667233cd4d412aa3f629702696f7a19cbe2` |
 | `tests/ai-install/run-posix.sh` | `d8b2af215fff89d5273947fbc24af4ade2bcc19e` |
-| `docs/AI-INSTALL.md` | `e02ecb4bfb193171e4d03339f7ed6d5b50ed19f1` |
+| `docs/AI-INSTALL.md` | `46c3cb010182b7ad7911e2b6d842254f8a860635` |
 
 後三筆（`backup-settings.test.js`、`run-posix.sh`、`gate-cases.json`、hook）**本批未改動**，
 列出來是為了確認你手上的樹不是別批的混合物。
@@ -60,16 +61,16 @@ handler 帶 `if`／`once`／`async`／`asyncRewake`。
 | # | 指令 | 期望 |
 |---|---|---|
 | A-0 | 逐筆 `git hash-object` 核對 §1 | 全符 |
-| A-1 | `node tests/gate-registration.test.js --strict` | `TOTAL 104 PASS 104 FAIL 0 SKIP 0`，exit 0 |
-| A-2 | `node tests/probe-gate-registration.test.js` | `TOTAL 61 PASS 61 FAIL 0`，exit 0 |
-| A-3 | `node tests/matcher-contract-cli.test.js` | `TOTAL 55 PASS 55 FAIL 0`，exit 0 |
+| A-1 | `node tests/gate-registration.test.js --strict` | `TOTAL 139 PASS 139 FAIL 0 SKIP 0`，exit 0 |
+| A-2 | `node tests/probe-gate-registration.test.js` | `TOTAL 66 PASS 66 FAIL 0`，exit 0 |
+| A-3 | `node tests/matcher-contract-cli.test.js` | `TOTAL 63 PASS 63 FAIL 0`，exit 0 |
 | A-4 | `node "macos/skills/超級模式/tests/matcher-contract.test.js" --repo` | exit 0、印 `PASS matcher-contract (15 個工具名…)`、`RESULT_CODE=OK`，且**印出的兩條路徑指向 checkout 內的 `macos/`** |
 | A-5 | `node "macos/skills/超級模式/tests/run-gate-tests.js"` | `PASS 117/117` |
 | A-6 | `bash tests/ai-install/run-posix.sh` | `PASS=68 FAIL=0` |
 | A-7 | `bash "macos/skills/超級模式/tests/run-e2e.sh"` | `11 passed, 0 failed`；請回報它印的 `GATE_BLOB` |
 | A-8 | `node tests/backup-settings.test.js --strict` | `TOTAL 9 PASS 9 FAIL 0 SKIP 0`（本批未改它，這是回歸對照）|
-| A-9 | 反向驗證 probe，見 §3 | `TOTAL 61 PASS 51 FAIL 10`，且失敗清單**恰為** §3 那 10 個 |
-| A-10 | 反向驗證 matcher-contract CLI，見 §3 | `TOTAL 55 PASS 55 FAIL 0` |
+| A-9 | 反向驗證 probe，見 §3 | `TOTAL 66 PASS 55 FAIL 11`，且失敗清單**恰為** §3 那 11 個 |
+| A-10 | 反向驗證 matcher-contract CLI，見 §3 | `TOTAL 63 PASS 63 FAIL 0` |
 
 ## 3. 反向驗證（§2 的 A-9／A-10）
 
@@ -85,17 +86,22 @@ node --check /tmp/probe-old.js || { echo "抽出來的不是可執行檔，停�
 node tests/probe-gate-registration.test.js --probe /tmp/probe-old.js
 ```
 
-A-9 期望失敗的**恰好**這 10 個（順序不重要，集合要相等）：
+A-9 期望失敗的**恰好**這 11 個（順序不重要，集合要相等；Windows 與 Linux 實測一致）：
 
 ```
-unsafe-if, unsafe-once, unsafe-async, unsafe-async-rewake, unsafe-in-local-too,
+unsafe-if, unsafe-async, unsafe-async-rewake, unsafe-in-local-too,
 unsafe-beats-exec-form, bad-args-rejected,
+kill-switch-main, kill-switch-beats-unsafe,
 integrity-lonely-probe, integrity-mirror-divergence, integrity-mirror-absent
 ```
 
-> 其餘 7 個新案在舊版**也應該 PASS** —— 它們是守衛不是修復（`type-http`／`type-mcp-tool`／
+**以集合比對為準，不要只比總數。**
+
+> 其餘新案在舊版**也應該 PASS** —— 它們是守衛不是修復（`type-http`／`type-mcp-tool`／
 > `type-agent`／`unsafe-async-false-passes`／`benign-fields-pass`／`shape-beats-unsafe`／
-> `integrity-staged-tree-ok`）。**若它們也失敗，代表你的量測有問題，不是發現。**
+> `once-must-pass`／`kill-switch-local-only-ignored`／`kill-switch-false-passes`／
+> `kill-switch-string-not-honored`／`integrity-staged-tree-ok`）。
+> **若它們也失敗，代表你的量測有問題，不是發現。**
 
 ```bash
 # A-10：舊版 matcher-contract（blob 5edaa7e）

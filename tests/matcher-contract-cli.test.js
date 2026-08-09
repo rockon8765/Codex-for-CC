@@ -142,9 +142,15 @@ const CASES = [
   // ---- --repo ------------------------------------------------------------
   { id: "repo-canonical", args: ["--repo"], exit: 0, want: ["受驗模式：   repo", "settings.snippet.json", "PASS matcher-contract", "RESULT_CODE=OK"], oldExit: 0, oldDeny: ["受驗模式"] },
   { id: "repo-bad-type", args: ["--repo"], snippet: S(ent([{ type: "prompt", command: CANON_CMD }])), exit: 1, want: ["RESULT_CODE=BAD_TYPE", "只有 command 會執行"], oldExit: 0, oldWant: ["PASS matcher-contract"] },
-  { id: "repo-matcher-missing-tool", args: ["--repo"], snippet: S(ent([g()], "Bash|mcp__.*")), exit: 1, want: ["RESULT_CODE=MATCHER_DRIFT", "matcher 缺少 Edit"], oldExit: 1 },
+  { id: "repo-matcher-missing-tool", args: ["--repo"], snippet: S(ent([g()], "Bash|mcp__.*")), exit: 1, want: ["RESULT_CODE=MATCHER_DRIFT", "matcher 命中不了 Edit"], oldExit: 1 },
   { id: "repo-matcher-extra-tool", args: ["--repo"], snippet: S(ent([g()], CANON_MATCHER + "|NoSuchTool")), exit: 1, want: ["RESULT_CODE=MATCHER_DRIFT", "matcher 多出 hook 不認識的項目 NoSuchTool"], oldExit: 1 },
   { id: "repo-snippet-broken-json", args: ["--repo"], snippet: "{ 壞掉", exit: 1, want: ["RESULT_CODE=UNREADABLE", "JSON 解析失敗"], oldExit: 1, oldDeny: ["RESULT_CODE"] },
+  // 修復建議必須合語境：repo 模式講「待出貨的檔案、不要安裝」，**不能**講家目錄與 user scope。
+  // 這條是重構時真的弄壞才補的（一度只留 mode 不留 kind，於是三種模式共用 live 的文案）。
+  { id: "repo-no-gate-advice-is-repo-specific", args: ["--repo"], snippet: S(ent([{ type: "command", command: "node /somewhere/other-hook.js" }])), exit: 1, want: ["RESULT_CODE=NO_GATE", "待出貨的 settings.snippet.json", "不要安裝"], deny: ["settings.local.json 不是 user scope"], oldExit: 1, oldWant: ["這是待出貨的檔案"] },
+  // attestation 一律印共用模組的路徑與內容摘要 —— 已安裝的 lib/ 是舊版時，
+  // require() 會成功、規則卻是舊的，摘要是唯一能從輸出看出來的線索。
+  { id: "prints-module-digest", args: ["--repo"], exit: 0, want: ["受驗 module:   ", "sha256="], oldExit: 0, oldDeny: ["受驗 module"] },
 
   // ---- --live（A1 的核心：從 checkout 也能驗 live）------------------------
   // 舊版**靜默忽略** --live 並照樣驗相鄰 snippet → 這批案子的 oldExit 幾乎都是 0，
@@ -155,7 +161,8 @@ const CASES = [
   { id: "live-bad-type-http", args: ["--live"], live: S(ent([{ type: "http", command: CANON_CMD }])), exit: 1, want: ["RESULT_CODE=BAD_TYPE", '"http"'], oldExit: 0, oldWant: ["PASS matcher-contract"] },
   { id: "live-type-missing", args: ["--live"], live: S(ent([{ command: CANON_CMD }])), exit: 1, want: ["RESULT_CODE=BAD_TYPE", "缺漏"], oldExit: 0, oldWant: ["PASS matcher-contract"] },
   { id: "live-unsafe-if", args: ["--live"], live: S(ent([g({ if: "Bash(git push *)" })])), exit: 1, want: ["RESULT_CODE=UNSAFE_FIELD", "其餘工具完全不受攔", "不要 append"], oldExit: 0, oldWant: ["PASS matcher-contract"] },
-  { id: "live-unsafe-once", args: ["--live"], live: S(ent([g({ once: true })])), exit: 1, want: ["RESULT_CODE=UNSAFE_FIELD", "不設防"], oldExit: 0, oldWant: ["PASS matcher-contract"] },
+  // live-unsafe-once 已刪除：把 once 判成不安全是誤紅（官方明訂 settings 檔裡它被忽略）。
+  // 正確行為由 live-once-must-pass 釘住。
   { id: "live-unsafe-async", args: ["--live"], live: S(ent([g({ async: true })])), exit: 1, want: ["RESULT_CODE=UNSAFE_FIELD", "來不及生效"], oldExit: 0, oldWant: ["PASS matcher-contract"] },
   { id: "live-unsafe-async-rewake", args: ["--live"], live: S(ent([g({ asyncRewake: true })])), exit: 1, want: ["RESULT_CODE=UNSAFE_FIELD"], oldExit: 0, oldWant: ["PASS matcher-contract"] },
   { id: "live-async-false-ok", args: ["--live"], live: S(ent([g({ async: false })])), exit: 0, want: ["PASS matcher-contract"], deny: ["UNSAFE_FIELD"], oldExit: 0 },
@@ -209,8 +216,30 @@ const CASES = [
   // 所以 --repo 必須失敗。若它「成功」了，代表它從真的 repo 撿了一份 —— 那就是假綠。
   { id: "installed-repo-mode-must-not-reach-back", args: ["--repo"], layout: "installed", live: CANON_LIVE, exit: 1, want: ["RESULT_CODE=MISSING"], deny: ["PASS matcher-contract"], oldExit: 0, oldWant: ["PASS matcher-contract"] },
 
+  // ---- disableAllHooks：JSON 合法、gate 註冊完美，但所有 hook 都被關掉 --------
+  // 合併前審查抓到的最乾淨假綠：修正前**兩支工具都印「正常／PASS」**。
+  { id: "live-kill-switch", args: ["--live"], layout: "installed", live: Object.assign({ disableAllHooks: true }, S(ent([g()]))), exit: 1, want: ["RESULT_CODE=HOOKS_DISABLED", "所有 hook 都被停用", "Disable all hooks"], deny: ["PASS matcher-contract"], oldExit: 0, oldWant: ["PASS matcher-contract"] },
+  { id: "repo-kill-switch", args: ["--repo"], snippet: Object.assign({ disableAllHooks: true }, S(ent([g()]))), exit: 1, want: ["RESULT_CODE=HOOKS_DISABLED", "待出貨的檔案"], deny: ["重跑本測試 --live"], oldExit: 0, oldWant: ["PASS matcher-contract"] },
+  { id: "live-kill-switch-false-ok", args: ["--live"], layout: "installed", live: Object.assign({ disableAllHooks: false }, S(ent([g()]))), exit: 0, want: ["PASS matcher-contract"], deny: ["HOOKS_DISABLED"], oldExit: 0 },
+
+  // ---- once：官方明訂 settings 檔裡會被忽略，擋它是誤紅 ----------------------
+  // 我一度把它列為不安全並讓兩支工具 exit 1，那會無故弄壞既有使用者的安裝驗收。
+  { id: "live-once-must-pass", args: ["--live"], layout: "installed", live: S(ent([g({ once: true })])), exit: 0, want: ["PASS matcher-contract"], deny: ["UNSAFE_FIELD"], oldExit: 0 },
+
+  // ---- matcher 的 runtime 語義（regex vs 精確清單）--------------------------
+  // canonical matcher 含 `mcp__.*` 的 `.`，所以 runtime 把**整串**當 regex。
+  // 把 `|` 兩側加空白 → 每個 alternative 都帶字面空白 → 一個工具都命中不了、gate 從不執行。
+  // 修正前一律 split("|").trim() 當精確清單比，這種寫法會**照樣 PASS**。
+  { id: "matcher-spaces-around-pipe-is-regex-trap", args: ["--repo"], snippet: S(ent([g()], CANON_MATCHER.split("|").join(" | "))), exit: 1, want: ["RESULT_CODE=MATCHER_DRIFT", "正規表達式", "字面內容", "命中不了 Edit"], oldExit: 0, oldWant: ["PASS matcher-contract"] },
+  { id: "matcher-pass-prints-runtime-interpretation", args: ["--repo"], exit: 0, want: ["PASS matcher-contract", "matcher 依 runtime 規則解讀為正規表達式"], oldExit: 0, oldDeny: ["runtime 規則解讀"] },
+
+  // ---- shell ＋ exec 混用時 matcher 集合要算全部 candidate --------------------
+  { id: "mixed-shell-exec-diff-matcher", args: ["--live"], layout: "installed", live: S(ent([g()]), ent([{ type: "command", command: "node", args: ["/x/super-mode-consult-gate.js"] }], "Bash")), exit: 1, want: ["RESULT_CODE=AMBIGUOUS_MATCHER", "shell 1", "exec 1"], deny: ["PASS matcher-contract"], oldExit: 0, oldWant: ["PASS matcher-contract"] },
+
   // ---- loader guard（含正向對照）----------------------------------------
-  { id: "integrity-no-module", args: ["--repo"], withModule: false, exit: 1, want: ["TOOL_INTEGRITY_ERROR", "沒有做任何比對", "重裝 skill"], deny: ["PASS matcher-contract"], oldExit: 0, oldWant: ["PASS matcher-contract"] },
+  // ⚠️ 模組缺失時**仍必須印出 attestation 的四行** —— 「一律先印實際受驗目標」這個承諾
+  // 不能因為早退就跳過（合併前審查抓到的次級違約）。
+  { id: "integrity-no-module", args: ["--repo"], withModule: false, exit: 1, want: ["受驗模式：", "受驗 settings: ", "受驗 hook:     ", "受驗 module:   ", "TOOL_INTEGRITY_ERROR", "沒有做任何比對", "重裝 skill"], deny: ["PASS matcher-contract"], oldExit: 0, oldWant: ["PASS matcher-contract"] },
   { id: "integrity-with-module-control", args: ["--repo"], exit: 0, want: ["PASS matcher-contract"], deny: ["TOOL_INTEGRITY_ERROR"], oldExit: 0 },
 ];
 

@@ -40,13 +40,14 @@
 >
 > **本次 delta 的驗證分布（2026-08-09b，基準 `5da2624`：gate 辨識抽成三平台共用模組 ＋ `matcher-contract` 的 `--repo`／`--live` 顯式模式）。**
 > ⚠️ **本批刻意不釘 endpoint SHA，改釘 blob。** 理由很實際：補釘 SHA 的那個 commit 自己就會讓尖端前進，於是宣稱永遠落後一格。受測檔的釘子是 [`docs/HANDOFF-macos-shared-parser-2026-08-09.md`](docs/HANDOFF-macos-shared-parser-2026-08-09.md) §1 的 blob 表，可逐筆 `git hash-object` 核對。
-> **改了什麼**：「哪個 handler 是本 gate、它會不會真的攔得住」收斂到 `<platform>/skills/超級模式/lib/gate-registration.js`（三平台**逐位元相同**、隨 skill 安裝進 live），`tools/probe-gate-registration.js` 與三份 `matcher-contract.test.js` 共用它。順帶攔下**五種「有註冊但不會 gate」**的設定：`type` 不是 `command`、handler 帶 `if`／`once`／`async`／`asyncRewake`。
+> **改了什麼**：「哪個 handler 是本 gate、它會不會真的攔得住」收斂到 `<platform>/skills/超級模式/lib/gate-registration.js`（三平台**逐位元相同**、隨 skill 安裝進 live），`tools/probe-gate-registration.js` 與三份 `matcher-contract.test.js` 共用它。順帶攔下**四類「有註冊但不會 gate」**的設定：頂層 `disableAllHooks: true`（總開關）、`type` 不是 `command`、handler 帶 `if`／`async`／`asyncRewake`、以及 matcher 因為走 regex 路徑而一個工具都命中不了。
 > **macOS**：⚠️ **未原生驗證（本機無 Mac），本批的 macOS 狀態為 `pending`。** 下方 A2 那批記載的「`matcher-contract` 同 blob、本批未改它」對**那一批**仍然成立，但**本批改了它**，所以那句話不能延用到現在的 tip。需要 Mac 真機重驗的清單與判準見上面那份 handoff。
-> **Windows**（Node v24.16.0）：`tests/gate-registration.test.js` **104/104**；`tests/probe-gate-registration.test.js` **61/61**（基準 44，本批 +17）；`tests/matcher-contract-cli.test.js` **55/55**；三平台 `matcher-contract --repo` 皆 exit 0；gate-cases **109/109**；`tests/backup-settings.test.js` **7 PASS／2 SKIP**；`tests/ai-install/run-windows.ps1` **69/69**（pwsh 7 與 Windows PowerShell 5.1 各跑一次）；`codex-check` **188/188**。
-> **Linux**（WSL2 ext4 家目錄、**fresh clone** 而非複製工作目錄，Node v22.23.1）：`gate-registration` **104/104 `--strict` SKIP 0**、probe **61/61**、`matcher-contract-cli` **55/55**、gate-cases **121/121**、`backup-settings --strict` **9/9 SKIP 0**、`run-posix.sh` **68/68**、`run-e2e.sh` **11/11**。
-> **輸出不變的界線（不要讀成「完全不變」）**：以 47 個 fixture 逐位元比對舊版與新版 probe 的**判定區**（範圍說明之前的全部內容）→ **47/47 相同、退出碼 47/47 相同**（Windows 與 Linux 各跑一次）。範圍說明區是**刻意**改的：舊版 12 行、新版 24 行，舊版原有的行只有 1 行被取代（`type` 那句擴寫成「五種合法值 ＋ matcher 型別 ＋ 不安全欄位」）。
-> **反向驗證（逐案核對，不只比總數）**：probe 對 `5da2624` 版 → **51 PASS／10 FAIL**，失敗的**恰好**是那 10 個；對 `5cc50e0` 的舊 heredoc → **10 PASS／51 FAIL**，與既有紀錄的 7/37 對得上（44 案的 7/37 ＋ 新案的 3/14）。`matcher-contract-cli` 對 blob `5edaa7e` → **55/55 全部符合宣告的舊行為**（每案都宣告 `oldExit`，少數另宣告 `oldWant`／`oldStack`，所以這是對舊版的**正面刻畫**而非「會失敗」）。其中三案**舊版退出碼也是 1**，只有訊息抓得到差別。
-> **非空驗證**：共用模組做了 9 個變異注入，每個都先自我檢查「注入是否成功」（錨點存在 ＋ 替換後 bytes 不同 ＋ 磁碟內容真的變了），**9/9 被恰好正確的案子抓到**，Windows 與 Linux 各跑一次。
+> **Windows**（Node v24.16.0）：`tests/gate-registration.test.js` **139/139**；`tests/probe-gate-registration.test.js` **66/66**（基準 44，本批 +22）；`tests/matcher-contract-cli.test.js` **63/63**；三平台 `matcher-contract --repo` 皆 exit 0；gate-cases **109/109**；`tests/backup-settings.test.js` **7 PASS／2 SKIP**；`tests/ai-install/run-windows.ps1` **69/69**（pwsh 7 與 Windows PowerShell 5.1 各跑一次）；`codex-check` **188/188**。
+> **Linux**（WSL2 ext4 家目錄、**fresh clone** 而非複製工作目錄，Node v22.23.1）：`gate-registration` **139/139 `--strict` SKIP 0**、probe **66/66**、`matcher-contract-cli` **63/63**、gate-cases **121/121**、`backup-settings --strict` **9/9 SKIP 0**、`run-posix.sh` **68/68**、`run-e2e.sh` **11/11**。
+> **輸出不變的界線（不要讀成「完全不變」）**：以 47 個 fixture 逐位元比對舊版與新版 probe 的**判定區**（範圍說明之前的全部內容）→ **42/47 相同、退出碼 47/47 相同**（Windows 與 Linux 各跑一次；比對工具會印出實際涵蓋的 **9 種** `RESULT_CODE`，證明不是把同一條分支比了 47 次）。**不同的 5 個全是 exec form 那一段理由**：舊文案寫「matcher-contract 目前也只看 `command`，會對它回報『沒有註冊本 hook』」，本批之後那句話**變成假的**（改回報 `UNSUPPORTED_EXEC_FORM`），所以刻意改寫。範圍說明區也是刻意改的：舊版 12 行 → 新版 30 行，舊版原有的行只有 1 行被取代（`type` 那句擴寫成「五種合法值 ＋ matcher 型別 ＋ 不安全欄位」）。
+> ⚠️ **這組數字是重新量過的。** 第一次量到「47/47」時，比對工具的 fixture 把「local 檔不存在」寫成 `null`，實際寫出了一個**內容為 `null`** 的檔，於是幾乎每個 fixture 都落在 `SHAPE_ERROR`——那個 47/47 是真的，但涵蓋的分支遠少於宣稱。修正後才有上面 9 種分支的分佈，工具本身也加了「分支少於 6 種就 fail」的自我檢查。
+> **反向驗證（逐案核對，不只比總數）**：probe 對 `5da2624` 版 → **55 PASS／11 FAIL**，失敗的**恰好**是那 11 個（5 個不安全欄位／總開關 ＋ precedence ＋ 參數 ＋ 3 個 loader guard）；對 `5cc50e0` 的舊 heredoc → **10 PASS／51 FAIL**，與既有紀錄的 7/37 對得上（44 案的 7/37 ＋ 新案的 3/14）。`matcher-contract-cli` 對 blob `5edaa7e` → **63/63 全部符合宣告的舊行為**（每案都宣告 `oldExit`，少數另宣告 `oldWant`／`oldStack`，所以這是對舊版的**正面刻畫**而非「會失敗」）。其中三案**舊版退出碼也是 1**，只有訊息抓得到差別。
+> **非空驗證**：共用模組做了 12 個變異注入，每個都先自我檢查「注入是否成功」（錨點存在 ＋ 替換後 bytes 不同 ＋ 磁碟內容真的變了），**12/12 被恰好正確的案子抓到**，Windows 與 Linux 各跑一次。
 > **本批的暴險面**：新增與改動的都是純 Node；未動 `run-posix.sh`／`codex-check`／hook 本體，所以 BSD vs GNU 的 `sed`／`awk`／`find`／`cp` 語義差異不在本批範圍內。真正的 macOS 風險面是 `os.homedir()` 與 `readFileSync` 對目錄的錯誤碼（`EISDIR`）——handoff 有專門的診斷項。
 >
 > **上一批 delta 的驗證分布（2026-08-09，`5cc50e0..70f305d`：A2 —— MIGRATION 的 probe 抽成 repo 腳本並 fail-closed、判定表拆 1／≥2、第 2 節改 handler 粒度、備份改用跨平台 `tools/backup-settings.js`、10 處註冊入口改成「跑 probe 照它印的判定走」）。**
@@ -265,7 +266,9 @@ node "$env:USERPROFILE\.claude\skills\超級模式\tests\matcher-contract.test.j
 
 > ★ **`matcher-contract` 不是可選項。** hook 裡的攔截清單**只有在 settings 的 PreToolUse `matcher` 也列到該工具名時才會生效**；matcher 漏合併時，另兩支測試（它們是**直接呼叫** `decide()`）照樣全綠，但真實情況是 hook 根本不會被叫起。這支測試把兩邊的清單釘死。
 > **一律給旗標**：`--repo` 驗與該檔相鄰的 `settings.snippet.json`、`--live` 驗 `~/.claude/settings.json` ＋ `~/.claude/hooks/` 那一對。兩者都會**印出實際受驗的兩條路徑**，請核對是你以為的那一對。不給旗標會走已淘汰的自動判斷（印 deprecation 警告），而它在 repo 佈局下**一定**驗相鄰的 snippet、驗不到 live。
-> 2026-08-09 起它也會攔下「gate 有註冊但不會生效」的設定：`type` 不是 `command`（合法值有 `command`／`http`／`mcp_tool`／`prompt`／`agent`，只有 `command` 會執行 `command` 欄位），以及 handler 帶 `if`／`once`／`async`／`asyncRewake`。
+> 2026-08-09 起它也會攔下「gate 有註冊但不會生效」的設定：頂層 `disableAllHooks: true`（settings 的總開關）、`type` 不是 `command`（合法值有 `command`／`http`／`mcp_tool`／`prompt`／`agent`，只有 `command` 會執行 `command` 欄位）、handler 帶 `if`／`async`／`asyncRewake`。
+> 它也依**官方的 matcher 判定規則**比對：matcher 只含字母／數字／`_`／`-`／空白／`,`／`|` 才是精確清單，含其他字元一律是 JavaScript regex（unanchored）。本 repo 的 canonical matcher 含 `mcp__.*` 的 `.`，所以**它走的是 regex 路徑** —— 於是 `Edit | Write | …` 這種在 `|` 兩側加空白的寫法會讓每個 alternative 都帶字面空白、一個工具都命中不了，而修正前的比法會照樣 PASS。
+> ⚠️ **不驗 `once`**：官方明訂它只在 skill frontmatter 生效、**在 settings 檔會被忽略**，所以擋它是誤紅（本批曾一度擋了，已改回）。也不驗 `timeout` 的大小。
 > **但也別高估它**：它做的是**靜態比對**。它**不**驗證 `command` 路徑真的存在、**不**證明 Claude Code runtime 真的載入了那份 settings，也**不**數重複註冊（那是 `tools/probe-gate-registration.js` 的職責）。而且「`command` 含 gate 檔名」只代表 needle **candidate**——`command: "echo super-mode-consult-gate"` 同樣會被算進去，但它根本不跑 gate。要確認端到端接上，仍需在新 session 實際觸發一次。
 
 hook **在啟用前是 fail-open 且停用的** — 安裝它不會影響一般 session；只有在 `super-mode.{sh,ps1} on` 之後才會作用。
