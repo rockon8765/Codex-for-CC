@@ -24,14 +24,18 @@
 
 macOS / Linux（Linux 把 `macos/` 換成 `linux/`）:
 ```bash
-node "macos/skills/超級模式/tests/run-gate-tests.js"        # 這裡就 FAIL → repo 版本本身有問題，別安裝，回報使用者
-node "macos/skills/超級模式/tests/matcher-contract.test.js" # hook 的工具清單 vs settings matcher 是否一致
+node "macos/skills/超級模式/tests/run-gate-tests.js"               # 這裡就 FAIL → repo 版本本身有問題，別安裝，回報使用者
+node "macos/skills/超級模式/tests/matcher-contract.test.js" --repo # hook 的工具清單 vs settings matcher 是否一致
 ```
 Windows:
 ```powershell
-node ".\windows\skills\超級模式\tests\run-gate-tests.js"        # 這裡就 FAIL → 別安裝
-node ".\windows\skills\超級模式\tests\matcher-contract.test.js" # hook 的工具清單 vs settings matcher 是否一致
+node ".\windows\skills\超級模式\tests\run-gate-tests.js"               # 這裡就 FAIL → 別安裝
+node ".\windows\skills\超級模式\tests\matcher-contract.test.js" --repo # hook 的工具清單 vs settings matcher 是否一致
 ```
+
+> ℹ️ **`--repo` 不是可選的。** 它明確指定「驗與該檔相鄰的 `settings.snippet.json` ＋ hook」，
+> 而這一步要驗的就是 repo 版本。不給旗標會走已淘汰的自動判斷並印 deprecation 警告；
+> 步驟 3 用的是 `--live`。兩者都會**印出實際受驗的兩條路徑**，請核對它們是你以為的那一對。
 
 **1b. 備份既有 live（若存在）——記住印出的時間戳 `ts`，回滾要用**
 
@@ -312,10 +316,23 @@ if (Test-Path -LiteralPath $stale) { throw "安裝驗證失敗：FIX-PLAN.md 未
 >
 > 必須印「**判定：正常，不用修。**」且**退出碼 0**。任何其他結果都代表這一步沒做對。
 >
-> ⚠️ **為什麼合併後一定要再跑一次**：步驟 3 的 `matcher-contract` **只比對 `command` 字串、
-> 不驗 `type`**。所以萬一合併時把 handler 寫成 `{"type":"prompt", "command":"…gate…"}`，
-> 步驟 3 照樣 PASS，但 Claude Code 只有 `type:"command"` 才會執行 `command`
-> ——gate 實際上不會被叫起，而你會拿到一個全綠的安裝。probe 會驗 `type`，補得住這個洞。
+> ⚠️ **為什麼合併後一定要再跑一次**：probe 與步驟 3 的 `matcher-contract` **問的是不同問題**，
+> 兩者都跑才有完整覆蓋。
+>
+> 2026-08-09 起，「哪個 handler 是本 gate、它會不會真的攔得住」由**單一共用模組**判斷
+> （`skills/超級模式/lib/gate-registration.js`），所以 `type` 不是 `command`、或 handler 帶
+> `if`／`once`／`async`／`asyncRewake` 這類會讓 gate 不阻擋的欄位時，**兩支都會 FAIL**——
+> 這一類洞不再需要靠「記得多跑一支」來補。（此前 `matcher-contract` 只比對 `command` 字串，
+> `{"type":"prompt", "command":"…gate…"}` 會讓步驟 3 全綠而 gate 根本不會被叫起。）
+>
+> probe **獨有**的、`matcher-contract` 不做也不該做的是這些：
+>
+> - 它同時看 `settings.json` **與** `settings.local.json`，`matcher-contract` 只看你指定的那一份
+> - 它**數筆數**並判定重複註冊（合併不是冪等的，重跑安裝就會 append 第二筆）
+> - 它會攔「gate 與別的 handler 共用同一個 entry」與「多筆註冊互相衝突」，這兩種要人工判斷
+>
+> 換句話說：`matcher-contract` 回答「這一份 settings 的 matcher 對不對」，
+> probe 回答「你的機器上到底註冊了幾筆、在哪、能不能安全地動它」。
 >
 > **後置條件**：`settings.json` 的 gate handler **恰 1 個**、`settings.local.json` **0 個**。
 
@@ -341,7 +358,7 @@ if (Test-Path -LiteralPath $stale) { throw "安裝驗證失敗：FIX-PLAN.md 未
 > ⚠️ 這只證明「有其他寫入者」，**不**證明有哪個工具會覆寫或移除 `hooks` 段——目前沒有這種證據。
 >
 > 但把 hook 藏到一個不會被載入的檔案並不能解決這件事。正確做法是**任何可能改動該檔的動作之後**，
-> 重跑步驟 3 的 `matcher-contract`——它現在找不到已註冊的 hook 會直接 FAIL，不再靜默通過。
+> 重跑步驟 3 的 `matcher-contract --live`——它現在找不到已註冊的 hook 會直接 FAIL，不再靜默通過。
 >
 > 📌 **2026-07-28 以前照舊指引裝過的人**：你的 hook 很可能一次都沒生效過。
 > 診斷與修復步驟見 [`MIGRATION-hook-settings-target.md`](MIGRATION-hook-settings-target.md)。
@@ -352,15 +369,15 @@ hook 在啟用前是 fail-open 且停用的——安裝它不影響一般 sessio
 
 **macOS / Linux**
 ```bash
-node ~/.claude/skills/超級模式/tests/run-gate-tests.js        # 應全數 PASS
-node ~/.claude/skills/超級模式/tests/matcher-contract.test.js # ★ 必跑，見下方說明
-bash ~/.claude/skills/超級模式/tests/run-e2e.sh               # 應全數 passed（會印 GATE_UNDER_TEST 供核對）
+node ~/.claude/skills/超級模式/tests/run-gate-tests.js               # 應全數 PASS
+node ~/.claude/skills/超級模式/tests/matcher-contract.test.js --live # ★ 必跑，見下方說明
+bash ~/.claude/skills/超級模式/tests/run-e2e.sh                      # 應全數 passed（會印 GATE_UNDER_TEST 供核對）
 ```
 
 **Windows**
 ```powershell
-node "$env:USERPROFILE\.claude\skills\超級模式\tests\run-gate-tests.js"        # 應全數 PASS
-node "$env:USERPROFILE\.claude\skills\超級模式\tests\matcher-contract.test.js" # ★ 必跑，見下方說明
+node "$env:USERPROFILE\.claude\skills\超級模式\tests\run-gate-tests.js"               # 應全數 PASS
+node "$env:USERPROFILE\.claude\skills\超級模式\tests\matcher-contract.test.js" --live # ★ 必跑，見下方說明
 ```
 
 > ★ **`matcher-contract` 是步驟 2 的驗收，不是可選項。** 另外兩支測試都是**直接呼叫** `decide()`，

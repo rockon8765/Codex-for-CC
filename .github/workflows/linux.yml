@@ -78,7 +78,7 @@ jobs:
       # 這支抓的是「hook 的攔截清單」與「settings matcher」漂移 —— 另外兩支測試都是直接
       # 呼叫 decide()，matcher 漏列時它們照樣全綠，但真實情況是 hook 根本不會被叫起。
       - name: matcher-contract
-        run: node "linux/skills/超級模式/tests/matcher-contract.test.js"
+        run: node "linux/skills/超級模式/tests/matcher-contract.test.js" --repo
 
       # 這支是**平台無關**的頂層測試（tools/ 與 tests/ 都不在 linux/ 底下），
       # 刻意接進本 workflow：probe 決定使用者會不會進入「動 settings」的流程，

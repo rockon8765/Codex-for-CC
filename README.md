@@ -38,7 +38,18 @@
 >
 > **例外：Linux 自 2026-07-26 起有持續性的原生覆蓋。** [`.github/workflows/linux.yml`](.github/workflows/linux.yml) 讓每次 push／PR 都在 `ubuntu-latest` 上跑完整 `linux/` 回歸（含一道變異測試守住平台語義）。所以 linux 的「目前 tip 是否原生驗證過」不必再靠人工回想——看 CI 狀態即可。Windows 與 macOS 目前**沒有** CI，仍靠人工原生驗證。
 >
-> **本次 delta 的驗證分布（2026-08-09，`5cc50e0..70f305d`：A2 —— MIGRATION 的 probe 抽成 repo 腳本並 fail-closed、判定表拆 1／≥2、第 2 節改 handler 粒度、備份改用跨平台 `tools/backup-settings.js`、10 處註冊入口改成「跑 probe 照它印的判定走」）。**
+> **本次 delta 的驗證分布（2026-08-09b，基準 `5da2624`：gate 辨識抽成三平台共用模組 ＋ `matcher-contract` 的 `--repo`／`--live` 顯式模式）。**
+> ⚠️ **本批刻意不釘 endpoint SHA，改釘 blob。** 理由很實際：補釘 SHA 的那個 commit 自己就會讓尖端前進，於是宣稱永遠落後一格。受測檔的釘子是 [`docs/HANDOFF-macos-shared-parser-2026-08-09.md`](docs/HANDOFF-macos-shared-parser-2026-08-09.md) §1 的 blob 表，可逐筆 `git hash-object` 核對。
+> **改了什麼**：「哪個 handler 是本 gate、它會不會真的攔得住」收斂到 `<platform>/skills/超級模式/lib/gate-registration.js`（三平台**逐位元相同**、隨 skill 安裝進 live），`tools/probe-gate-registration.js` 與三份 `matcher-contract.test.js` 共用它。順帶攔下**五種「有註冊但不會 gate」**的設定：`type` 不是 `command`、handler 帶 `if`／`once`／`async`／`asyncRewake`。
+> **macOS**：⚠️ **未原生驗證（本機無 Mac），本批的 macOS 狀態為 `pending`。** 下方 A2 那批記載的「`matcher-contract` 同 blob、本批未改它」對**那一批**仍然成立，但**本批改了它**，所以那句話不能延用到現在的 tip。需要 Mac 真機重驗的清單與判準見上面那份 handoff。
+> **Windows**（Node v24.16.0）：`tests/gate-registration.test.js` **104/104**；`tests/probe-gate-registration.test.js` **61/61**（基準 44，本批 +17）；`tests/matcher-contract-cli.test.js` **55/55**；三平台 `matcher-contract --repo` 皆 exit 0；gate-cases **109/109**；`tests/backup-settings.test.js` **7 PASS／2 SKIP**；`tests/ai-install/run-windows.ps1` **69/69**（pwsh 7 與 Windows PowerShell 5.1 各跑一次）；`codex-check` **188/188**。
+> **Linux**（WSL2 ext4 家目錄、**fresh clone** 而非複製工作目錄，Node v22.23.1）：`gate-registration` **104/104 `--strict` SKIP 0**、probe **61/61**、`matcher-contract-cli` **55/55**、gate-cases **121/121**、`backup-settings --strict` **9/9 SKIP 0**、`run-posix.sh` **68/68**、`run-e2e.sh` **11/11**。
+> **輸出不變的界線（不要讀成「完全不變」）**：以 47 個 fixture 逐位元比對舊版與新版 probe 的**判定區**（範圍說明之前的全部內容）→ **47/47 相同、退出碼 47/47 相同**（Windows 與 Linux 各跑一次）。範圍說明區是**刻意**改的：舊版 12 行、新版 24 行，舊版原有的行只有 1 行被取代（`type` 那句擴寫成「五種合法值 ＋ matcher 型別 ＋ 不安全欄位」）。
+> **反向驗證（逐案核對，不只比總數）**：probe 對 `5da2624` 版 → **51 PASS／10 FAIL**，失敗的**恰好**是那 10 個；對 `5cc50e0` 的舊 heredoc → **10 PASS／51 FAIL**，與既有紀錄的 7/37 對得上（44 案的 7/37 ＋ 新案的 3/14）。`matcher-contract-cli` 對 blob `5edaa7e` → **55/55 全部符合宣告的舊行為**（每案都宣告 `oldExit`，少數另宣告 `oldWant`／`oldStack`，所以這是對舊版的**正面刻畫**而非「會失敗」）。其中三案**舊版退出碼也是 1**，只有訊息抓得到差別。
+> **非空驗證**：共用模組做了 9 個變異注入，每個都先自我檢查「注入是否成功」（錨點存在 ＋ 替換後 bytes 不同 ＋ 磁碟內容真的變了），**9/9 被恰好正確的案子抓到**，Windows 與 Linux 各跑一次。
+> **本批的暴險面**：新增與改動的都是純 Node；未動 `run-posix.sh`／`codex-check`／hook 本體，所以 BSD vs GNU 的 `sed`／`awk`／`find`／`cp` 語義差異不在本批範圍內。真正的 macOS 風險面是 `os.homedir()` 與 `readFileSync` 對目錄的錯誤碼（`EISDIR`）——handoff 有專門的診斷項。
+>
+> **上一批 delta 的驗證分布（2026-08-09，`5cc50e0..70f305d`：A2 —— MIGRATION 的 probe 抽成 repo 腳本並 fail-closed、判定表拆 1／≥2、第 2 節改 handler 粒度、備份改用跨平台 `tools/backup-settings.js`、10 處註冊入口改成「跑 probe 照它印的判定走」）。**
 > （`70f305d` 是**最後一個動到受測檔**的 commit；其後只有補釘本行 SHA、回寫 macOS 結果、更新 backlog 這類**純文件** commit，未動任何受測檔——處理方式與 2026-08-04 那批的 `e1ec53f` 相同。受測檔的真正釘子是 handoff 的 **10 筆 blob**，可自行核對。）
 > ⚠️ 這裡**釘死 endpoint SHA，刻意不寫 `..HEAD`**——寫 `HEAD` 的話，下一個 commit 就會讓這段驗證宣稱悄悄擴張到沒驗過的改動上。
 > **macOS**：**撰寫當下未原生驗證**（本機無 Mac），**後於 2026-08-09 在真機補驗完成，七項全綠**——macOS 26.6.1 arm64／內建 `bash 3.2.57`／Node v26.4.0／`uid=501` 非 root，受驗 `f530cd6`、9 筆 blob 全符：probe **42/42**、gate-cases **117/117**、`matcher-contract` exit 0、`run-posix.sh` **68/68**、反向驗證 **6 PASS／36 FAIL**（PASS 清單經程式化比對恰為那 6 個對照組）、`backup-settings --strict` **8/8 SKIP 0**。詳見 [`docs/HANDOFF-macos-a2-2026-08-08.md`](docs/HANDOFF-macos-a2-2026-08-08.md)。
@@ -209,13 +220,13 @@ cp    "macos/hooks/super-mode-consult-gate.js" ~/.claude/hooks/
 #    並把絕對路徑改成你自己家目錄的路徑。
 #    ⚠️ 不要用 settings.local.json —— 家目錄那份不是 user scope，只有從家目錄
 #    啟動 Claude Code 時才生效（見 docs/verify-settings-scope.md）。
-#    ⚠️ 合併的**完整步驟照 docs/AI-INSTALL.md 步驟 2 做，本節刻意不複述**。
-#    那一節有兩道 probe：動手前先數一次，合併後再跑一次當驗收。
-#    少做後者的話，把 handler 誤寫成 type:"prompt" 會讓下面的驗證全綠，
-#    但 Claude Code 只有 type:"command" 才會執行 command —— gate 根本不會被叫起。
+#    ⚠️ 合併的**完整步驟、以及那兩道 probe 各自的理由，一律照
+#    docs/AI-INSTALL.md 步驟 2 做，本節刻意不複述**。
+#    （先前這裡抄了一份「為什麼要跑第二道」的理由，共用模組上線後它就過時了
+#    —— 那正是不該複述的原因。）
 # 4. 驗證：
 node "$HOME/.claude/skills/超級模式/tests/run-gate-tests.js"        # 應全數 PASS（案例數見 gate-cases.json）
-node "$HOME/.claude/skills/超級模式/tests/matcher-contract.test.js" # ★ 必跑，見下方說明
+node "$HOME/.claude/skills/超級模式/tests/matcher-contract.test.js" --live # ★ 必跑，見下方說明
 bash "$HOME/.claude/skills/超級模式/tests/run-e2e.sh"               # 應全數 passed
 ```
 
@@ -229,13 +240,13 @@ cp    "linux/hooks/super-mode-consult-gate.js" ~/.claude/hooks/
 #    node 也要寫絕對路徑，否則 hook 會靜默不跑。
 #    ⚠️ 不要用 settings.local.json —— 家目錄那份不是 user scope，只有從家目錄
 #    啟動 Claude Code 時才生效（見 docs/verify-settings-scope.md）。
-#    ⚠️ 合併的**完整步驟照 docs/AI-INSTALL.md 步驟 2 做，本節刻意不複述**。
-#    那一節有兩道 probe：動手前先數一次，合併後再跑一次當驗收。
-#    少做後者的話，把 handler 誤寫成 type:"prompt" 會讓下面的驗證全綠，
-#    但 Claude Code 只有 type:"command" 才會執行 command —— gate 根本不會被叫起。
+#    ⚠️ 合併的**完整步驟、以及那兩道 probe 各自的理由，一律照
+#    docs/AI-INSTALL.md 步驟 2 做，本節刻意不複述**。
+#    （先前這裡抄了一份「為什麼要跑第二道」的理由，共用模組上線後它就過時了
+#    —— 那正是不該複述的原因。）
 # 4. 驗證（linux/ 每次 push 都跑 ubuntu-latest CI，這裡是驗你這台機器的安裝結果）：
 node "$HOME/.claude/skills/超級模式/tests/run-gate-tests.js"        # 應全數 PASS（案例數見 gate-cases.json）
-node "$HOME/.claude/skills/超級模式/tests/matcher-contract.test.js" # ★ 必跑，見下方說明
+node "$HOME/.claude/skills/超級模式/tests/matcher-contract.test.js" --live # ★ 必跑，見下方說明
 bash "$HOME/.claude/skills/超級模式/tests/run-e2e.sh"               # 應全數 passed
 ```
 
@@ -244,17 +255,18 @@ bash "$HOME/.claude/skills/超級模式/tests/run-e2e.sh"               # 應全
 Copy-Item -Recurse ".\windows\skills\超級模式" "$env:USERPROFILE\.claude\skills\"
 Copy-Item ".\windows\hooks\super-mode-consult-gate.js" "$env:USERPROFILE\.claude\hooks\"
 # 然後把 hook 接到 ~/.claude/settings.json（見 windows/settings.snippet.json）。
-# ⚠️ 合併的完整步驟照 docs\AI-INSTALL.md 步驟 2 做，本節刻意不複述。
-# 那一節有兩道 probe：動手前先數一次，合併後再跑一次當驗收。
-# 少做後者的話，把 handler 誤寫成 type:"prompt" 會讓下面的驗證全綠，
-# 但 Claude Code 只有 type:"command" 才會執行 command —— gate 根本不會被叫起。
+# ⚠️ 合併的完整步驟、以及那兩道 probe 各自的理由，一律照 docs\AI-INSTALL.md
+# 步驟 2 做，本節刻意不複述。（先前這裡抄了一份「為什麼要跑第二道」的理由，
+# 共用模組上線後它就過時了 —— 那正是不該複述的原因。）
 # 驗證：
-node "$env:USERPROFILE\.claude\skills\超級模式\tests\run-gate-tests.js"        # 應全數 PASS
-node "$env:USERPROFILE\.claude\skills\超級模式\tests\matcher-contract.test.js" # ★ 必跑，見下方說明
+node "$env:USERPROFILE\.claude\skills\超級模式\tests\run-gate-tests.js"               # 應全數 PASS
+node "$env:USERPROFILE\.claude\skills\超級模式\tests\matcher-contract.test.js" --live # ★ 必跑，見下方說明
 ```
 
 > ★ **`matcher-contract` 不是可選項。** hook 裡的攔截清單**只有在 settings 的 PreToolUse `matcher` 也列到該工具名時才會生效**；matcher 漏合併時，另兩支測試（它們是**直接呼叫** `decide()`）照樣全綠，但真實情況是 hook 根本不會被叫起。這支測試把兩邊的清單釘死。
-> **但也別高估它**：它做的是**靜態比對**——挑出 settings 裡註冊了本 hook 的那筆 entry，比對其 `matcher` 與 hook 的清單。它**不**驗證該 entry 的 `command` 路徑真的存在、也**不**證明 Claude Code runtime 真的載入了那份 settings。要確認端到端接上，仍需在新 session 實際觸發一次。
+> **一律給旗標**：`--repo` 驗與該檔相鄰的 `settings.snippet.json`、`--live` 驗 `~/.claude/settings.json` ＋ `~/.claude/hooks/` 那一對。兩者都會**印出實際受驗的兩條路徑**，請核對是你以為的那一對。不給旗標會走已淘汰的自動判斷（印 deprecation 警告），而它在 repo 佈局下**一定**驗相鄰的 snippet、驗不到 live。
+> 2026-08-09 起它也會攔下「gate 有註冊但不會生效」的設定：`type` 不是 `command`（合法值有 `command`／`http`／`mcp_tool`／`prompt`／`agent`，只有 `command` 會執行 `command` 欄位），以及 handler 帶 `if`／`once`／`async`／`asyncRewake`。
+> **但也別高估它**：它做的是**靜態比對**。它**不**驗證 `command` 路徑真的存在、**不**證明 Claude Code runtime 真的載入了那份 settings，也**不**數重複註冊（那是 `tools/probe-gate-registration.js` 的職責）。而且「`command` 含 gate 檔名」只代表 needle **candidate**——`command: "echo super-mode-consult-gate"` 同樣會被算進去，但它根本不跑 gate。要確認端到端接上，仍需在新 session 實際觸發一次。
 
 hook **在啟用前是 fail-open 且停用的** — 安裝它不會影響一般 session；只有在 `super-mode.{sh,ps1} on` 之後才會作用。
 

@@ -250,20 +250,33 @@ node tools/backup-settings.js
 >
 > **所以本次修訂的完成判準是 2.2 的後置條件（＝第 1 節 probe 印「正常，不用修。」且 exit 0）
 > ＋ 下面的 3.2 端到端觸發。** 本節當補充看，不要拿它當唯一驗收。
-> 要讓這支測試真的能驗你的 live settings，得先照 [`AI-INSTALL.md`](AI-INSTALL.md) 重裝
-> skill、把 verifier 換成新版。
+
+**用 checkout 裡的 verifier 加 `--live`，不要跑你已安裝的那一份**（理由就是上面的 ⛔）。
+`--live` 明確指定「驗 `~/.claude/settings.json` ＋ `~/.claude/hooks/super-mode-consult-gate.js`」，
+所以從 checkout 執行也驗得到 live。在 Codex-for-CC 的 checkout 根目錄跑（`macos` 換成你的平台）：
 
 ```bash
-node ~/.claude/skills/超級模式/tests/matcher-contract.test.js; echo "exit=$?"
+node "macos/skills/超級模式/tests/matcher-contract.test.js" --live; echo "exit=$?"
 ```
 
-- `exit=0` → matcher 與 hook 的工具清單一致（**前提是這份 verifier 是新版**，見上）
-- `exit=1` 且訊息說「找不到已註冊本 hook 的 settings」→ 第 2 節沒做成功，回去檢查
+它會先印出**實際受驗的兩條路徑**，請核對它們指向你的家目錄。
 
-> 這支測試在 2026-07-28 之前**會假綠**：它的候選清單含 `settings.local.json`，
-> 找到就 PASS，等於驗了一份 Claude Code 根本不載入的檔案。**repo 內的版本**已移除該候選，
-> 並移除 `|| candidates[0]` 的 fallback——找不到就直接 FAIL。
-> ⚠️ 但**你機器上那份不會因此自動更新**，這正是上面 ⛔ 的原因。
+- `exit=0` → matcher 與 hook 的工具清單一致
+- `exit=1` → 看它印的 `RESULT_CODE=`：
+  - `NO_GATE` → 第 2 節沒做成功，回去檢查
+  - `BAD_TYPE` → handler 的 `type` 不是 `command`（合法值有 `command`／`http`／`mcp_tool`／
+    `prompt`／`agent`，**只有 `command` 會執行 `command` 欄位**）
+  - `UNSAFE_FIELD` → handler 帶 `if`／`once`／`async`／`asyncRewake`，gate 不會如預期阻擋
+  - `AMBIGUOUS_MATCHER`／`SHAPE_ERROR`／`UNSUPPORTED_EXEC_FORM` → 照訊息處理，
+    多筆或衝突的情況以第 1 節的 probe 為準
+- `exit=2` → 參數用錯，照它印的用法改
+
+> **為什麼一定要用 checkout 那份**：2026-08-08 兩台真機取樣顯示，已安裝的 verifier
+> 要嘛是**會假綠的舊版**（候選清單含 `settings.local.json`），要嘛**根本不存在**。
+> 更關鍵的是實測結果：**舊版收到 `--live` 會靜默忽略、照樣 PASS**——
+> 所以「跑已安裝那份並加旗標」不但沒有解決問題，還會給你一個看起來更可信的綠燈。
+> repo 內的版本已移除該候選與 `|| candidates[0]` fallback，並在 2026-08-09 起
+> 把 gate 辨識收斂到與 probe 共用的單一模組。
 
 ### 3.2 端到端：真的會被叫起嗎
 

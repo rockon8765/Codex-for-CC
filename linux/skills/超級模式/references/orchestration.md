@@ -97,16 +97,16 @@ SKILL.md 的 §2 / §3 / §3.5 / §5 的詳細範本與程序。用到才讀。
 
 **註冊（部署）**：把下面合併進 `~/.claude/settings.json`（hook 設定變更下個 session 才生效）。
 ⚠️ **合併的完整步驟照 Codex-for-CC checkout 裡的 `docs/AI-INSTALL.md` 步驟 2 做，這裡刻意不複述**
-（skill 裝到 `~/.claude/` 後不含 `docs/`，要回 checkout 看）。那一節有兩道 probe：動手前先數一次、
-合併後再跑一次當驗收；少做後者的話，把 handler 誤寫成 `type:"prompt"` 會讓下面的測試全綠，
-但 Claude Code 只有 `type:"command"` 才會執行 `command`——gate 根本不會被叫起。
+（skill 裝到 `~/.claude/` 後不含 `docs/`，要回 checkout 看）。那一節有兩道 probe，動手前與合併後各一次；**兩者各自的理由寫在那一節，本檔刻意不複述**
+（先前這裡抄過一份，共用模組上線後就過時了——那正是不該複述的原因）。
 路徑改成你的家目錄；若 `node` 不在系統 PATH（如可攜式安裝），`command` 開頭的 `node` 也要換成
 絕對路徑（如 `/home/user/.local/node/bin/node`），否則 hook 會**靜默不跑、gate 形同虛設**。
 ⚠️ **不要放 `settings.local.json`**——2026-07-28 macOS 實測確認家目錄那份**不是** user scope，
 只有從家目錄啟動 Claude Code 時才生效（那時它剛好就是專案層的檔案）。舊版指引寫「放 local 才不會被
 ECC 蓋掉」，那個理由已被推翻：躲進不會被載入的檔案只是把「被覆寫」換成「從來沒生效」。
 任何工具改動該檔之後（包含 Claude Code 自己的 plugin manager——它同樣寫這個檔）的正解是重跑
-`node ~/.claude/skills/超級模式/tests/matcher-contract.test.js`——它現在找不到已註冊的 hook 會 FAIL。
+`node ~/.claude/skills/超級模式/tests/matcher-contract.test.js --live`
+——它現在找不到已註冊的 hook 會 FAIL。
 （舊版這裡寫相對路徑 `tests/…`，從一般專案目錄執行會直接 module-not-found，等於這條指引沒法照做。）
 詳見 `docs/verify-settings-scope.md`：
 ```json
@@ -120,7 +120,7 @@ ECC 蓋掉」，那個理由已被推翻：躲進不會被載入的檔案只是�
 }
 ```
 然後每次工作用 `super-mode.sh on --scope <dir>` 開、`super-mode.sh off` 關。
-**測試**：`node ~/.claude/skills/超級模式/tests/run-gate-tests.js`（案例回歸）＋ `node ~/.claude/skills/超級模式/tests/matcher-contract.test.js`（hook 清單 vs settings matcher 一致性）＋ `bash ~/.claude/skills/超級模式/tests/run-e2e.sh`（stdin 端到端）。改 hook 前先在 `tests/gate-cases.json` 加會 fail 的新案例，改完全綠才算數。
+**測試**：`node ~/.claude/skills/超級模式/tests/run-gate-tests.js`（案例回歸）＋ `node ~/.claude/skills/超級模式/tests/matcher-contract.test.js --live`（hook 清單 vs settings matcher 一致性）＋ `bash ~/.claude/skills/超級模式/tests/run-e2e.sh`（stdin 端到端）。改 hook 前先在 `tests/gate-cases.json` 加會 fail 的新案例，改完全綠才算數。
 
 ## §5 Ultracode 疊用分工
 
