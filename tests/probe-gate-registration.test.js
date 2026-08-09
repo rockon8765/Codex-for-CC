@@ -137,6 +137,43 @@ const CASES = [
   // 與實作相反；再寫成「唯二例外」，漏了這一類）。文案與行為必須被同一組斷言綁住。
   { id: "scope-nongate-bad-type-passes", main: settings({ matcher: "Bash", hooks: [{ type: 7, command: "node /other/hook.js" }] }), exit: 0, want: ["gate 條目：0 個", "兩邊都沒有 gate", "非 gate 的 handler 不驗 type 的型別"] },
   { id: "scope-command-type-without-command-passes", main: settings({ matcher: "Bash", hooks: [{ type: "command" }] }), exit: 0, want: ["gate 條目：0 個", "兩邊都沒有 gate"] },
+
+  // ---- type 的其餘合法值（官方共五種，只有 command 會執行 command 欄位）--------
+  // 修正前只在案例裡釘了 prompt；http／mcp_tool／agent 同樣不會執行 gate。
+  { id: "type-http", main: settings({ matcher: MATCHER, hooks: [{ type: "http", command: CMD }] }), exit: 1, want: ['command 含 gate，但 type 是 "http"'], deny: ["正常，不用修"] },
+  { id: "type-mcp-tool", main: settings({ matcher: MATCHER, hooks: [{ type: "mcp_tool", command: CMD }] }), exit: 1, want: ['command 含 gate，但 type 是 "mcp_tool"'], deny: ["正常，不用修"] },
+  { id: "type-agent", main: settings({ matcher: MATCHER, hooks: [{ type: "agent", command: CMD }] }), exit: 1, want: ['command 含 gate，但 type 是 "agent"'], deny: ["正常，不用修"] },
+
+  // ---- 不安全欄位：JSON 合法、type 正確，但 gate 不會如預期阻擋 ---------------
+  // 修正前這五種**兩支工具都印「正常／PASS」**（假 HOME 實測，見 docs/backlog.md）。
+  // 官方 hooks reference 有這些欄位，所以它們不是畸形資料，是會生效的設定。
+  { id: "unsafe-if", main: settings({ matcher: MATCHER, hooks: [{ type: "command", command: CMD, if: "Bash(git push *)" }] }), exit: 1, want: ["判定：設定不安全", "帶 if=", "其餘工具完全不受攔", "不要 append"], deny: ["判定：正常，不用修。"] },
+  { id: "unsafe-once", main: settings({ matcher: MATCHER, hooks: [{ type: "command", command: CMD, once: true }] }), exit: 1, want: ["帶 once=true", "整個 session 不設防"], deny: ["判定：正常，不用修。"] },
+  { id: "unsafe-async", main: settings({ matcher: MATCHER, hooks: [{ type: "command", command: CMD, async: true }] }), exit: 1, want: ["帶 async=true", "deny 來不及生效"], deny: ["判定：正常，不用修。"] },
+  { id: "unsafe-async-rewake", main: settings({ matcher: MATCHER, hooks: [{ type: "command", command: CMD, asyncRewake: true }] }), exit: 1, want: ["帶 asyncRewake=true"], deny: ["判定：正常，不用修。"] },
+  { id: "unsafe-in-local-too", main: { hooks: { PreToolUse: [] } }, local: settings({ matcher: MATCHER, hooks: [{ type: "command", command: CMD, once: true }] }), exit: 1, want: ["settings.local.json", "帶 once=true"] },
+  // 明確關閉不算不安全 —— 否則會無故弄壞把欄位寫成 false 的使用者
+  { id: "unsafe-async-false-passes", main: settings({ matcher: MATCHER, hooks: [{ type: "command", command: CMD, async: false, once: false }] }), exit: 0, want: ["判定：正常，不用修。"], deny: ["設定不安全"] },
+  // 良性欄位一律放行（不影響 gate 能否阻擋）
+  { id: "benign-fields-pass", main: settings({ matcher: MATCHER, hooks: [{ type: "command", command: CMD, timeout: 30, shell: "bash", statusMessage: "x" }] }), exit: 0, want: ["判定：正常，不用修。"], deny: ["設定不安全"] },
+  // precedence：不安全欄位排在 exec form 之前（「確定壞了＋有修法」比「請找人」有用）
+  { id: "unsafe-beats-exec-form", main: settings({ matcher: MATCHER, hooks: [{ type: "command", command: "node", args: ["/x/super-mode-consult-gate.js"], async: true }] }), exit: 1, want: ["判定：設定不安全"], deny: ["判定：停手"] },
+  // precedence：形狀不合排在不安全之前
+  { id: "shape-beats-unsafe", main: settings({ matcher: MATCHER, hooks: [{ type: "prompt", command: CMD, async: true }] }), exit: 1, want: ['type 是 "prompt"'], deny: ["判定：設定不安全"] },
+
+  // ---- 參數：未知參數必須明確報錯，不可靜默忽略 -------------------------------
+  // 踩過的實例：修正前的 matcher-contract 收到 `--live` 會靜默忽略並照樣 PASS，
+  // 於是「我明明指定了驗 live」的人拿到一個驗別的東西的綠燈。同一個坑不再挖。
+  { id: "bad-args-rejected", main: settings(gateEntry()), args: ["--live"], exit: 2, want: ["不吃參數", "RESULT_CODE=BAD_ARGS"], deny: ["判定：正常，不用修。"] },
+
+  // ---- 共用模組的完整性（證明 loader guard 不是死碼）-------------------------
+  // gate 辨識的邏輯只有一份，放在三平台 payload 的 lib/ 並要求逐位元相同。
+  // 這三案分別驗：缺鏡像、鏡像分歧、以及**正向對照**（staging 機制本身有效）。
+  // 少了正向對照，前兩案可能只是因為「temp 目錄下什麼都跑不起來」而通過。
+  { id: "integrity-lonely-probe", main: settings(gateEntry()), lonely: true, exit: 1, want: ["TOOL_INTEGRITY_ERROR", "沒有做任何判斷", "讀不到"], deny: ["判定：正常，不用修。"] },
+  { id: "integrity-staged-tree-ok", main: settings(gateEntry()), staged: {}, exit: 0, want: ["判定：正常，不用修。"], deny: ["TOOL_INTEGRITY_ERROR"] },
+  { id: "integrity-mirror-divergence", main: settings(gateEntry()), staged: { mutate: "linux" }, exit: 1, want: ["TOOL_INTEGRITY_ERROR", "內容不一致"], deny: ["判定：正常，不用修。"] },
+  { id: "integrity-mirror-absent", main: settings(gateEntry()), staged: { omit: "macos" }, exit: 1, want: ["TOOL_INTEGRITY_ERROR", "讀不到"], deny: ["判定：正常，不用修。"] },
 ];
 
 // ── 執行 ────────────────────────────────────────────────────────────────
@@ -155,13 +192,51 @@ function writeFixture(dir, name, value) {
   fs.writeFileSync(path.join(dir, name), body);
 }
 
+// ── 受測 probe 的擺放方式 ───────────────────────────────────────────────
+/*
+ * 預設直接跑 `probe`。兩種變體用來驗共用模組的 loader guard：
+ *
+ *   lonely: true   只把 probe 複製到一個空目錄 → 三份鏡像都讀不到
+ *   staged: {...}  重建一棵最小樹（tools/ ＋ 三個平台的 lib/），可選擇
+ *                  `omit`（省略某平台）或 `mutate`（改掉某平台那份 bytes）
+ *
+ * `staged: {}`（不動任何東西）是**正向對照**：它必須跑出正常判定。
+ * 沒有它的話，另外兩案可能只是因為「這棵臨時樹本來就跑不起來」而通過 ——
+ * 那樣 guard 是死碼也看不出來。
+ */
+const MIRROR_PLATFORMS = ["windows", "macos", "linux"];
+const MIRROR_REL = path.join("skills", "超級模式", "lib", "gate-registration.js");
+
+function stageProbe(c, home) {
+  if (c.lonely) {
+    const p = path.join(home, "lonely-probe.js");
+    fs.copyFileSync(probe, p);
+    return p;
+  }
+  if (!c.staged) return probe;
+  const root = path.join(home, "staged");
+  fs.mkdirSync(path.join(root, "tools"), { recursive: true });
+  const staged = path.join(root, "tools", "probe-gate-registration.js");
+  fs.copyFileSync(probe, staged);
+  for (const plat of MIRROR_PLATFORMS) {
+    if (c.staged.omit === plat) continue;
+    const src = path.join(__dirname, "..", plat, MIRROR_REL);
+    const dst = path.join(root, plat, MIRROR_REL);
+    fs.mkdirSync(path.dirname(dst), { recursive: true });
+    let buf = fs.readFileSync(src);
+    if (c.staged.mutate === plat) buf = Buffer.concat([buf, Buffer.from("\n// mirror divergence\n")]);
+    fs.writeFileSync(dst, buf);
+  }
+  return staged;
+}
+
 for (const c of CASES) {
   const home = path.join(work, c.id);
   fs.mkdirSync(path.join(home, ".claude"), { recursive: true });
   writeFixture(path.join(home, ".claude"), "settings.json", c.main);
   writeFixture(path.join(home, ".claude"), "settings.local.json", c.local);
 
-  const r = spawnSync(process.execPath, [probe], {
+  const r = spawnSync(process.execPath, [stageProbe(c, home)].concat(c.args || []), {
     encoding: "utf8",
     env: Object.assign({}, process.env, { HOME: home, USERPROFILE: home }),
   });
@@ -185,5 +260,7 @@ console.log("");
 console.log("TOTAL " + CASES.length + "  PASS " + pass + "  FAIL " + failed.length);
 if (failed.length) {
   console.log("失敗的案子：" + failed.join(", "));
-  process.exit(1);
+  // ⚠️ 刻意用 process.exitCode ＋自然結束，不用 process.exit()：後者依 Node 官方文件
+  // 會截斷尚未完成的 stdout 寫入，而失敗清單正好是最長、最需要被看到的那一段。
+  process.exitCode = 1;
 }
