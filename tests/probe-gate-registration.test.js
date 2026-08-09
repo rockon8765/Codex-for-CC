@@ -158,11 +158,15 @@ const CASES = [
 
   // ---- disableAllHooks：settings 的總開關（合併前審查抓到的假綠）------------
   { id: "kill-switch-main", main: Object.assign({ disableAllHooks: true }, settings(gateEntry())), exit: 1, want: ["所有 hook 都被停用", "disableAllHooks: true", "註冊得完全正確也不會被叫起"], deny: ["判定：正常，不用修。"] },
-  // local 那份不是 user scope，它裡面的旗標對 user hooks 不生效 → 不該據它擋人
-  { id: "kill-switch-local-only-ignored", main: settings(gateEntry()), local: { disableAllHooks: true }, exit: 0, want: ["判定：正常，不用修。"], deny: ["所有 hook 都被停用"] },
+  // local 的總開關**不能靜默忽略**：從家目錄啟動時它就是專案層 local，**且 local 覆蓋 user**。
+  // 是否咬人取決於啟動目錄（本工具看不到），所以是停手而非機械修法。
+  { id: "kill-switch-local-halts", main: settings(gateEntry()), local: { disableAllHooks: true }, exit: 3, want: ["判定：停手", "local 覆蓋 user"], deny: ["判定：正常，不用修。"] },
   { id: "kill-switch-false-passes", main: Object.assign({ disableAllHooks: false }, settings(gateEntry())), exit: 0, want: ["判定：正常，不用修。"] },
-  // 只認 true，不替使用者猜非官方形態
-  { id: "kill-switch-string-not-honored", main: Object.assign({ disableAllHooks: "true" }, settings(gateEntry())), exit: 0, want: ["判定：正常，不用修。"] },
+  // 不猜非官方形態，但也不當成「沒設」放行 —— 型別錯就報型別錯
+  { id: "kill-switch-string-is-shape-error", main: Object.assign({ disableAllHooks: "true" }, settings(gateEntry())), exit: 1, want: ["不是布林"], deny: ["判定：正常，不用修。"] },
+  // timeout <= 0：官方 schema exclusiveMinimum: 0 → 整份 settings 被拒絕載入
+  { id: "timeout-zero-rejected", main: settings({ matcher: MATCHER, hooks: [{ type: "command", command: CMD, timeout: 0 }] }), exit: 1, want: ["必須是 > 0 的數字", "exclusiveMinimum"], deny: ["判定：正常，不用修。"] },
+  { id: "timeout-positive-passes", main: settings({ matcher: MATCHER, hooks: [{ type: "command", command: CMD, timeout: 0.001 }] }), exit: 0, want: ["判定：正常，不用修。"] },
   { id: "kill-switch-beats-unsafe", main: Object.assign({ disableAllHooks: true }, settings({ matcher: MATCHER, hooks: [{ type: "command", command: CMD, async: true }] })), exit: 1, want: ["所有 hook 都被停用"], deny: ["判定：設定不安全"] },
   // 明確關閉不算不安全 —— 否則會無故弄壞把欄位寫成 false 的使用者
   { id: "unsafe-async-false-passes", main: settings({ matcher: MATCHER, hooks: [{ type: "command", command: CMD, async: false, once: false }] }), exit: 0, want: ["判定：正常，不用修。"], deny: ["設定不安全"] },

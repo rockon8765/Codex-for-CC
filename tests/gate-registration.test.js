@@ -500,19 +500,14 @@ expect("A80 probe：settings.json 的 disableAllHooks",
     has: ["所有 hook 都被停用", "disableAllHooks: true", "註冊得完全正確也不會被叫起"],
     hasnt: ["判定：正常，不用修。"],
   });
-expect("A81 probe：只在 local 設 disableAllHooks 不擋（那份不是 user scope）",
-  probe(raw(L_MAIN, settings(entry([gate()]))), raw(L_LOCAL, { disableAllHooks: true })), {
-    code: "OK_NORMAL", exit: 0, has: ["判定：正常，不用修。"], hasnt: ["所有 hook 都被停用"],
-  });
+// A81 原本斷言「只在 local 設 disableAllHooks 不擋」—— **那是依啟動目錄而定的假綠**，
+// 已由 A115 取代（改判停手）。理由：從家目錄啟動時 local 就是專案層 local 且覆蓋 user。
 expect("A82 probe：disableAllHooks:false 不擋",
   probe(raw(L_MAIN, Object.assign({ disableAllHooks: false }, settings(entry([gate()]))))), {
     code: "OK_NORMAL", exit: 0, hasnt: ["HOOKS_DISABLED"],
   });
-// 只認 true —— 不替使用者猜 "true"／1 這種非官方形態
-expect("A83 probe：disableAllHooks:\"true\"（字串）不算",
-  probe(raw(L_MAIN, Object.assign({ disableAllHooks: "true" }, settings(entry([gate()]))))), {
-    code: "OK_NORMAL", exit: 0,
-  });
+// A83 原本斷言字串 "true" 被當成「沒設」放行 —— 不猜是對的，但**靜默忽略**不對；
+// 已由 A114 取代（改報型別錯）。
 expect("A84 matcher：disableAllHooks", matcher(raw("live", Object.assign({ disableAllHooks: true }, settings(entry([gate()]))))), {
   code: "HOOKS_DISABLED", exit: 1, has: ["所有 hook 都被停用", "Disable all hooks"],
 });
@@ -596,6 +591,97 @@ expect("A101 shell ＋ exec 但 matcher 相同 → 維持 PASS",
   matcher(raw("live", settings(entry([gate()]), entry([gateExec()])))), {
     code: "OK_WITH_DUPLICATES", exit: 0, has: ["matcher 相同"],
   });
+
+// ── 合併前審查第二輪抓到的假綠／誤紅 ─────────────────────────────────────
+
+// (1) CLAUDE_CONFIG_DIR：官方環境變數，**覆寫整個設定目錄**。
+//     修正前 probe 與 --live 一律用 ~/.claude，於是驗到一份 Claude 不會讀的檔，
+//     還印出一條看起來像 live 的路徑 —— 假 attestation 比沒有驗證更糟。
+check("A110 configDirOverride 認得非空值",
+  G.configDirOverride({ CLAUDE_CONFIG_DIR: "D:/alt" }) === "D:/alt", "");
+check("A110 空字串／全空白／未設／非字串 一律 null",
+  G.configDirOverride({ CLAUDE_CONFIG_DIR: "" }) === null &&
+  G.configDirOverride({ CLAUDE_CONFIG_DIR: "   " }) === null &&
+  G.configDirOverride({ CLAUDE_CONFIG_DIR: 1 }) === null &&
+  G.configDirOverride({}) === null && G.configDirOverride(undefined) === null, "");
+{
+  const t = G.renderConfigDirRefusal("D:/alt", "本工具");
+  check("A111 拒絕訊息含變數名、值、兩條出路、具名 code",
+    t.includes("CLAUDE_CONFIG_DIR") && t.includes("D:/alt") && t.includes("unset") &&
+    t.includes("--settings") && t.includes("RESULT_CODE=CONFIG_DIR_OVERRIDE") &&
+    t.includes("沒有做任何判斷"), t);
+}
+
+// (2) timeout <= 0：官方 settings JSON schema 對它是 exclusiveMinimum: 0，
+//     違反 → 整份 settings 被拒絕載入 → gate 根本不存在。修正前回 OK/exit 0（假綠）。
+for (const bad of [0, -1, "30", null, NaN, Infinity]) {
+  const fx = settings(entry([gate({ timeout: bad })]));
+  const pr = probe(raw(L_MAIN, fx));
+  const mc = matcher(raw("live", fx));
+  check("A112 timeout=" + JSON.stringify(bad) + " 必須擋（probe）",
+    pr.code === "SHAPE_ERROR" && pr.exit === 1 && pr.text.includes("必須是 > 0 的數字"),
+    pr.code + "/" + pr.exit);
+  check("A112 timeout=" + JSON.stringify(bad) + " 必須擋（matcher）",
+    mc.code === "SHAPE_ERROR" && mc.exit === 1, mc.code + "/" + mc.exit);
+}
+// **任何正值都放行** —— 官方沒記載「多小算來不及」，不自行發明門檻
+for (const okv of [0.001, 1, 600]) {
+  check("A113 timeout=" + okv + " 放行（不發明門檻）",
+    probe(raw(L_MAIN, settings(entry([gate({ timeout: okv })])))).code === "OK_NORMAL", "");
+}
+
+// (3) disableAllHooks 型別錯：不猜成啟用，但也不能當 false 靜默忽略
+for (const bad of ["true", 1, null, {}]) {
+  const r = probe(raw(L_MAIN, Object.assign({ disableAllHooks: bad }, settings(entry([gate()])))));
+  check("A114 disableAllHooks=" + JSON.stringify(bad) + " 報型別錯",
+    r.code === "SHAPE_ERROR" && r.exit === 1 && r.text.includes("不是布林"), r.code + "\n" + r.text);
+}
+
+// (4) local 的 kill switch 不得靜默回 OK_NORMAL。
+//     「local 不是 user scope」的完整版是：從家目錄啟動時它就是專案層 local，**且 local 覆蓋 user**。
+expect("A115 local 設 disableAllHooks → 停手，不是「正常，不用修」",
+  probe(raw(L_MAIN, settings(entry([gate()]))), raw(L_LOCAL, { disableAllHooks: true })), {
+    code: "HALT_LOCAL_HOOKS_DISABLED", exit: 3,
+    has: ["判定：停手", "local 覆蓋 user", "取決於你的啟動目錄"],
+    hasnt: ["判定：正常，不用修。"],
+  });
+// main 的總開關優先（它無條件生效，不看啟動目錄）
+expect("A116 main 與 local 都設 → 報 main 那條",
+  probe(raw(L_MAIN, Object.assign({ disableAllHooks: true }, settings(entry([gate()])))), raw(L_LOCAL, { disableAllHooks: true })), {
+    code: "HOOKS_DISABLED", exit: 1,
+  });
+
+// (5) 語義等價的 anchored/grouped regex 不得誤紅。
+//     反向 heuristic 只對「長得就是純工具名」的 alternative 判斷；含 regex 元字元的片段
+//     一律歸為無法反解析 → 警告，不是 hard drift。
+{
+  const anchored = "^(?:" + REQ.concat(["mcp__.*"]).join("|") + ")$";
+  const res = G.checkMatcherContract(anchored, REQ);
+  check("A117 anchored regex 語義等價 → 通過（不得誤紅）", res.ok, JSON.stringify(res.problems));
+  check("A117 但要留下 UNVERIFIABLE_REGEX 警告",
+    (res.warnings || []).some((w) => w.code === "UNVERIFIABLE_REGEX"), JSON.stringify(res.warnings));
+  const txt = G.renderMatcherContract(res, { kind: "live" }, REQ);
+  check("A117 警告文案說明只驗了正向涵蓋",
+    txt.includes("UNVERIFIABLE_REGEX") && txt.includes("只驗了正向涵蓋"), txt);
+}
+// 純工具名的多餘項仍必須抓到（守衛沒被放寬掉）
+check("A118 regex 路徑下多出純工具名仍抓得到",
+  G.checkMatcherContract(CANON + "|NoSuchTool", REQ).problems.some((p) => p.code === "UNKNOWN_ALT"), "");
+
+// (6) MATCHER_DRIFT 的修法**不得導向 probe** —— probe 不驗 matcher 語義，
+//     它會回「正常，不用修」，使用者照著走一圈會以為沒事。
+{
+  const res = G.checkMatcherContract("Bash|mcp__.*", REQ);
+  const live = G.renderMatcherContract(res, { kind: "live" }, REQ);
+  check("A119 live 的 contract 修法叫人改現有 matcher，並明講 probe 不驗這件事",
+    live.includes("不要 append") && live.includes("probe 不驗 matcher 語義"), live);
+  const repo = G.renderMatcherContract(res, { kind: "repo" }, REQ);
+  check("A119 repo 的 contract 修法指向相鄰 snippet，不提家目錄",
+    repo.includes("settings.snippet.json") && !repo.includes("~/.claude/settings.json"), repo);
+  const ex = G.renderMatcherContract(res, { kind: "explicit" }, REQ);
+  check("A119 explicit 的 contract 修法叫人用同一組旗標重驗",
+    ex.includes("同一組") && !ex.includes("待出貨"), ex);
+}
 
 // ════════════════════════════════════════════════════════════════════════
 console.log("\n§B 成對契約（刻意的規則差異）");

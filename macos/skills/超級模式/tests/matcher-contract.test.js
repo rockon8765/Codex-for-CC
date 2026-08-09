@@ -30,8 +30,9 @@
  *       沿用舊的自動判斷並印 deprecation 到 stderr。
  *
  * ⚠️ **不要寫「無旗標的行為與退出碼完全不變」**——那是不實的。無旗標路徑同樣套用下面
- * 那些嚴格化：`type` 不是 `command`、或 handler 帶 `if`／`once`／`async`／`asyncRewake` 時，
- * 退出碼會由 **0 變 1**。那正是本次要修的洞，不是回歸。
+ * 那些嚴格化：`type` 不是 `command`、handler 帶 `if`／`async`／`asyncRewake`、`timeout` 不是
+ * 正數、或頂層設了 `disableAllHooks: true` 時，退出碼會由 **0 變 1**。
+ * 那正是本次要修的洞，不是回歸。
  *
  * ── 2026-08-09：gate 辨識改用共用模組 ─────────────────────────────────────
  *
@@ -43,8 +44,12 @@
  *   {"type":"prompt"|"http"|"mcp_tool"|"agent", "command":"…gate…"}   gate 不會被執行
  *   {"command":"…gate…"}（type 缺漏）                                  同上
  *   {…, "if":"Bash(git push *)"}                                       Edit/Write 完全不受攔
- *   {…, "once":true}                                                   首次叫用後就被移除
  *   {…, "async":true} / {…, "asyncRewake":true}                        非阻塞，deny 來不及生效
+ *   {…, "timeout":0}                                                   官方 schema 不容許，整份 settings 被拒
+ *   頂層 {"disableAllHooks":true}                                      所有 hook 一起停用
+ *
+ * ⚠️ **`once` 不在這張清單上** —— 官方明訂它在 settings 檔會被忽略，擋它是誤紅。
+ *   我一度擋了，合併前審查抓到並改回。
  *
  * 另外兩種修正前是「exit 1 但訊息誤導」：exec form 被報成「沒有註冊本 hook」；
  * 形狀不合（例如 `PreToolUse` 是字串）直接噴 uncaught TypeError 的 stack trace。
@@ -64,12 +69,25 @@ const path = require("path");
 // 單一相對路徑，repo 與 live 兩種佈局都成立（1c 是整棵 cp -R，lib/ 會跟著進 live）。
 const MODULE_PATH = path.join(__dirname, "..", "lib", "gate-registration.js");
 
+/*
+ * **拆成兩段是刻意的。** 承諾是「一律先印出實際受驗的目標」，而 `require()` 有可能
+ * 以**非 throw** 的方式終止行程（模組頂層呼叫 process.exit、或原生崩潰），
+ * 那時外層 try/catch 抓不到，attestation 就完全不會出現 —— 合併前審查用一個頂層
+ * process.exit(7) 的假模組實測過：rc=7、零 attestation。
+ * 所以拆成：readDigest()（只碰 fs）→ 印 attestation → loadShared()（才 require）。
+ */
+function readDigest() {
+  try {
+    const d = crypto.createHash("sha256").update(fs.readFileSync(MODULE_PATH)).digest("hex").slice(0, 16);
+    return { ok: true, digest: d };
+  } catch (e) {
+    return { ok: false, why: (e && e.code) || String(e) };
+  }
+}
+
 function loadShared() {
   try {
-    // 摘要在 require 之前算，而且是從**磁碟內容**算的 —— 印出來讓人能發現「已安裝的
-    // lib/ 是舊版」這種 require 得起來但規則變弱的情形。
-    const digest = crypto.createHash("sha256").update(fs.readFileSync(MODULE_PATH)).digest("hex").slice(0, 16);
-    return { ok: true, mod: require(MODULE_PATH), digest };
+    return { ok: true, mod: require(MODULE_PATH) };
   } catch (e) {
     return {
       ok: false,
@@ -222,16 +240,28 @@ function main() {
       "   " + USAGE
     );
   }
-  const loaded = loadShared();
+  const dg = readDigest();
   t.modulePath = MODULE_PATH;
-  t.moduleDigest = loaded.ok ? loaded.digest : "（讀不到，見下方 TOOL_INTEGRITY_ERROR）";
-  // **一律先印四行 attestation，再做任何檢查。** 早退路徑（含模組缺失）也一樣。
+  t.moduleDigest = dg.ok ? dg.digest : "（讀不到：" + dg.why + "）";
+  // **一律先印四行 attestation，再做任何事** —— 包含 require 共用模組之前。
   console.log(attestation(t).join("\n"));
+
+  const loaded = loadShared();
   if (!loaded.ok) {
     console.error(loaded.text);
     return 1;
   }
   const G = loaded.mod;
+
+  // CLAUDE_CONFIG_DIR 會覆寫整個設定目錄。只有「目標是 live」時才受影響
+  // （--repo 與 explicit 的路徑不是從設定目錄解出來的）。
+  if (t.kind === "live") {
+    const override = G.configDirOverride(process.env);
+    if (override) {
+      console.error(G.renderConfigDirRefusal(override, "本測試"));
+      return 1;
+    }
+  }
 
   // ---- hook ----
   let hookSrc;
@@ -239,6 +269,7 @@ function main() {
     hookSrc = fs.readFileSync(t.hookPath, "utf8").replace(/^﻿/, "");
   } catch (e) {
     console.error("FAIL: 讀不到 hook（" + e.code + "）：" + t.hookPath);
+    console.error(G.nextStep(t.kind));
     console.log("RESULT_CODE=HOOK_UNREADABLE");
     return 1;
   }
@@ -274,6 +305,7 @@ function main() {
   }
   if (problems.length) {
     for (const p of problems) console.error("FAIL: " + p);
+    console.error(G.nextStep(t.kind));
     console.log("RESULT_CODE=HOOK_UNPARSEABLE");
     return 1;
   }
@@ -285,11 +317,16 @@ function main() {
   // JavaScript regex（unanchored）。本 repo 的 canonical matcher 含 `mcp__.*` 的 `.`，
   // 所以它走的是 regex 路徑 —— 修正前一律 split("|") 當清單比，剛好答案相同但語義不等價。
   const contract = G.checkMatcherContract(verdict.matcher, required);
+  const contractText = G.renderMatcherContract(contract, t, required);
   if (!contract.ok) {
-    console.error(G.renderMatcherContract(contract, t, required));
+    console.error(contractText);
     console.log("RESULT_CODE=MATCHER_DRIFT");
     return 1;
   }
+  // ⚠️ **通過時也要印警告。** `UNVERIFIABLE_REGEX` 的整個意義就是「我只驗了正向涵蓋，
+  // 沒驗有沒有多出不認識的工具」—— 只在 FAIL 時印，等於把這個能力界線藏起來，
+  // 而使用者拿到的是一個看起來完整的 PASS。
+  if (contractText) console.log(contractText);
 
   console.log("PASS matcher-contract (" + required.length + " 個工具名 + MCP 兩邊一致，" +
     "matcher 依 runtime 規則解讀為" + (contract.ev.kind === "regex" ? "正規表達式" : contract.ev.kind === "list" ? "精確清單" : "全部匹配") + ")");

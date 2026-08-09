@@ -241,15 +241,16 @@ node tools/backup-settings.js
 
 ### 3.1 靜態：matcher 是否真的合併進去了
 
-> ⛔ **這一節對「2026-07-28 以前安裝」的人不可靠——也就是對本文件的讀者不可靠。**
-> 它跑的是**你已安裝**的那份 verifier，而那份有兩種壞法，2026-08-08 的兩台真機取樣各命中一種：
+> ⛔ **不要跑你已安裝的那份 verifier**——對「2026-07-28 以前安裝」的人（也就是本文件的讀者）
+> 它不可靠。2026-08-08 的兩台真機取樣各命中一種壞法：
 >
 > - **舊版會假綠**：候選清單裡還有 `settings.local.json`，gate 只註冊在 local 時它照樣 PASS。
 > - **根本不存在**：有的機器 `~/.claude/skills/超級模式/tests/` 裡沒有這個檔——因為舊指引
 >   那條「★ 必跑」在該機器上從沒成功跑過，執行會直接 module-not-found。
 >
-> **所以本次修訂的完成判準是 2.2 的後置條件（＝第 1 節 probe 印「正常，不用修。」且 exit 0）
-> ＋ 下面的 3.2 端到端觸發。** 本節當補充看，不要拿它當唯一驗收。
+> **所以下面改用 checkout 裡的 verifier ＋ `--live`**（指令見本節），
+> 而本次修訂的完成判準仍是 2.2 的後置條件（＝第 1 節 probe 印「正常，不用修。」且 exit 0）
+> ＋ 下面的 3.2 端到端觸發。本節當補充看，不要拿它當唯一驗收。
 
 **用 checkout 裡的 verifier 加 `--live`，不要跑你已安裝的那一份**（理由就是上面的 ⛔）。
 `--live` 明確指定「驗 `~/.claude/settings.json` ＋ `~/.claude/hooks/super-mode-consult-gate.js`」，
@@ -269,6 +270,13 @@ node "macos/skills/超級模式/tests/matcher-contract.test.js" --live; echo "ex
   - `UNSAFE_FIELD` → handler 帶 `if`／`async`／`asyncRewake`，gate 不會如預期阻擋
     （**不含 `once`**：官方明訂它在 settings 檔會被忽略，擋它是誤紅）
   - `HOOKS_DISABLED` → 該檔設了 `disableAllHooks: true`，**所有 hook 都被停用**
+  - `HOOKS_DISABLED` → 該檔設了 `disableAllHooks: true`，**所有 hook 都被停用**
+  - `MATCHER_DRIFT` → matcher 與 hook 的工具清單不一致。**改現有那一筆的 `matcher`、
+    不要 append**，再重跑同一條 `--live`。⚠️ 這一條**不要**拿去跑 probe——probe 不驗
+    matcher 語義，它會回「正常，不用修」，會讓你以為沒事
+  - `CONFIG_DIR_OVERRIDE` → 你設了 `CLAUDE_CONFIG_DIR`。它會覆寫整個設定目錄，
+    而這支目前一律用 `~/.claude`，所以它拒絕給你一個可能是假的答案。unset 後重跑，
+    或用 `--settings <p> --hook <p>` 明確指定
   - `AMBIGUOUS_MATCHER`／`SHAPE_ERROR`／`UNSUPPORTED_EXEC_FORM` → 照訊息處理，
     多筆或衝突的情況以第 1 節的 probe 為準
 - `exit=2` → 參數用錯，照它印的用法改

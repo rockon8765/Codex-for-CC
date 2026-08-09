@@ -236,6 +236,19 @@ const CASES = [
   // ---- shell ＋ exec 混用時 matcher 集合要算全部 candidate --------------------
   { id: "mixed-shell-exec-diff-matcher", args: ["--live"], layout: "installed", live: S(ent([g()]), ent([{ type: "command", command: "node", args: ["/x/super-mode-consult-gate.js"] }], "Bash")), exit: 1, want: ["RESULT_CODE=AMBIGUOUS_MATCHER", "shell 1", "exec 1"], deny: ["PASS matcher-contract"], oldExit: 0, oldWant: ["PASS matcher-contract"] },
 
+  // ---- 合併前審查第二輪：CONFIG_DIR、timeout、anchored regex、attestation 順序 ----
+  // CLAUDE_CONFIG_DIR 只影響「目標是 live」的模式；--repo 的路徑不是從設定目錄解出來的。
+  { id: "config-dir-override-live-refused", args: ["--live"], layout: "installed", live: CANON_LIVE, env: { CLAUDE_CONFIG_DIR: "D:/alt-claude" }, exit: 1, want: ["受驗 settings: ", "RESULT_CODE=CONFIG_DIR_OVERRIDE", "覆寫整個設定目錄", "unset"], deny: ["PASS matcher-contract"], oldExit: 0, oldWant: ["PASS matcher-contract"] },
+  { id: "config-dir-override-repo-unaffected", args: ["--repo"], env: { CLAUDE_CONFIG_DIR: "D:/alt-claude" }, exit: 0, want: ["PASS matcher-contract"], deny: ["CONFIG_DIR_OVERRIDE"], oldExit: 0 },
+  { id: "config-dir-empty-is-not-set", args: ["--live"], layout: "installed", live: CANON_LIVE, env: { CLAUDE_CONFIG_DIR: "  " }, exit: 0, want: ["PASS matcher-contract"], deny: ["CONFIG_DIR_OVERRIDE"], oldExit: 0 },
+  // timeout <= 0：官方 schema exclusiveMinimum: 0 → 整份 settings 被拒
+  { id: "live-timeout-zero", args: ["--live"], layout: "installed", live: S(ent([g({ timeout: 0 })])), exit: 1, want: ["RESULT_CODE=SHAPE_ERROR", "必須是 > 0 的數字"], oldExit: 0, oldWant: ["PASS matcher-contract"] },
+  { id: "live-timeout-positive-ok", args: ["--live"], layout: "installed", live: S(ent([g({ timeout: 0.001 })])), exit: 0, want: ["PASS matcher-contract"], oldExit: 0 },
+  // 語義等價的 anchored regex 不得誤紅
+  { id: "matcher-anchored-regex-not-drift", args: ["--repo"], snippet: S(ent([g()], "^(?:" + CANON_MATCHER.split("|").join("|") + ")$")), exit: 0, want: ["PASS matcher-contract", "UNVERIFIABLE_REGEX", "只驗了正向涵蓋"], deny: ["RESULT_CODE=MATCHER_DRIFT"], oldExit: 1 },
+  // MATCHER_DRIFT 的修法不得導向 probe
+  { id: "matcher-drift-fix-does-not-send-to-probe", args: ["--repo"], snippet: S(ent([g()], "Bash|mcp__.*")), exit: 1, want: ["RESULT_CODE=MATCHER_DRIFT", "settings.snippet.json"], deny: ["~/.claude/settings.json"], oldExit: 1 },
+
   // ---- loader guard（含正向對照）----------------------------------------
   // ⚠️ 模組缺失時**仍必須印出 attestation 的四行** —— 「一律先印實際受驗目標」這個承諾
   // 不能因為早退就跳過（合併前審查抓到的次級違約）。
@@ -261,10 +274,10 @@ for (const c of CASES) {
           : a === "@NOPE_H" ? path.join(dir, "nope-hook.js")
             : a);
 
-  const r = spawnSync(process.execPath, [st.sut].concat(args), {
-    encoding: "utf8",
-    env: Object.assign({}, process.env, { HOME: st.home, USERPROFILE: st.home }),
-  });
+  // 每案可指定額外環境變數（CLAUDE_CONFIG_DIR 等）。基準環境刻意把它清空，
+  // 否則驗證者自己設了這個變數時，整套 --live 案子會全部變成 CONFIG_DIR_OVERRIDE。
+  const env = Object.assign({}, process.env, { HOME: st.home, USERPROFILE: st.home, CLAUDE_CONFIG_DIR: "" }, c.env || {});
+  const r = spawnSync(process.execPath, [st.sut].concat(args), { encoding: "utf8", env });
   const out = (r.stdout || "") + (r.stderr || "");
   const problems = [];
 

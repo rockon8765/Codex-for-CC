@@ -11,8 +11,14 @@
  *
  * 為什麼要有這個檔（2026-08-09）：同一個判斷先前住在上面那兩個地方，**規則不一致**，
  * 而且在欄位層面**一致地錯**。實測（對 `main` = 5da2624）兩邊都說「正常／PASS」但 gate
- * 根本不會 gate 的輸入至少五種：`command:"echo <needle>"`、`if`、`once`、`async`、
- * `asyncRewake`。詳見 docs/backlog.md。
+ * 根本不會 gate 的輸入：頂層 `disableAllHooks: true`、`if`、`async`、`asyncRewake`、
+ * `timeout: 0`（官方 settings JSON schema 對它是 `exclusiveMinimum: 0`，違反就整份被拒絕載入）、
+ * 以及 `command:"echo <needle>"`（substring 假陽性，**刻意保留**，見範圍說明）。
+ * 另有 `CLAUDE_CONFIG_DIR` 這個「驗錯目標」的路徑（見下方 CONFIG_DIR_ENV）。
+ *
+ * ⚠️ **`once` 不在這張清單上。** 我一度把它列為不安全並讓兩支工具 exit 1，那是**誤紅**
+ * ——官方明訂它在 settings 檔會被忽略。理由與教訓見下方 `IGNORED_IN_SETTINGS`。
+ * 詳見 docs/backlog.md。
  *
  * ── 設計約束（每一條都是被實測或審查逼出來的，改動前先讀）─────────────────
  *
@@ -54,17 +60,19 @@ const LEGAL_TYPES = ["command", "http", "mcp_tool", "prompt", "agent"];
  * **canonical safety profile** —— 這些欄位出現在 gate handler 上，gate 就不會如預期阻擋。
  * 每一條都對過官方 hooks reference 並在假 HOME 實測過（修正前兩支工具都放行）：
  *   if           把 gate 限縮到別的工具（例 "Bash(git push *)"）→ Edit/Write 完全不受攔
- *   once         首次叫用後就被移除 → 之後整個 session 不設防
  *   async        非阻塞背景執行 → PreToolUse deny gate 根本不能 deny
  *   asyncRewake  同上（只是多了 exit 2 喚醒）
  *
  * policy：
  *   "present"  只要欄位存在（值非 undefined）就算不安全 —— `if` 屬此類，
  *              任何規則字串都是一種限縮。
- *   "truthy"   只有真值才算 —— `once:false` / `async:false` 是明確關閉，無害。
+ *   "truthy"   只有真值才算 —— `async:false` 是明確關閉，無害。
  *
- * **刻意不列**（不影響 gate 能否阻擋，一律放行並保留）：
- *   timeout / shell / statusMessage
+ * **刻意不列**：
+ *   once                     官方明訂 settings 檔裡會被忽略 → 擋它是誤紅，見 IGNORED_IN_SETTINGS
+ *   shell / statusMessage    不影響 gate 能否阻擋，放行並保留
+ *   timeout                  **不在這裡判「多小算太小」**（官方沒記載），但 scanner 會驗它
+ *                            必須是 > 0 的數字 —— 那是官方 JSON schema 的硬門檻，見 bad-timeout
  */
 const UNSAFE_FIELDS = [
   { name: "if", policy: "present" },
@@ -100,6 +108,47 @@ const IGNORED_IN_SETTINGS = ["once"];
  * managed 層若設了這個旗標，這裡看不到。
  */
 const KILL_SWITCH = "disableAllHooks";
+
+/*
+ * `CLAUDE_CONFIG_DIR` —— 官方環境變數，**覆寫整個設定目錄**。
+ * 官方 `.claude` 目錄頁：設定它之後「every `~/.claude` path on this page lives under
+ * that directory instead」。
+ *
+ * 對本 repo 的實害：probe 與 `matcher-contract --live` 都用 `os.homedir()/.claude` 解路徑，
+ * 所以變數一設，它們驗的是 Claude **不會讀**的那一份 —— 而且 attestation 會印出那條路徑，
+ * 等於產出一份**假的**「我驗的是 live」證明。這正是本批要消滅的那一類缺陷。
+ *
+ * **處置：偵測到非空值就 fail-closed，不猜語義。** 刻意不做「有變數就改用它」的解析，
+ * 理由是本 repo 對它的邊角語義（相對路徑、尾斜線、指向不存在的目錄）沒有實測依據，
+ * 猜錯會製造出**另一個**錯誤目標 —— 而錯誤目標正是這條的問題本身。
+ * 使用者的出路有兩條：unset 之後重跑，或用 `--settings <p> --hook <p>` 明確指定。
+ * 記在 docs/backlog.md（正解是單一 config-root resolver，讓安裝流程也共用）。
+ */
+const CONFIG_DIR_ENV = "CLAUDE_CONFIG_DIR";
+
+// 回傳被設定的值（trim 後非空）或 null。caller 傳 process.env 進來，模組自己不碰 process。
+function configDirOverride(env) {
+  const v = env && env[CONFIG_DIR_ENV];
+  if (typeof v !== "string") return null;
+  const t = v.trim();
+  return t === "" ? null : t;
+}
+
+function renderConfigDirRefusal(value, what) {
+  return [
+    "⛔ CONFIG_DIR_OVERRIDE —— 偵測到 " + CONFIG_DIR_ENV + "，" + what + "**沒有做任何判斷**。",
+    "   " + CONFIG_DIR_ENV + "=" + JSON.stringify(value),
+    "   這個環境變數會**覆寫整個設定目錄**：Claude Code 讀的不是 ~/.claude，而是上面那個目錄。",
+    "   本工具目前一律用 ~/.claude 解路徑，所以繼續下去會驗到一份 Claude 不會讀的檔案，",
+    "   並且印出一條看起來像 live 卻不是的路徑 —— 假的驗證比沒有驗證更糟，所以這裡停手。",
+    "   出路二選一：",
+    "     1. unset " + CONFIG_DIR_ENV + " 之後重跑（要驗的就是預設的 ~/.claude 時）",
+    "     2. 用 --settings <你的 settings.json> --hook <你的 hook.js> 明確指定那一對",
+    "        （probe 目前沒有對應旗標，記在 docs/backlog.md）",
+    "",
+    "RESULT_CODE=CONFIG_DIR_OVERRIDE",
+  ].join("\n");
+}
 
 const isObj = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
 const typeName = (v) => (v === null ? "null" : Array.isArray(v) ? "陣列" : typeof v);
@@ -186,6 +235,11 @@ function scanSource(source) {
   if (!isObj(j)) return shape({ kind: "top-not-object", typeName: typeName(j) });
   // 總開關要在任何「gate 註冊得好不好」的判斷**之前**記下來 —— 它一開，後面全部無意義。
   // 只認 `true`（`"true"`／1 之類不是官方形態，不替使用者猜）。
+  // 型別要驗：`"true"`／`1` 這種**不是**官方形態，不替使用者猜成啟用；但也不能當成 false
+  // 靜默忽略 —— 那等於「我看到一個我依賴的欄位型別錯了，卻假裝沒看到」。報型別錯。
+  if (KILL_SWITCH in j && typeof j[KILL_SWITCH] !== "boolean") {
+    return shape({ kind: "kill-switch-not-boolean", typeName: typeName(j[KILL_SWITCH]) });
+  }
   base.killSwitch = j[KILL_SWITCH] === true;
   if (!("hooks" in j)) return Object.assign(base, { status: "ok", emptyReason: "no-hooks" });
   if (!isObj(j.hooks)) return shape({ kind: "hooks-not-object", typeName: typeName(j.hooks) });
@@ -248,6 +302,24 @@ function scanSource(source) {
       // （command 非字串在上面就 fail 掉了，這條是防禦性的。）
       if (h.args === undefined && typeof h.command !== "string") {
         return shape({ kind: "no-usable-command", entryIndex: i, handlerIndex: k });
+      }
+      /*
+       * `timeout` 必須是 finite number 且 **> 0**。
+       * 這不是「極小值來不來得及」的 runtime 推測 —— 官方發布的 settings JSON schema
+       * 對 hook 的 timeout 明定 `{"type":"number","exclusiveMinimum":0}`，
+       * 而官方另說 user/project/local settings **驗證失敗會整份拒絕載入**。
+       * 所以 `timeout: 0` 或負值或字串 ＝ 整份 settings 無效 ＝ gate 根本不存在，
+       * 修正前這裡卻回 OK/exit 0（假綠）。
+       * ⚠️ **任何正值都放行**：官方沒有記載「多小算來不及」，不自行發明門檻。
+       */
+      if (h.timeout !== undefined) {
+        if (typeof h.timeout !== "number" || !isFinite(h.timeout) || h.timeout <= 0) {
+          return shape({
+            kind: "bad-timeout",
+            entryIndex: i, handlerIndex: k,
+            typeText: JSON.stringify(h.timeout),
+          });
+        }
       }
 
       hits.push({
@@ -326,9 +398,20 @@ function assessProbe(sources) {
   if (scans.some(isBroken)) return out("SHAPE_ERROR", 1);
 
   // 總開關排在所有「註冊得好不好」的判定之前 —— 它一開，gate 註冊得再完美也不會被叫起。
-  // ⚠️ 只看 `settings.json`：`settings.local.json` 不是 user scope（2026-07-28 macOS 實測），
-  // 那份裡的旗標對 user hooks 不生效，所以不該據它擋人。
   if (main.killSwitch) return out("HOOKS_DISABLED", 1);
+  /*
+   * ⚠️ `settings.local.json` 裡的總開關**不能靜默忽略**。
+   *
+   * 「local 不是 user scope」是對的（2026-07-28 macOS 實測），但那句話的完整版是：
+   * 家目錄那份**只有在從家目錄啟動時**生效 —— 而那時它就是專案層的 local settings，
+   * **且 local 覆蓋 user**。所以「main 有正確的 gate ＋ local 設了 disableAllHooks:true」
+   * 這個組合在從家目錄啟動時，gate 是被關掉的。
+   * 修正前這裡回 OK_NORMAL（「正常，不用修」）—— 依啟動目錄而定的假綠。
+   *
+   * 判 exit 3（停手）而不是 1：它是否咬人取決於使用者的啟動目錄，本工具看不到那件事，
+   * 所以這需要人工判斷，不是一條機械修法。
+   */
+  if (local.killSwitch) return out("HALT_LOCAL_HOOKS_DISABLED", 3);
 
   const unsafe = allShell.concat(allExec).filter((c) => c.unsafe.length);
   if (unsafe.length) return out("UNSAFE_FIELD", 1, { unsafe });
@@ -439,6 +522,13 @@ function shapeSentence(se) {
       return hatOf(se) + " 的 command 含 gate，但 type 是 " + se.typeText + "（必須是 \"command\"）";
     case "no-usable-command": return hatOf(se) + " 命中 gate 但沒有可用的 command 字串";
     case "matcher-not-string": return atOf(se) + ".matcher 不是字串（是 " + se.typeName + "）";
+    case "kill-switch-not-boolean":
+      return KILL_SWITCH + " 不是布林（是 " + se.typeName + "）—— 官方形態只有 true／false，" +
+        "這裡不替你猜；型別錯的設定不該被當成「沒設」放行";
+    case "bad-timeout":
+      return hatOf(se) + " 的 timeout 是 " + se.typeText +
+        "（必須是 > 0 的數字）—— 官方 settings JSON schema 對 timeout 明定 exclusiveMinimum: 0，" +
+        "而驗證失敗的 settings 會整份被拒絕載入，等於 gate 根本不存在";
     default: return "未知的形狀問題：" + se.kind;
   }
 }
@@ -508,6 +598,13 @@ function renderProbe(v) {
     out.push("      官方說明是「Disable all hooks and any custom status line」。");
     out.push("      ⚠️ 本工具只看家目錄那兩個檔：專案層 .claude/settings.json 或 managed 層");
     out.push("      若也設了這個旗標，這裡看不到。");
+  } else if (v.code === "HALT_LOCAL_HOOKS_DISABLED") {
+    out.push("判定：停手 —— settings.local.json 設了 " + KILL_SWITCH + ": true。");
+    out.push("      家目錄那份**只在你從家目錄啟動 Claude Code 時**才生效，但那時它就是專案層的");
+    out.push("      local settings，**而 local 覆蓋 user** —— 所以那種情況下你 settings.json 裡的");
+    out.push("      gate 是被關掉的。是否咬到你取決於你的啟動目錄，本工具看不到，所以請人工判斷：");
+    out.push("      ・平常從家目錄啟動 → 把 local 那個旗標移除（或改 false）");
+    out.push("      ・平常從專案目錄啟動 → 這一筆對 gate 無影響，但留著遲早誤導人");
   } else if (v.code === "UNSAFE_FIELD") {
     for (const c of v.unsafe) {
       for (const f of c.unsafe) {
@@ -625,13 +722,34 @@ function checkMatcherContract(matcher, required) {
 
   for (const name of required) if (!hits(name)) problems.push({ code: "MISSING_TOOL", params: { name } });
   if (!hits(MCP_PROBE)) problems.push({ code: "MISSING_MCP", params: { probe: MCP_PROBE } });
-  // 反向：matcher 不該出現 hook 不認識的字面工具名（避免只改 matcher 卻忘了改 hook）。
-  // `"*"`／空字串是「全部匹配」，沒有 alternative 可查，略過。
+
+  /*
+   * 反向檢查：matcher 不該出現 hook 不認識的**字面**工具名（避免只改 matcher 卻忘了改 hook）。
+   *
+   * ⚠️ **只有正向涵蓋是 hard gate；反向在 regex 路徑下只能盡力而為。**
+   * 合併前審查給的反例是一個與 canonical **語義等價**的寫法：
+   *     ^(?:Edit|Write|…|Monitor|mcp__.*)$
+   * 正向 `RegExp.test()` 全數命中，但 `raw.split("|")` 會產出 `^(?:Edit` 與 `mcp__.*)$`
+   * 這種**片段**，修正前把它們當成「不認識的工具名」→ `MATCHER_DRIFT`。
+   * 那是正式安裝驗收的**誤紅**，不只是文案不精確。
+   *
+   * 現在的規則：只有「長得就是一個純工具名」的 alternative（`^[A-Za-z0-9_]+$`）
+   * 才拿去比對 —— 所以 `…|NoSuchTool` 仍然抓得到。含 regex 元字元的片段一律歸為
+   * **無法可靠反解析**，回一則 `UNVERIFIABLE_REGEX` **警告**（不影響 ok）。
+   */
+  const warnings = [];
   if (ev.kind !== "all") {
     const known = required.concat(["mcp__.*"]);
-    for (const alt of ev.names) if (!known.includes(alt)) problems.push({ code: "UNKNOWN_ALT", params: { alt } });
+    const PLAIN = /^[A-Za-z0-9_]+$/;
+    const unparsable = [];
+    for (const alt of ev.names) {
+      if (known.includes(alt)) continue;
+      if (ev.kind === "list" || PLAIN.test(alt)) problems.push({ code: "UNKNOWN_ALT", params: { alt } });
+      else unparsable.push(alt);
+    }
+    if (unparsable.length) warnings.push({ code: "UNVERIFIABLE_REGEX", params: { fragments: unparsable } });
   }
-  return { ok: problems.length === 0, ev, problems };
+  return { ok: problems.length === 0, ev, problems, warnings };
 }
 
 // ── matcher-contract 的 renderer ─────────────────────────────────────────
@@ -747,10 +865,38 @@ const CONTRACT_SENTENCE = {
   UNKNOWN_ALT: (p) => "matcher 多出 hook 不認識的項目 " + p.alt + " → 只改了 matcher 卻沒改 hook？",
 };
 
+/*
+ * matcher 契約失敗的修法**不能導向 probe**。合併前審查抓到的具體誤導鏈：
+ * matcher 缺 `Edit` → 這裡正確 FAIL → 舊文案叫人「跑 probe」→ probe 不驗 matcher 語義、
+ * 回「判定：正常，不用修。」→ `AI-INSTALL` 的矩陣又規定看到那句就什麼都不做
+ * → 使用者照著走一圈，回到原點而且以為沒事。
+ * 所以這裡給的是「改 matcher 本身、用同一個目標重驗」，不提 probe。
+ */
+function contractFix(kind) {
+  if (kind === "repo") {
+    return "  修法：改**與受測檔相鄰**的 settings.snippet.json 的 matcher（它是待出貨的檔案）。" +
+      "\n        改完重跑同一條 --repo。這一步不要碰你的 ~/.claude。";
+  }
+  if (kind === "explicit") {
+    return "  修法：改上面印出的那一份 settings 的 matcher，再用**同一組** --settings/--hook 重驗。";
+  }
+  return "  修法：改 ~/.claude/settings.json 裡**現有那一筆** gate 的 matcher，" +
+    "\n        **不要 append 新的一筆**（會變成重複註冊）。改完重跑同一條 --live。" +
+    "\n        ⚠️ 這條**不要**去跑 probe —— probe 不驗 matcher 語義，它會回「正常，不用修」，" +
+    "\n        那會讓你以為沒事。probe 管的是「註冊了幾筆、在哪」，不是 matcher 對不對。";
+}
+
 function renderMatcherContract(res, ctx, required) {
   const out = [];
   for (const p of res.problems) {
     out.push("FAIL: " + (CONTRACT_SENTENCE[p.code] ? CONTRACT_SENTENCE[p.code](p.params) : p.code));
+  }
+  for (const w of res.warnings || []) {
+    if (w.code === "UNVERIFIABLE_REGEX") {
+      out.push("⚠️ UNVERIFIABLE_REGEX：matcher 走 regex 路徑，下列片段無法可靠反解析成工具名，");
+      out.push("   因此**只驗了正向涵蓋**（每個工具名都真的被命中），沒有驗「有沒有多出不認識的工具」：");
+      for (const f of w.params.fragments) out.push("     " + JSON.stringify(f));
+    }
   }
   if (!res.ok) {
     out.push("");
@@ -767,7 +913,7 @@ function renderMatcherContract(res, ctx, required) {
       out.push("                所以工具名 `Edit` **不會**被命中。");
     }
     out.push("hook 清單:      " + required.join("|") + "|mcp__.*");
-    out.push(nextStep(ctx.kind));
+    out.push(contractFix(ctx.kind));
   }
   return out.join("\n");
 }
@@ -779,6 +925,9 @@ module.exports = {
   UNSAFE_WHY,
   IGNORED_IN_SETTINGS,
   KILL_SWITCH,
+  CONFIG_DIR_ENV,
+  configDirOverride,
+  renderConfigDirRefusal,
   KINDS,
   MCP_PROBE,
   sourceRaw,
@@ -795,4 +944,5 @@ module.exports = {
   renderMatcher,
   renderMatcherContract,
   nextStep,
+  contractFix,
 };

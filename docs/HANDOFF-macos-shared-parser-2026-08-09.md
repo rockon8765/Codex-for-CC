@@ -33,16 +33,17 @@ handler 帶 `if`／`async`／`asyncRewake`；另加頂層 `disableAllHooks: true
 
 | 檔案 | blob |
 |---|---|
-| `macos/skills/超級模式/lib/gate-registration.js` | `42494bba46d6e2046a2b1145fc595f892eb048af` |
-| `macos/skills/超級模式/tests/matcher-contract.test.js` | `c0e505504de297356b4466d25d656ab805433026` |
+| `macos/skills/超級模式/lib/gate-registration.js` | `84720e1647cbeef21e9f2e4ea948ca718a88f5cd` |
+| `macos/skills/超級模式/tests/matcher-contract.test.js` | `e4733673f5f331dc6491d7a67d08285372fe050c` |
 | `macos/settings.snippet.json` | `3dfc88fe9399b645898f22df2e93f9eae930e32d` |
 | `macos/skills/超級模式/references/orchestration.md` | `dccea98cb1fca38a3fe6e146dee7fe39c9fa340e` |
 | `macos/hooks/super-mode-consult-gate.js` | `f1781d6e59a06c78d43ae074545f08ea5f0740d3` |
 | `macos/skills/超級模式/tests/gate-cases.json` | `ded377c801cbe9de40719aa1de816b96df0c789b` |
-| `tools/probe-gate-registration.js` | `ec386d59974d168862aed13bd0fa5190ccb011db` |
-| `tests/probe-gate-registration.test.js` | `9194b813d0b2788ef4efe795674ad5dfdda3ff39` |
-| `tests/gate-registration.test.js` | `ab0c11eff53b5c797696ef357c489336f62f1ae3` |
-| `tests/matcher-contract-cli.test.js` | `4bf05a8e0d76ab66150365dbd58943f4e40922cd` |
+| `tools/probe-gate-registration.js` | `92f1b5bf0013cbf43180989828e8bcfd70cc8e78` |
+| `tests/probe-gate-registration.test.js` | `826bb4e410505436043ae416eedf828f73cf1545` |
+| `tests/gate-registration.test.js` | `b92d3ef40002c3d0f19986c4d328e9fbf3597b7c` |
+| `tests/probe-verdict-cases.test.js` | `6061eefac1de22e64cbaea329100cc29944ea9d4` |
+| `tests/matcher-contract-cli.test.js` | `f8d6f843dba2f28c6eda254bd2759b56fc0bd6eb` |
 | `tests/backup-settings.test.js` | `947ee667233cd4d412aa3f629702696f7a19cbe2` |
 | `tests/ai-install/run-posix.sh` | `d8b2af215fff89d5273947fbc24af4ade2bcc19e` |
 | `docs/AI-INSTALL.md` | `46c3cb010182b7ad7911e2b6d842254f8a860635` |
@@ -61,16 +62,18 @@ handler 帶 `if`／`async`／`asyncRewake`；另加頂層 `disableAllHooks: true
 | # | 指令 | 期望 |
 |---|---|---|
 | A-0 | 逐筆 `git hash-object` 核對 §1 | 全符 |
-| A-1 | `node tests/gate-registration.test.js --strict` | `TOTAL 139 PASS 139 FAIL 0 SKIP 0`，exit 0 |
-| A-2 | `node tests/probe-gate-registration.test.js` | `TOTAL 66 PASS 66 FAIL 0`，exit 0 |
-| A-3 | `node tests/matcher-contract-cli.test.js` | `TOTAL 63 PASS 63 FAIL 0`，exit 0 |
+| A-1 | `node tests/gate-registration.test.js --strict` | `TOTAL 168 PASS 168 FAIL 0 SKIP 0`，exit 0 |
+| A-2 | `node tests/probe-gate-registration.test.js` | `TOTAL 68 PASS 68 FAIL 0`，exit 0 |
+| A-3 | `node tests/matcher-contract-cli.test.js` | `TOTAL 70 PASS 70 FAIL 0`，exit 0 |
+| A-3b | `node tests/probe-verdict-cases.test.js` | `TOTAL 56 PASS 56 FAIL 0`，並印出涵蓋 **12 種** RESULT_CODE |
+| A-3c | `node tests/probe-verdict-cases.test.js --baseline origin/main` | `56/56`，判定區與 baseline 相同 **45/56**，不同的 11 筆全在檔內「已知的刻意差異」清單 |
 | A-4 | `node "macos/skills/超級模式/tests/matcher-contract.test.js" --repo` | exit 0、印 `PASS matcher-contract (15 個工具名…)`、`RESULT_CODE=OK`，且**印出的兩條路徑指向 checkout 內的 `macos/`** |
 | A-5 | `node "macos/skills/超級模式/tests/run-gate-tests.js"` | `PASS 117/117` |
 | A-6 | `bash tests/ai-install/run-posix.sh` | `PASS=68 FAIL=0` |
 | A-7 | `bash "macos/skills/超級模式/tests/run-e2e.sh"` | `11 passed, 0 failed`；請回報它印的 `GATE_BLOB` |
 | A-8 | `node tests/backup-settings.test.js --strict` | `TOTAL 9 PASS 9 FAIL 0 SKIP 0`（本批未改它，這是回歸對照）|
-| A-9 | 反向驗證 probe，見 §3 | `TOTAL 66 PASS 55 FAIL 11`，且失敗清單**恰為** §3 那 11 個 |
-| A-10 | 反向驗證 matcher-contract CLI，見 §3 | `TOTAL 63 PASS 63 FAIL 0` |
+| A-9 | 反向驗證 probe，見 §3 | `TOTAL 68 PASS 54 FAIL 14`，且失敗清單**恰為** §3 那 14 個 |
+| A-10 | 反向驗證 matcher-contract CLI，見 §3 | `TOTAL 70 PASS 70 FAIL 0` |
 
 ## 3. 反向驗證（§2 的 A-9／A-10）
 
@@ -86,12 +89,13 @@ node --check /tmp/probe-old.js || { echo "抽出來的不是可執行檔，停�
 node tests/probe-gate-registration.test.js --probe /tmp/probe-old.js
 ```
 
-A-9 期望失敗的**恰好**這 11 個（順序不重要，集合要相等；Windows 與 Linux 實測一致）：
+A-9 期望失敗的**恰好**這 14 個（順序不重要，集合要相等；Windows 與 Linux 實測一致）：
 
 ```
 unsafe-if, unsafe-async, unsafe-async-rewake, unsafe-in-local-too,
 unsafe-beats-exec-form, bad-args-rejected,
-kill-switch-main, kill-switch-beats-unsafe,
+kill-switch-main, kill-switch-local-halts, kill-switch-string-is-shape-error,
+kill-switch-beats-unsafe, timeout-zero-rejected,
 integrity-lonely-probe, integrity-mirror-divergence, integrity-mirror-absent
 ```
 
@@ -108,11 +112,15 @@ integrity-lonely-probe, integrity-mirror-divergence, integrity-mirror-absent
 git show origin/main:"macos/skills/超級模式/tests/matcher-contract.test.js" > /tmp/mc-old.js
 test "$(git hash-object /tmp/mc-old.js)" = 5edaa7efe4fd3e5ebac79442c4b01d106463d4df \
   || { echo "抽出來的不是預期的舊 blob，停手"; exit 1; }
+# ⚠️ 跑 A-9／A-10 與 A-4 之前，確認你沒有設 CLAUDE_CONFIG_DIR：
+#   echo "[$CLAUDE_CONFIG_DIR]"    # 應為 []
+# 設了它的話 probe 與 --live 會一律 fail-closed 回 CONFIG_DIR_OVERRIDE，
+# 整套看起來「有跑」卻什麼都沒量到。兩支 CLI 測試臺自己會清空它，手動指令不會。
 node tests/matcher-contract-cli.test.js --target /tmp/mc-old.js
 ```
 
 A-10 的每個案子都宣告了舊版的退出碼（少數另宣告必含字串或「必須噴 stack trace」），
-所以它是對舊版行為的**正面刻畫**，期望 **55/55 全數符合**。
+所以它是對舊版行為的**正面刻畫**，期望 **70/70 全數符合**。
 ⚠️ **不是「全部失敗」**。若出現 FAIL，請把失敗清單原文貼回——那代表 BSD 上舊版的
 行為與 Linux／Windows 不同，是真發現。
 

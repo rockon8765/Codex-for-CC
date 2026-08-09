@@ -154,6 +154,17 @@ function main() {
   }
   const G = loaded.mod;
 
+  /*
+   * `CLAUDE_CONFIG_DIR` 會覆寫整個設定目錄，而本工具一律用 `~/.claude` 解路徑 ——
+   * 變數一設，下面數的就是 Claude **不會讀**的那一份。判「正常，不用修」會直接誤導。
+   * 所以 fail-closed 並明講原因，不猜它的語義（理由見模組的 CONFIG_DIR_ENV 註解）。
+   */
+  const override = G.configDirOverride(process.env);
+  if (override) {
+    console.log(G.renderConfigDirRefusal(override, "本工具"));
+    return 1;
+  }
+
   const claude = path.join(os.homedir(), ".claude");
   const verdict = G.assessProbe({
     main: readSource(G, "~/.claude/settings.json", "settings.json", path.join(claude, "settings.json")),
