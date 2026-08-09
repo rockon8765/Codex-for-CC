@@ -86,6 +86,13 @@ jobs:
       - name: probe-gate-registration 回歸
         run: node "tests/probe-gate-registration.test.js"
 
+      # gate 辨識的共用模組。**平台無關**，但它同時驗「三平台鏡像逐位元相同」——
+      # 這是唯一會實際比對 windows／macos／linux 三份 bytes 的地方，Linux runner
+      # 完全做得到（比的是檔案內容，不是 runtime 行為）。
+      # --strict：CI 只看退出碼，SKIP 必須也算失敗。
+      - name: gate-registration 共用模組回歸（--strict）
+        run: node "tests/gate-registration.test.js" --strict
+
       # 這裡也是 CI 唯一會**真的建出 symlink** 的地方（Windows 非管理員建不了，
       # 那邊該案會標 SKIP）。所以這一步同時是那條守衛的原生覆蓋。
       # --strict：CI 只看退出碼，所以 SKIP 必須也算失敗，否則守衛沒跑到卻是綠燈。
