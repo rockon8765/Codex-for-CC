@@ -93,6 +93,12 @@ jobs:
       - name: gate-registration 共用模組回歸（--strict）
         run: node "tests/gate-registration.test.js" --strict
 
+      # matcher-contract 的 CLI 層（旗標、attestation、退出碼、不得噴 stack trace）。
+      # 每案都重建一棵最小樹再開子程序，所以它同時驗到「已安裝佈局下相鄰 require 有效」
+      # 與「installed 佈局不會偷偷回頭讀 repo」。
+      - name: matcher-contract CLI 回歸
+        run: node "tests/matcher-contract-cli.test.js"
+
       # 這裡也是 CI 唯一會**真的建出 symlink** 的地方（Windows 非管理員建不了，
       # 那邊該案會標 SKIP）。所以這一步同時是那條守衛的原生覆蓋。
       # --strict：CI 只看退出碼，所以 SKIP 必須也算失敗，否則守衛沒跑到卻是綠燈。

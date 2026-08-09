@@ -520,6 +520,16 @@ function renderProbe(v) {
  * 只印 PASS/FAIL 會讓人以為驗到了 live，其實驗的是 repo snippet（修正前就是這樣）。
  */
 function matcherAttestation(ctx) {
+  // 這個函式的整個工作就是「告訴使用者剛才驗的是哪一對」，所以欄位缺漏必須**大聲壞掉**，
+  // 不能印出 "undefined"。實例：整合時 CLI 傳的是 {settings, hook}、這裡讀的是
+  // {settingsPath, hookPath}，於是三平台都印「受驗 settings: undefined」而測試照樣 PASS
+  // ——一個專門防假綠的輸出自己變成了假訊息。呼叫端外層有 try/catch，會變成
+  // INTERNAL_ERROR ＋ 非 0，而不是一份看起來正常的報告。
+  for (const k of ["mode", "settingsPath", "hookPath"]) {
+    if (typeof ctx[k] !== "string" || !ctx[k]) {
+      throw new Error("matcherAttestation: ctx." + k + " 缺漏或不是非空字串（得到 " + JSON.stringify(ctx[k]) + "）");
+    }
+  }
   return [
     "受驗模式：   " + ctx.mode,
     "受驗 settings: " + ctx.settingsPath,

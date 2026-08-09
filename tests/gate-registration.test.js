@@ -454,6 +454,21 @@ expect("A74 shell + exec 混用", matcher(raw("live", settings(entry([gate()]), 
   code: "OK_WITH_DUPLICATES", exit: 0, has: ["1 筆 exec form"],
 });
 
+// matcherAttestation 的整個工作就是「說出剛才驗的是哪一對」，所以欄位缺漏必須大聲壞掉。
+// 這條是真的踩到才加的：整合時 CLI 傳 {settings, hook}、這裡讀 {settingsPath, hookPath}，
+// 於是三平台都印「受驗 settings: undefined」而測試照樣 PASS ——
+// 一個專門防假綠的輸出自己變成假訊息。
+for (const missingKey of ["mode", "settingsPath", "hookPath"]) {
+  const ctx = { mode: "repo", settingsPath: "/a", hookPath: "/b" };
+  delete ctx[missingKey];
+  let threw = "";
+  try { G.matcherAttestation(ctx); } catch (e) { threw = e.message; }
+  check("A75 attestation 缺 " + missingKey + " 要拋錯",
+    threw.includes("ctx." + missingKey), threw || "沒有拋錯 —— 會印出 undefined");
+}
+check("A75 attestation 齊全時正常回三行",
+  G.matcherAttestation({ mode: "live", settingsPath: "/a", hookPath: "/b" }).length === 3, "行數不對");
+
 // ════════════════════════════════════════════════════════════════════════
 console.log("\n§B 成對契約（刻意的規則差異）");
 // ════════════════════════════════════════════════════════════════════════
