@@ -258,6 +258,47 @@ fi
 [ -z "$(get_ts "$LAST_OUT")" ]; check '1b 未印出 ts' $? "竟印出 ts：$LAST_OUT"
 [ ! -e "$TARGET" ]; check '沒有跟隨 symlink 在備份區外建檔' $? "竟建立了 $TARGET"
 
+echo; echo "[M11] 變異注入：回滾期的內嵌 symlink（頂層乾淨、link 藏在子樹）"
+# 與 M2／M9 的差別：M2 換掉的是**備份頂層**，M9 驗的是 **1b**。
+# 本案兩者的頂層都完全合法，link 只藏在子樹裡，而且要到**回滾**才會被用到 ——
+# 那正是舊版的破口：預檢只看頂層 → 通過 → 先 rm 掉 live → 再從錯誤拓撲還原。
+for where in bak live; do
+  H=$(new_home "m11-$where"); seed "$H"
+  run "$B1B" "$H"; TS=$(get_ts "$LAST_OUT")
+  [ -n "$TS" ]; check "[$where] 前置：1b 成功並印出 ts" $? "$LAST_OUT"
+  run "$B1C" "$H"; check "[$where] 前置：1c 安裝成功" $? "$LAST_OUT"
+
+  TGT="$WORK/m11-$where-target"; mkdir -p "$TGT"; printf 'OUTSIDE' > "$TGT/payload.txt"
+  if [ "$where" = bak ]; then ROOT="$H/.claude/skills-backup/超級模式.bak-$TS"
+  else                       ROOT="$H/.claude/skills/超級模式"; fi
+  mkdir -p "$ROOT/references"
+  ln -s "$TGT" "$ROOT/references/shared"; ln_rc=$?
+  # rc ＋型別雙驗（同 M2）：注入沒成功的話，回滾會因**不相干的理由**失敗（一樣非零），
+  # 本案於是永遠不會紅。型別擋「根本沒建成」，rc 擋「建立失敗但原地剛好有殘留 link」。
+  [ "$ln_rc" -eq 0 ] && [ -L "$ROOT/references/shared" ]
+  check "[$where] 前置：內嵌 symlink 確實建立" $? "ln rc=$ln_rc"
+
+  AFTER=$(snap "$H/.claude/skills")
+  run_rollback "$TS" "$H"; rc=$?
+  [ $rc -ne 0 ]; check "[$where] 回滾中止" $? "竟然成功：$LAST_OUT"
+  # 這條才是 B1 的重點：舊版是「先刪 live、還原時才炸」，所以 live 必須原封不動。
+  [ "$(snap "$H/.claude/skills")" = "$AFTER" ]; check "[$where] 被拒後 live 未變" $? 'live 被動過'
+  [ -f "$TGT/payload.txt" ]; check "[$where] symlink 外部目標未被刪" $? '外部真實資料被刪'
+done
+
+echo; echo "[M12] live skill 不存在時的回滾必須成功（B1 前置條件的守護）"
+# 掃描寫成 fail-closed 時很容易連「沒有子樹可掃」也一起擋掉，
+# 那會讓「live 已被手動移除、想從備份還原」這條**合法**路徑永久失敗。
+# 這與 M11 是同一形狀 bug 的兩面，一起犯就要一起修。
+H=$(new_home m12); seed "$H"
+run "$B1B" "$H"; TS=$(get_ts "$LAST_OUT")
+[ -n "$TS" ]; check '前置：1b 成功並印出 ts' $? "$LAST_OUT"
+run "$B1C" "$H"; check '前置：1c 安裝成功' $? "$LAST_OUT"
+rm -rf "$H/.claude/skills/超級模式"
+[ ! -e "$H/.claude/skills/超級模式" ]; check '前置：live skill 確實已移除' $? 'live 還在，本案等於沒測'
+run_rollback "$TS" "$H"; check '回滾仍成功' $? "$LAST_OUT"
+[ -f "$H/.claude/skills/超級模式/SKILL.md" ]; check '回滾後 live skill 已還原' $? '沒有還原'
+
 echo; echo "[C3] 對照組（確認上面的斷言不是永遠為真）"
 H=$(new_home c3); seed "$H"
 run "$B1B" "$H"; TS=$(get_ts "$LAST_OUT")

@@ -259,6 +259,55 @@ foreach ($variant in @(@{n='空目標'; fill=$false}, @{n='非空目標'; fill=$
   Check "[$($variant.n)] 沒有留下被實體化的備份" (-not (Get-ChildItem -Path $bakJ -ErrorAction SilentlyContinue)) 'junction 已被複製成普通目錄'
 }
 
+"`n[M11] 變異注入：回滾期的內嵌 link（頂層乾淨、link 藏在子樹）"
+# 與 M3／M9 的差別：M3 換掉的是**備份頂層**，M9 驗的是 **1b**。
+# 本案兩者的頂層都完全合法，link 只藏在子樹裡，而且要到**回滾**才會被用到 ——
+# 那正是舊版的破口：預檢只看頂層 → 通過 → 先刪掉 live → 再從錯誤拓撲還原。
+foreach ($case in @(@{ n='備份子樹'; where='bak' }, @{ n='live 子樹'; where='live' })) {
+  $tag = "m11-$($case.where)"
+  $h = New-FakeHome $tag; Add-ExistingInstall $h
+  $r = Invoke-Block $B1b $h; $ts = Get-Ts $r.Out
+  Check "[$($case.n)] 前置：1b 成功並印出 ts" ($r.Ok -and $ts) $r.Out
+  $r = Invoke-Block $B1c $h
+  Check "[$($case.n)] 前置：1c 安裝成功" $r.Ok $r.Out
+
+  $tgt = Join-Path $work "$tag-target"
+  New-Item -ItemType Directory -Force -Path $tgt | Out-Null
+  Set-Content -LiteralPath "$tgt\payload.txt" -Value 'OUTSIDE' -NoNewline
+
+  $root = if ($case.where -eq 'bak') { "$h\.claude\skills-backup\超級模式.bak-$ts" }
+          else                       { "$h\.claude\skills\超級模式" }
+  New-Item -ItemType Directory -Force -Path "$root\references" | Out-Null
+  cmd /c "mklink /J `"$root\references\shared`" `"$tgt`"" | Out-Null
+  $mkRc = $LASTEXITCODE
+  $e = Get-Item -LiteralPath "$root\references\shared" -Force -ErrorAction SilentlyContinue
+  $isJ = ($null -ne $e) -and ((($e.Attributes -band [IO.FileAttributes]::ReparsePoint)) -ne 0)
+  # rc ＋型別雙驗（同 M3）：注入沒成功的話，回滾會因**不相干的理由**失敗，本案永遠不會紅。
+  Check "[$($case.n)] 前置：內嵌 junction 確實建立" (($mkRc -eq 0) -and $isJ) "mklink rc=$mkRc, isJunction=$isJ"
+
+  $after = Get-Snapshot "$h\.claude\skills"
+  $r = Invoke-Rollback $ts $h
+  Check "[$($case.n)] 回滾中止" (-not $r.Ok) "竟然成功：$($r.Out)"
+  # 這條才是 B1 的重點：舊版是「先刪 live、還原時才炸」，所以 live 必須原封不動。
+  Check "[$($case.n)] 被拒後 live 未變" ((Get-Snapshot "$h\.claude\skills") -eq $after) 'live 被動過'
+  Check "[$($case.n)] junction 外部目標未被刪" (Test-Path -LiteralPath "$tgt\payload.txt") '外部真實資料被刪'
+}
+
+"`n[M12] live skill 不存在時的回滾必須成功（B1 前置條件的守護）"
+# 掃描寫成 fail-closed 時很容易連「沒有子樹可掃」也一起擋掉，
+# 那會讓「live 已被手動移除、想從備份還原」這條**合法**路徑永久失敗。
+# 這與 M11 是同一形狀 bug 的兩面，一起犯就要一起修。
+$h = New-FakeHome 'm12'; Add-ExistingInstall $h
+$r = Invoke-Block $B1b $h; $ts = Get-Ts $r.Out
+Check '前置：1b 成功並印出 ts' ($r.Ok -and $ts) $r.Out
+$r = Invoke-Block $B1c $h
+Check '前置：1c 安裝成功' $r.Ok $r.Out
+Remove-Item -LiteralPath "$h\.claude\skills\超級模式" -Recurse -Force
+Check '前置：live skill 確實已移除' (-not (Test-Path -LiteralPath "$h\.claude\skills\超級模式")) 'live 還在，本案等於沒測'
+$r = Invoke-Rollback $ts $h
+Check '回滾仍成功' $r.Ok $r.Out
+Check '回滾後 live skill 已還原' (Test-Path -LiteralPath "$h\.claude\skills\超級模式\SKILL.md" -PathType Leaf) '沒有還原'
+
 "`n[C3] 對照組（確認上面的斷言不是永遠為真）"
 $h = New-FakeHome 'c3'; Add-ExistingInstall $h
 $r = Invoke-Block $B1b $h; $ts = Get-Ts $r.Out
