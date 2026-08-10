@@ -45,6 +45,22 @@ const PROBE_BUNDLE = [
 ].concat(MIRROR_REL);
 
 /*
+ * `matcher-contract-cli.test.js` 需要的 bundle。
+ * 用**執行平台自己的** canonical（該測試已改成依 process.platform 選平台），
+ * 這樣在 Linux CI 上跑也會帶對檔案。
+ */
+const RUN_PLAT = { win32: "windows", darwin: "macos", linux: "linux" }[process.platform] || "linux";
+const MATCHER_BUNDLE = [
+  "tests/matcher-contract-cli.test.js",
+  "tests/lib/cli-outcome.js",
+  "tests/lib/verdict-manifest.js",
+  RUN_PLAT + "/skills/超級模式/tests/matcher-contract.test.js",
+  RUN_PLAT + "/skills/超級模式/lib/gate-registration.js",
+  RUN_PLAT + "/hooks/super-mode-consult-gate.js",
+  RUN_PLAT + "/settings.snippet.json",
+];
+
+/*
  * 每個變異：
  *   id          識別碼
  *   describe    這個變異模擬的是哪一個真實假綠
@@ -202,6 +218,41 @@ const MUTATIONS = [
     },
     mustFail: [],
     signature: "配對漂移",
+    control: [],
+  },
+  // ── 端對端：matcher-contract-cli 這道防線本身有沒有牙齒 ──────────────────
+  {
+    id: "e2e-matcher-prefix-collision",
+    describe: "讓產品把 OK 印成 OK_WITH_DUPLICATES —— 舊的 substring oracle 會放行（前綴碰撞）",
+    files: MATCHER_BUNDLE,
+    entry: "tests/matcher-contract-cli.test.js",
+    mutate: {
+      files: [RUN_PLAT + "/skills/超級模式/lib/gate-registration.js"],
+      find: "  const dupes = shell.length > 1 || exec.length > 0;",
+      replace: "  const dupes = true;",
+    },
+    // 期望 OK 的案子必須全部紅掉；期望 OK_WITH_DUPLICATES 的則不受影響。
+    mustFail: ["repo-canonical", "live-canonical"],
+    signature: "code=OK_WITH_DUPLICATES（預期 OK）",
+    control: ["live-dup-identical"],
+  },
+  {
+    id: "e2e-matcher-case-deleted",
+    describe: "偷偷刪掉一個 matcher 案子 —— 只看 n/n 會印 69/69 全綠",
+    files: MATCHER_BUNDLE,
+    entry: "tests/matcher-contract-cli.test.js",
+    /*
+     * ⚠️ 第一版變異是把案子**改名** ＋ 加 `skip: true` —— 那沒有被殺掉，而且是我的錯不是防線的錯：
+     * 改名不會讓案例數變少，測試也不認得 `skip`，所以它照跑，70 還是 70。
+     * 真正的「案子消失」是整行刪掉，這樣案例數才會掉到 69 並撞上宣告值。
+     */
+    mutate: {
+      files: ["tests/matcher-contract-cli.test.js"],
+      find: '  { id: "live-dup-identical", code: "OK_WITH_DUPLICATES", args: ["--live"], live: S(ent([g(), g()])), exit: 0, want: ["RESULT_CODE=OK_WITH_DUPLICATES"], oldExit: 0 },\n',
+      replace: "",
+    },
+    mustFail: [],
+    signature: "≠ 宣告的 70",
     control: [],
   },
   {
