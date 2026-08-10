@@ -48,6 +48,11 @@ t "--doc 指定兩次"      2 "指定了兩次"               bash "$SUT" --doc 
 t "--doc 空值後再給一次" 2 ""                        bash "$SUT" --doc "" --doc "$DOC_REAL"
 t "--doc 檔案不存在"    2 "受測文件不存在"           bash "$SUT" --doc /nonexistent/none.md
 t "DOC= 空字串"         2 "空字串"                   env DOC= bash "$SUT"
+# ⚠️ 下面兩案是合併前 Codex 審查抓到的漏擋，**兩者都必須被拒絕**。
+# 舊寫法用「DOC 的值等不等於預設路徑」去猜「是不是使用者設的」——
+# 使用者真的把 DOC 設成預設路徑時就猜錯，於是歧義靜默放行、採用 --doc。
+t "DOC=其他 ＋ --doc 不同"   2 "不一致"  env DOC=/some/other.md bash "$SUT" --doc "$DOC_REAL"
+t "DOC=預設路徑 ＋ --doc 不同" 2 "不一致"  env DOC="$DOC_REAL" bash "$SUT" --doc /nonexistent/none.md
 
 echo ""
 echo "── 必須被接受 ─────────────────────────────────────────────"
@@ -55,6 +60,9 @@ echo "── 必須被接受 ─────────────────
 # 只驗拒絕路徑的話，「全部都拒絕」也會是滿分。
 t "無參數（預設文件）"  0 "受測文件：$DOC_REAL"      bash "$SUT"
 t "--doc 指向預設文件"  0 "受測文件：$DOC_REAL"      bash "$SUT" --doc "$DOC_REAL"
+# 兩來源**指到同一個檔案**不算歧義，必須放行 ——
+# 只驗拒絕路徑的話，一個「一律拒絕雙來源」的實作也會滿分。
+t "DOC 與 --doc 同值"   0 "受測文件：$DOC_REAL"      env DOC="$DOC_REAL" bash "$SUT" --doc "$DOC_REAL"
 
 echo ""
 echo "TOTAL $((pass+fail))  PASS $pass  FAIL $fail"

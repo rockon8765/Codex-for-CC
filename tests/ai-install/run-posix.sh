@@ -4,9 +4,19 @@
 set -uo pipefail
 
 REPO="${REPO:-$(cd "$(dirname "$0")/../.." && pwd)}"
-# ⚠️ 空值檢查必須在**套用預設值之前** —— 放在後面是死碼（`DOC` 那時已被填成預設路徑，
-# 永遠不會是空字串）。第一版就寫在後面，被 run-posix-args.test.sh 當場抓到。
-if [ -n "${DOC+x}" ] && [ -z "$DOC" ]; then
+# ── DOC 來源的身分捕捉（必須在套用預設值**之前**）──────────────────────
+#
+# ⚠️ **「使用者有沒有設 DOC」只能在覆蓋它之前記下來，不能事後從值反推。**
+# 這條規則被違反過兩次，兩次都是同一個病：拿「值」當「有沒有設過」的 sentinel。
+#   ・第一次：`--doc ""` 被當成沒給 → 靜默退回預設文件、印 95/0 exit 0（macOS 驗收抓到）。
+#   ・第二次：修掉上面那個之後，`DOC=<剛好等於預設路徑>` 搭配不同的 `--doc`
+#     仍然靜默採用 `--doc`，歧義沒被擋（合併前 Codex 審查抓到）。
+#     當時的寫法是 `[ "$DOC" != "$REPO/docs/AI-INSTALL.md" ]` —— 用「值等不等於預設」
+#     去猜「是不是使用者設的」，使用者真的把它設成預設路徑時就猜錯。
+# 所以這裡改成**明確的 set 旗標 ＋ 保留原始值**，完全不做值推論。
+if [ -n "${DOC+x}" ]; then DOC_ENV_SET=1; else DOC_ENV_SET=0; fi
+DOC_ENV_VALUE="${DOC:-}"
+if [ "$DOC_ENV_SET" -eq 1 ] && [ -z "$DOC_ENV_VALUE" ]; then
   echo "FAIL: DOC 環境變數是空字串（常見成因：\$VAR 未設就展開）" >&2; exit 2
 fi
 DOC="${DOC:-$REPO/docs/AI-INSTALL.md}"
@@ -50,8 +60,9 @@ while [ $# -gt 0 ]; do
 done
 if [ "$DOC_FLAG_SET" -eq 1 ]; then
   # `DOC=` 與 `--doc` 同時存在且指到不同檔案 → 歧義，拒絕而不是默默選一邊。
-  if [ -n "${DOC+x}" ] && [ "${DOC:-}" != "$DOC_FLAG" ] && [ "${DOC:-}" != "$REPO/docs/AI-INSTALL.md" ]; then
-    echo "FAIL: DOC 環境變數（$DOC）與 --doc（$DOC_FLAG）不一致 —— 歧義，請只用一種" >&2
+  # 用上面捕捉的 `DOC_ENV_SET`／`DOC_ENV_VALUE`，**不要**再去比對「值是不是預設路徑」。
+  if [ "$DOC_ENV_SET" -eq 1 ] && [ "$DOC_ENV_VALUE" != "$DOC_FLAG" ]; then
+    echo "FAIL: DOC 環境變數（$DOC_ENV_VALUE）與 --doc（$DOC_FLAG）不一致 —— 歧義，請只用一種" >&2
     exit 2
   fi
   DOC="$DOC_FLAG"

@@ -95,8 +95,18 @@
 > 並補上 [`run-posix-args.test.sh`](tests/ai-install/run-posix-args.test.sh)（10/10，**已進 Linux CI**）——
 > 這是 `tests/ai-install/` 第一個進 CI 的項目。
 >
-> ⚠️ **仍未做**：`tests/ai-install/` 的**完整**測試臺仍不在 CI 內（只有參數解析進去了），
-> 那部分依舊只有人工證據。Windows 與 macOS 皆無 CI。
+> ⚠️ **仍未做**（據實列，不含糊）：
+> - **Windows 側的 M13**（列舉失敗 → 在任何 mutation 之前中止 → live 未變）
+>   **沒有動態測試**，只有 `$ErrorActionPreference='Stop'` 的靜態推論。
+>   POSIX 側有 M13 動態案，Windows 側沒有對應物。這是**先前就存在的缺口**，
+>   不是本批引入，但它涵蓋的是**遞迴刪除**路徑，值得單獨排一批。
+> - Windows 與 macOS 皆**無 CI**，仍靠人工原生驗證。
+>
+> ✅ **訂正一個我自己寫錯的範圍宣稱**：先前這裡寫「`tests/ai-install/` 的完整測試臺仍不在 CI 內，
+> 只有參數解析進去了」——**不準確**。[`run-posix-args.test.sh`](tests/ai-install/run-posix-args.test.sh)
+> 的三個「必須被接受」案各自都會**完整跑完 95 案測試臺**（它們斷言 exit 0，而 exit 0 的前提就是
+> `PASS=95 FAIL=0`），所以 Linux CI 其實已經間接跑到完整 harness。缺的是**Windows 側**
+> （`run-windows.ps1` 無 CI），不是 POSIX 側。
 >
 > <details><summary>原始缺陷清單（2026-08-09 撰寫，保留以存證）</summary>
 >
