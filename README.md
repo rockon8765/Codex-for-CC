@@ -62,7 +62,20 @@
 > WSL2 實測：預設文件 `PASS=95 FAIL=0`；`--doc` 指向刻意改壞的文件 → `PASS=64 FAIL=31`，
 > 證明目標**真的**換掉了。這使 macOS 的驗收面比原本大，驗收項見 handoff §2b 的 B-6／B-7。
 >
-> ### ✅ 2026-08-10 macOS 原生驗收完成
+> ### ✅ 最終驗收狀態（tip）
+>
+> **macOS 對最終 tip 的補驗（C-0…C-3）全過**，乾淨 checkout、`git status --porcelain` 為空：
+> blob 兩筆全符（`run-posix.sh` `637a9935…`、`run-posix-args.test.sh` `ee8da03c…`）、
+> `run-posix-args` **13/13**、`--doc ""` → **exit 2**（訊息含「空字串」）、
+> `DOC=<預設路徑> --doc <其他>` → **exit 2**（訊息含「不一致」，且**未**出現該檔的「受測文件：」行，
+> 證明是真的比對兩個來源才中止，不是碰巧走到別的失敗路徑）、`run-posix.sh` **PASS=95 FAIL=0**。
+>
+> **為什麼只補驗四項**：`a85e88a..<tip>` 共 7 個檔案，可執行檔只有
+> `run-posix.sh` 與 `run-posix-args.test.sh`，**`.js` 改動數為 0**（已用
+> `git diff --name-only` 核過）。所以下面那批在 `a85e88a` 跑的 Node 項目（B-1…B-5、B-8…B-13）
+> 續用成立，不需重跑。
+>
+> ### ✅ 2026-08-10 macOS 原生驗收（`a85e88a`）
 >
 > macOS 26.6.1 arm64／系統 `/bin/bash` 3.2.57／Node v26.7.0／`uid=501` 非 root／
 > `CLAUDE_CONFIG_DIR` 未設／`git clone` 乾淨 checkout。
@@ -92,8 +105,13 @@
 > 並印 `PASS=95 FAIL=0 exit 0` —— 正是本批要消滅的假綠形狀（`--doc "$D/f"` 在 `$D` 未設時
 > 就長這樣）。成因是拿「空字串」當「有沒有設過」的 sentinel，同一個 bug 也讓
 > `--doc "" --doc real` 的重複偵測失效。已改用獨立 sentinel ＋ 空值一律 exit 2，
-> 並補上 [`run-posix-args.test.sh`](tests/ai-install/run-posix-args.test.sh)（10/10，**已進 Linux CI**）——
-> 這是 `tests/ai-install/` 第一個進 CI 的項目。
+> 並補上 [`run-posix-args.test.sh`](tests/ai-install/run-posix-args.test.sh)（**13/13**，已進 Linux CI）。
+>
+> **合併前審查（Codex）又抓到同一個病的第二個實例**：修掉 `--doc ""` 之後，
+> `DOC=<剛好等於預設路徑>` 搭配**不同的** `--doc` 仍然靜默採用 `--doc`、歧義沒被擋 ——
+> 因為歧義判斷寫成「值等不等於預設路徑」，還是在用值推論「是不是使用者設的」。
+> 已改為在套用預設值**之前**捕捉 `DOC_ENV_SET`／`DOC_ENV_VALUE`，完全不做值推論；
+> 測試補到 13 案（含「兩來源同值必須放行」的正向案）。
 >
 > ⚠️ **仍未做**（據實列，不含糊）：
 > - **Windows 側的 M13**（列舉失敗 → 在任何 mutation 之前中止 → live 未變）
