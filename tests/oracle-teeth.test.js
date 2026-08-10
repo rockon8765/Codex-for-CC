@@ -256,6 +256,20 @@ const MUTATIONS = [
     control: [],
   },
   {
+    id: "e2e-module-digest-value",
+    describe: "讓工具印出**別的內容**的 module digest —— 只驗「有 sha256=」的話會放行",
+    files: MATCHER_BUNDLE,
+    entry: "tests/matcher-contract-cli.test.js",
+    mutate: {
+      files: [RUN_PLAT + "/skills/超級模式/tests/matcher-contract.test.js"],
+      find: 'const d = crypto.createHash("sha256").update(fs.readFileSync(MODULE_PATH)).digest("hex").slice(0, 16);',
+      replace: 'const d = crypto.createHash("sha256").update("stale").digest("hex").slice(0, 16);',
+    },
+    mustFail: ["prints-module-digest"],
+    signature: "缺少字串「sha256=",
+    control: ["repo-canonical"],
+  },
+  {
     id: "manifest-not-checked",
     describe: "拿掉 code→exit manifest 的全域契約檢查",
     files: ["tests/lib/cli-outcome.js", "tests/lib/cli-outcome.test.js"],

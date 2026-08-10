@@ -7,6 +7,44 @@ REPO="${REPO:-$(cd "$(dirname "$0")/../.." && pwd)}"
 DOC="${DOC:-$REPO/docs/AI-INSTALL.md}"
 PLACEHOLDER='<貼上 1b 印出的值>'
 
+# ── 參數解析 ────────────────────────────────────────────────────────────
+#
+# ⚠️ **這一段是 2026-08-10 補的，補之前本腳本完全沒有參數解析。**
+# 受測文件只能用環境變數 `DOC=` 指定，所以 `bash run-posix.sh --doc <path>` 會被
+# **靜默忽略**、改測分支自己的 AI-INSTALL.md —— 反向驗證會印出一片綠卻什麼都沒量到。
+# 移植 B1 時真的踩到：先拿到 `85 PASS／0 FAIL`（應為 81／4），
+# 是因為輸出裡有「受測文件：」那一行才發現目標根本沒換。
+# Windows 版 `run-windows.ps1` 有 `param([string]$Doc)`，PowerShell 對未知參數會報錯，
+# 所以不受影響 —— 只有 POSIX 版有這個洞。
+#
+# 現在：未知參數／缺值／多餘 positional／重複 --doc 一律**非 0 退出**，
+# 與 probe／matcher-contract 的作法一致（不忠實的 oracle 比沒有 oracle 更糟）。
+usage() {
+  echo "用法：run-posix.sh [--doc <AI-INSTALL.md 路徑>]" >&2
+  echo "      也可用環境變數 DOC=<path>；兩者同時指定且不一致時視為歧義，直接拒絕。" >&2
+}
+DOC_FLAG=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --doc)
+      [ $# -ge 2 ] || { echo "FAIL: --doc 後面要接路徑" >&2; usage; exit 2; }
+      [ -z "$DOC_FLAG" ] || { echo "FAIL: --doc 指定了兩次" >&2; exit 2; }
+      DOC_FLAG="$2"; shift 2 ;;
+    --help|-h) usage; exit 0 ;;
+    -*) echo "FAIL: 未知參數：$1" >&2; usage; exit 2 ;;
+    *)  echo "FAIL: 不接受位置參數：$1" >&2; usage; exit 2 ;;
+  esac
+done
+if [ -n "$DOC_FLAG" ]; then
+  # `DOC=` 與 `--doc` 同時存在且指到不同檔案 → 歧義，拒絕而不是默默選一邊。
+  if [ -n "${DOC+x}" ] && [ "${DOC:-}" != "$DOC_FLAG" ] && [ "${DOC:-}" != "$REPO/docs/AI-INSTALL.md" ]; then
+    echo "FAIL: DOC 環境變數（$DOC）與 --doc（$DOC_FLAG）不一致 —— 歧義，請只用一種" >&2
+    exit 2
+  fi
+  DOC="$DOC_FLAG"
+fi
+[ -f "$DOC" ] || { echo "FAIL: 受測文件不存在：$DOC" >&2; exit 2; }
+
 # ⚠️ 不要用固定路徑。舊版寫死 "$HOME/ai-install-harness" 並在開頭 rm -rf ——
 # 使用者剛好有同名資料、或兩個測試臺並行時，後啟動的會直接刪掉前者的資料。
 # 改成每次 mktemp 新建，清理只針對「本次建立且符合本前綴」的路徑。
@@ -46,7 +84,10 @@ pick() {
 B1B=$(pick 'backup ts=') || exit 2
 B1C=$(pick 'install OK') || exit 2
 BRB=$(pick 'precheck skill') || exit 2
+# 印 resolved 路徑 ＋ 內容 hash：反向驗證時這是「目標到底有沒有換掉」的唯一證據。
+# （只印路徑不夠 —— 路徑對但內容是同一份的話，數字一樣看不出問題。）
 echo "受測文件：$DOC"
+echo "文件 hash：$( { git -C "$REPO" hash-object "$DOC" 2>/dev/null || shasum -a 256 "$DOC" 2>/dev/null || sha256sum "$DOC"; } | awk '{print $1}')"
 echo "抽取：1b=$(wc -c <"$B1B") bytes, 1c=$(wc -c <"$B1C") bytes, rollback=$(wc -c <"$BRB") bytes"
 grep -qF "$PLACEHOLDER" "$BRB" || { echo "回滾區塊找不到 ts 佔位符，抽取邏輯已過期" >&2; exit 2; }
 

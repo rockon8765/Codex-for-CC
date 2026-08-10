@@ -121,6 +121,13 @@ jobs:
       - name: 驗證資產的變異注入（牙齒檢查）
         run: node "tests/oracle-teeth.test.js"
 
+      # F8 證據鏈：`readFileSync(目錄)` 的實際 errno。
+      # ⚠️ 這是唯一**真的去讀目錄**的檢查 —— `gate-registration.test.js` 的 A14 是把字串
+      # "EISDIR" 當資料注入純函式，任何 OS 都綠；`live-is-directory` 只驗「讀取失敗：」前綴。
+      # 產品的 UNREADABLE／SHAPE_ERROR 路徑依賴這個 errno，所以要有原生量測。
+      - name: readFileSync(目錄) 的 errno 診斷
+        run: node "tools/diagnose-readdir-errno.js"
+
       # 這裡也是 CI 唯一會**真的建出 symlink** 的地方（Windows 非管理員建不了，
       # 那邊該案會標 SKIP）。所以這一步同時是那條守衛的原生覆蓋。
       # --strict：CI 只看退出碼，所以 SKIP 必須也算失敗，否則守衛沒跑到卻是綠燈。

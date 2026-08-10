@@ -111,12 +111,57 @@ console.log("  snippet blob：" + gitBlob(SNIPPET_SRC));
  * 那正是 Codex 說的「混血 baseline bundle」誤讀。所以直接標示它有沒有被消費。
  */
 {
-  const usesModule = /require\([^)]*gate-registration/.test(fs.readFileSync(target, "utf8"));
+  /*
+   * ⚠️ 偵測方式不能寫成 `/require\([^)]*gate-registration/` —— 現行受測檔是
+   * `const MODULE_PATH = path.join(__dirname, "..", "lib", "gate-registration.js")`
+   * 之後 `require(MODULE_PATH)`，require 那行**沒有**字面檔名，於是會被誤判成
+   * 「不 require 共用模組」並印出一句假話。改成比對**路徑建構**本身。
+   * （`5da2624` 的舊版整份檔案完全沒提到 gate-registration，兩邊都判得對。）
+   */
+  const usesModule = /gate-registration\.js"/.test(fs.readFileSync(target, "utf8"));
   console.log("  module blob： " + gitBlob(MODULE_SRC) +
     (usesModule ? "（受測檔會 require 它）" : "  ← 已 stage 但**受測檔不 require 它**，不影響本次結論"));
 }
+
+/*
+ * ── 反向驗證的**抽取身分守衛**（backlog item 6）────────────────────────────
+ *
+ * ⚠️ 舊做法是「`wc -c` > 4000 ＋ `node --check`」。實測那兩道對「不小心抽到**現行版**」
+ * **全部會過** —— 於是反向驗證變成拿新版跟新版比，70/70 全綠看起來像大成功，
+ * 實際上一個舊行為都沒刻畫到。所以改成**釘 literal blob**。
+ */
+const VALIDATED_TARGETS = {
+  "5edaa7efe4fd3e5ebac79442c4b01d106463d4df":
+    "5da2624 的 matcher-contract —— 本批唯一被驗證過的反向 baseline",
+};
+if (reverse) {
+  const SUT_CANON = path.join(__dirname, "..", CANON_PLAT, "skills", "超級模式", "tests", "matcher-contract.test.js");
+  const targetBlob = gitBlob(target);
+  const canonBlob = gitBlob(SUT_CANON);
+  if (targetBlob === canonBlob) {
+    console.error("⛔ --target 與現行受測檔是**同一個 blob** —— 這樣比不出任何舊行為，停手。");
+    console.error("   （抽取指令寫成 origin/main 時就會發生：合併後它就是現行版自己。）");
+    process.exitCode = 2; return;
+  }
+  if (!VALIDATED_TARGETS[targetBlob]) {
+    console.error("⛔ --target 的 blob " + targetBlob + " 不在已驗證清單內，停手。");
+    console.error("   目前只有：");
+    for (const [b, why] of Object.entries(VALIDATED_TARGETS)) console.error("     " + b + "  " + why);
+    console.error("   「任意歷史 ref」做不到：更早的版本 topology 與依賴都不同。");
+    process.exitCode = 2; return;
+  }
+  console.log("  ✅ target blob 在已驗證清單內：" + VALIDATED_TARGETS[targetBlob]);
+}
 const CANON_MATCHER = CANON_SNIPPET.hooks.PreToolUse[0].matcher;
 const CANON_CMD = CANON_SNIPPET.hooks.PreToolUse[0].hooks[0].command;
+
+/*
+ * 受測工具會印 `sha256=<前 16 碼>` 來標示它**實際載入**的共用模組。
+ * 這裡**獨立算一次**，好讓案例可以核對**值**而不只是「有出現 sha256= 三個字」——
+ * 只驗字串存在的話，工具印一個寫死的、或別的檔案的摘要都照樣過。
+ */
+const MODULE_DIGEST = crypto.createHash("sha256")
+  .update(fs.readFileSync(MODULE_SRC)).digest("hex").slice(0, 16);
 
 // ── fixture 素材 ────────────────────────────────────────────────────────
 const g = (o) => Object.assign({ type: "command", command: CANON_CMD }, o || {});
@@ -207,7 +252,9 @@ const CASES = [
   { id: "repo-no-gate-advice-is-repo-specific", code: "NO_GATE", args: ["--repo"], snippet: S(ent([{ type: "command", command: "node /somewhere/other-hook.js" }])), exit: 1, want: ["RESULT_CODE=NO_GATE", "待出貨的 settings.snippet.json", "不要安裝"], deny: ["settings.local.json 不是 user scope"], oldExit: 1, oldWant: ["這是待出貨的檔案"] },
   // attestation 一律印共用模組的路徑與內容摘要 —— 已安裝的 lib/ 是舊版時，
   // require() 會成功、規則卻是舊的，摘要是唯一能從輸出看出來的線索。
-  { id: "prints-module-digest", code: "OK", args: ["--repo"], exit: 0, want: ["受驗 module:   ", "sha256="], oldExit: 0, oldDeny: ["受驗 module"] },
+  // ⚠️ 核對 digest 的**值**（不是只驗有 `sha256=` 這幾個字）：
+  // 工具印一個寫死的、或算了別的檔案的摘要，只驗字串存在的話全部照樣過。
+  { id: "prints-module-digest", code: "OK", args: ["--repo"], exit: 0, want: ["受驗 module:   ", "sha256=" + MODULE_DIGEST], oldExit: 0, oldDeny: ["受驗 module"] },
 
   // ---- --live（A1 的核心：從 checkout 也能驗 live）------------------------
   // 舊版**靜默忽略** --live 並照樣驗相鄰 snippet → 這批案子的 oldExit 幾乎都是 0，
