@@ -38,7 +38,23 @@
 >
 > **例外：Linux 自 2026-07-26 起有持續性的原生覆蓋。** [`.github/workflows/linux.yml`](.github/workflows/linux.yml) 讓每次 push／PR 都在 `ubuntu-latest` 上跑完整 `linux/` 回歸（含一道變異測試守住平台語義）。所以 linux 的「目前 tip 是否原生驗證過」不必再靠人工回想——看 CI 狀態即可。Windows 與 macOS 目前**沒有** CI，仍靠人工原生驗證。
 >
-> ## ⛔ 本批的**驗證資產**目前不可信（2026-08-09，macOS 原生驗證後撤下宣稱）
+> ## ⛔ 本批的**驗證資產**目前不可信（2026-08-09；修正批次進行中，2026-08-10 更新）
+>
+> **2026-08-10 進度：10 項必修已完成 7 項，⛔ 尚未解除。**
+> 已修：(1) exec form 五案改釘 `HALT_EXEC_FORM` ＋ 錨定 oracle、(2) 直方圖改統計實測值、
+> (3) matcher oracle 改精確相等＋逐 stream 掃描、(4) 標記唯一性涵蓋兩支工具、
+> (5) baseline 改完整 SHA ＋ blob 白名單 ＋ region hash ＋ orphan 檢查、
+> (8) A-0 身分缺口（改跑執行平台自己的 canonical）、(10) `oldStack` 改雙向。
+> 另新增共用 oracle（`tests/lib/cli-outcome.js`）、獨立 code→exit manifest、
+> 以及**變異注入 harness**（`tests/oracle-teeth.test.js`，13/13 殺掉）——
+> 後者正是先前缺的那一塊：舊的 17/17 只證明**模組邏輯**有牙齒，沒證明 **CLI oracle** 有牙齒。
+> **未修**：(6) matcher 側的抽取 blob guard 尚未進碼、(7) F8 證據鏈與原生診斷、
+> (9) module digest 尚未核**值**；另有 `run-posix.sh` 參數解析。
+> **macOS 仍為 `pending` 且本批動過 `lib/gate-registration.js`（三鏡像）**，
+> 所以 handoff §1 的 blob 表與 A-1 結果**已回到 pending**。
+> 在修正批次收尾並完成 macOS 驗收之前，**仍不得據此做 release 或安裝背書**。
+>
+> <details><summary>原始缺陷清單（2026-08-09 撰寫，保留以存證）</summary>
 >
 > macOS 真機驗證的結論是：**產品判定邏輯全綠**（A-0 blob 14/14、A-1 168/168、A-2 68/68、
 > A-3 70/70、A-4 `RESULT_CODE=OK`、A-5 117/117、A-6 68/68 於 bash 3.2.57、
@@ -68,6 +84,8 @@
 >
 > 修正清單記在 [`docs/backlog.md`](docs/backlog.md)。**產品程式碼未發現行為缺陷**，
 > 所以採 fix-forward（不回退），但在修好之前這一段的「綠」不成立。
+>
+> </details>
 >
 > **本次 delta 的驗證分布（2026-08-09b，基準 `5da2624`：gate 辨識抽成三平台共用模組 ＋ `matcher-contract` 的 `--repo`／`--live` 顯式模式）。**
 > ⚠️ **本批刻意不釘 endpoint SHA，改釘 blob。** 理由很實際：補釘 SHA 的那個 commit 自己就會讓尖端前進，於是宣稱永遠落後一格。受測檔的釘子是 [`docs/HANDOFF-macos-shared-parser-2026-08-09.md`](docs/HANDOFF-macos-shared-parser-2026-08-09.md) §1 的 blob 表，可逐筆 `git hash-object` 核對。

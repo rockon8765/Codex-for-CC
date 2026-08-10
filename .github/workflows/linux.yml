@@ -99,11 +99,27 @@ jobs:
       - name: matcher-contract CLI 回歸
         run: node "tests/matcher-contract-cli.test.js"
 
-      # probe 的判定矩陣：47+ 個輸入各自釘死 RESULT_CODE 與退出碼。
+      # probe 的判定矩陣：56 個輸入各自釘死 RESULT_CODE 與退出碼。
       # 與上面那支 probe 測試抓的東西不同 —— 那支抓「訊息對不對」，這支抓
-      # 「判定矩陣有沒有整片坍縮到同一個 code」。--baseline 另可與任一 git ref 逐位元比對。
+      # 「判定矩陣有沒有整片坍縮到同一個 code」。
+      # ⚠️ `--baseline` **不是**「任一 git ref 都可以」：只有白名單內、且自足
+      # （不依賴 payload 共用模組）的 ref 能比，其餘一律 exit 2 停手。
       - name: probe 判定矩陣
         run: node "tests/probe-verdict-cases.test.js"
+
+      # ── 以下兩支是 2026-08-10 修正批次新增的。 ──────────────────────────
+      # 沒接進 CI 的話，本機證據再強也會在後續 commit 中靜默腐爛。
+
+      # 兩支驗證工具共用的 verdict oracle：全合成字串、不 spawn、不碰檔案系統。
+      # 釘的是真實發生過的假綠形狀（散文假標記、OK 冒充 OK_WITH_DUPLICATES、跨 stream 拼接）。
+      - name: verdict oracle 單元測試
+        run: node "tests/lib/cli-outcome.test.js"
+
+      # **牙齒檢查**：對驗證資產注入已知缺陷，斷言對應的測試「必須失敗，且失敗原因正確」。
+      # 這一支存在的理由：2026-08-09 之前兩支測試都印全綠，但 oracle 根本不忠實 ——
+      # 綠燈不代表有在量。每個變異都要求注入自我檢查 ＋ 指定案子失敗 ＋ 原因 signature ＋ 對照組仍通過。
+      - name: 驗證資產的變異注入（牙齒檢查）
+        run: node "tests/oracle-teeth.test.js"
 
       # 這裡也是 CI 唯一會**真的建出 symlink** 的地方（Windows 非管理員建不了，
       # 那邊該案會標 SKIP）。所以這一步同時是那條守衛的原生覆蓋。
