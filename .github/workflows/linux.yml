@@ -128,6 +128,13 @@ jobs:
       - name: readFileSync(目錄) 的 errno 診斷
         run: node "tools/diagnose-readdir-errno.js"
 
+      # `run-posix.sh` 的**參數解析**回歸。
+      # ⚠️ 這是 `tests/ai-install/` 底下第一個進 CI 的項目 —— 其餘（完整測試臺）仍只有人工證據。
+      # 補它的直接原因：2026-08-10 macOS 驗收抓到 `--doc ""` 會**靜默退回預設文件**並印
+      # `PASS=95 FAIL=0 exit 0`，也就是這批要消滅的假綠形狀本身，而當時沒有任何自動化守衛。
+      - name: run-posix.sh 參數解析回歸
+        run: bash "tests/ai-install/run-posix-args.test.sh"
+
       # 這裡也是 CI 唯一會**真的建出 symlink** 的地方（Windows 非管理員建不了，
       # 那邊該案會標 SKIP）。所以這一步同時是那條守衛的原生覆蓋。
       # --strict：CI 只看退出碼，所以 SKIP 必須也算失敗，否則守衛沒跑到卻是綠燈。

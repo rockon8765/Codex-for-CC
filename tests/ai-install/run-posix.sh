@@ -4,6 +4,11 @@
 set -uo pipefail
 
 REPO="${REPO:-$(cd "$(dirname "$0")/../.." && pwd)}"
+# ⚠️ 空值檢查必須在**套用預設值之前** —— 放在後面是死碼（`DOC` 那時已被填成預設路徑，
+# 永遠不會是空字串）。第一版就寫在後面，被 run-posix-args.test.sh 當場抓到。
+if [ -n "${DOC+x}" ] && [ -z "$DOC" ]; then
+  echo "FAIL: DOC 環境變數是空字串（常見成因：\$VAR 未設就展開）" >&2; exit 2
+fi
 DOC="${DOC:-$REPO/docs/AI-INSTALL.md}"
 PLACEHOLDER='<貼上 1b 印出的值>'
 
@@ -23,19 +28,27 @@ usage() {
   echo "用法：run-posix.sh [--doc <AI-INSTALL.md 路徑>]" >&2
   echo "      也可用環境變數 DOC=<path>；兩者同時指定且不一致時視為歧義，直接拒絕。" >&2
 }
+# ⚠️ **`DOC_FLAG_SET` 必須是獨立的 sentinel，不能拿「$DOC_FLAG 是不是空字串」當判斷。**
+# 第一版就是那樣寫的，macOS 驗收（2026-08-10）當場抓到兩個後果：
+#   ・`--doc ""` → `-n "$DOC_FLAG"` 為假 → 靜默退回預設文件，印 95/0 exit 0。
+#     **這正是本批要消滅的假綠形狀**：`--doc "$D/f"` 在 `$D` 未設時就會變成 `--doc ""`。
+#   ・`--doc "" --doc real` → 重複偵測也失效（因為它也用空字串當「還沒設過」）。
+# 空值一律視為錯誤，與 `--doc <不存在的檔>` 同樣 exit 2。
 DOC_FLAG=""
+DOC_FLAG_SET=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --doc)
       [ $# -ge 2 ] || { echo "FAIL: --doc 後面要接路徑" >&2; usage; exit 2; }
-      [ -z "$DOC_FLAG" ] || { echo "FAIL: --doc 指定了兩次" >&2; exit 2; }
-      DOC_FLAG="$2"; shift 2 ;;
+      [ "$DOC_FLAG_SET" -eq 0 ] || { echo "FAIL: --doc 指定了兩次" >&2; exit 2; }
+      [ -n "$2" ] || { echo "FAIL: --doc 的值是空字串（常見成因：\$VAR 未設就展開）" >&2; exit 2; }
+      DOC_FLAG="$2"; DOC_FLAG_SET=1; shift 2 ;;
     --help|-h) usage; exit 0 ;;
     -*) echo "FAIL: 未知參數：$1" >&2; usage; exit 2 ;;
     *)  echo "FAIL: 不接受位置參數：$1" >&2; usage; exit 2 ;;
   esac
 done
-if [ -n "$DOC_FLAG" ]; then
+if [ "$DOC_FLAG_SET" -eq 1 ]; then
   # `DOC=` 與 `--doc` 同時存在且指到不同檔案 → 歧義，拒絕而不是默默選一邊。
   if [ -n "${DOC+x}" ] && [ "${DOC:-}" != "$DOC_FLAG" ] && [ "${DOC:-}" != "$REPO/docs/AI-INSTALL.md" ]; then
     echo "FAIL: DOC 環境變數（$DOC）與 --doc（$DOC_FLAG）不一致 —— 歧義，請只用一種" >&2

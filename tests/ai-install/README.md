@@ -18,8 +18,22 @@ powershell -File .\tests\ai-install\run-windows.ps1 -Shell powershell  # Windows
 bash tests/ai-install/run-posix.sh
 ```
 
-兩者都在**全部通過時 exit 0**，任何一案失敗即 exit 1。`-Doc`／`DOC=` 可指向別的
-文件版本（用途見下方「反向驗證」）。
+兩者都在**全部通過時 exit 0**，任何一案失敗即 exit 1。
+
+指定別的文件版本（用途見下方「反向驗證」）：
+- Windows：`-Doc <path>`
+- POSIX：`--doc <path>`，或環境變數 `DOC=<path>`
+
+⚠️ **POSIX 版的 `--doc` 是 2026-08-10 才加的**（在那之前**完全沒有參數解析**，
+傳 `--doc` 會被靜默忽略、改測 repo 自己的文件 → 反向驗證印全綠卻什麼都沒量到）。
+現在未知參數／位置參數／缺值／**空字串**／重複 `--doc`／檔案不存在一律 **exit 2**；
+`DOC=` 與 `--doc` 指到不同檔案視為歧義，直接拒絕。
+空字串之所以也拒絕：`--doc "$D/f"` 在 `$D` 未設時會展開成 `--doc ""`，
+若退回預設就會產生一次「看起來全綠、其實測錯檔案」的假綠。
+這些規則由 [`run-posix-args.test.sh`](run-posix-args.test.sh) 守著（已進 Linux CI）。
+
+**跑完請看輸出開頭的「受測文件：」與「文件 hash：」兩行**——
+那是「目標到底有沒有換掉」的唯一證據，只比 `PASS=`／`FAIL=` 數字看不出來。
 
 ## 為什麼有變異注入
 
@@ -49,6 +63,29 @@ git show <修正前的 commit>:docs/AI-INSTALL.md | Set-Content -LiteralPath $en
 ```
 
 兩者都**應該要 FAIL**。
+
+### ⚠️ 反向驗證的失敗**總數會因平台而異** —— 要逐條核對，不要比總數
+
+2026-08-10 macOS 原生驗收實測：B1 的反向驗證（對 B1 之前的 `4a96698` 文件）
+在 **Linux 是 `88 PASS／7 FAIL`，在 macOS 是 `89 PASS／6 FAIL`**。
+差的那一條是 `[M13] [live] 列舉失敗 → 回滾中止`。
+
+原因不是 B1 有問題，是**那條斷言本身就不具區辨力**（它只看退出碼）：
+
+| | mode-000 子目錄下的 `rm -rf` |
+|---|---|
+| GNU（Linux） | 用 `rmdir` 移除得掉 → **exit 0** → 修正前「回滾成功」→ 斷言 FAIL |
+| BSD（macOS） | 拒絕進入該目錄 → **exit 1** → 修正前也「回滾中止」→ 斷言意外 PASS |
+
+`run-posix.sh` 的 M13 註解早就寫明「區辨力全在下一條，不在退出碼」。
+**真正的判準是 `[live] 中止後 live 未變`** —— 它在兩個平台上都正確地：
+修正前 FAIL（`rm` 已經動過 live 才報錯）、B1 之後 PASS（預掃在任何 mutation 之前中止）。
+macOS 的同機 A／B 已證實這一點。
+
+**所以驗收條件請釘「具區辨力的斷言名稱」，不要釘總數**：
+M11 四條（`[bak]`／`[live]` 各「回滾中止」＋「被拒後 live 未變」）
+＋ M13 的「中止後 live 未變」（`[bak]`／`[live]`）必須 FAIL；
+`[live] 列舉失敗 → 回滾中止` 是否 FAIL **依平台而定，不列入判準**。
 
 ## 已知界線
 

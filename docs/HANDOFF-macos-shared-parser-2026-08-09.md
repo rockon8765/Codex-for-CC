@@ -153,7 +153,7 @@ handler 帶 `if`／`async`／`asyncRewake`；另加頂層 `disableAllHooks: true
 
 | # | 指令 | 期望 |
 |---|---|---|
-| B-0 | 逐筆 `git hash-object` 核對 §1 標 🔴 的那 8 筆 | 全符。**有一筆不符就停手回報** |
+| B-0 | 逐筆 `git hash-object` 核對 §1 標 🔴 的那 8 筆 ＋ `run-posix.sh`（共 9 筆） | 全符。**有一筆不符就停手回報** |
 | B-1 | `node tests/lib/cli-outcome.test.js` | `TOTAL 44 PASS 44 FAIL 0` |
 | B-2 | `node tests/oracle-teeth.test.js` | `TOTAL 14  殺掉 14  漏掉 0`，且開頭印 `baseline（未變異）：PASS` |
 | B-3 | `node tests/probe-verdict-cases.test.js` | `TOTAL 56 執行 56 PASS 56 FAIL 0`，涵蓋 **12 種**且清單含 `HALT_EXEC_FORM ×5`、**不含** `UNSUPPORTED_EXEC_FORM` |

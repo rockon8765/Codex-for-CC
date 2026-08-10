@@ -38,9 +38,10 @@
 >
 > **例外：Linux 自 2026-07-26 起有持續性的原生覆蓋。** [`.github/workflows/linux.yml`](.github/workflows/linux.yml) 讓每次 push／PR 都在 `ubuntu-latest` 上跑完整 `linux/` 回歸（含一道變異測試守住平台語義）。所以 linux 的「目前 tip 是否原生驗證過」不必再靠人工回想——看 CI 狀態即可。Windows 與 macOS 目前**沒有** CI，仍靠人工原生驗證。
 >
-> ## ⛔ 本批的**驗證資產**目前不可信（2026-08-09；修正批次進行中，2026-08-10 更新）
+> ## ✅ 驗證資產已修復並經三平台驗證（2026-08-09 發現 → 2026-08-10 修畢並 macOS 驗收）
 >
-> **2026-08-10 進度：10 項必修 ＋ `run-posix.sh` 那列全部完成；⛔ 仍未解除，因為 macOS 尚未驗收。**
+> **10 項必修 ＋ `run-posix.sh` 那列全部完成，Windows／Linux／macOS 三平台皆已驗證。**
+> ⚠️ 但**合併前仍須留意下方「仍未做」那段**，且本段的綠只涵蓋列出的項目。
 >
 > 已修：(1) exec form 五案改釘 `HALT_EXEC_FORM` ＋ 錨定 oracle、(2) 直方圖改統計實測值、
 > (3) matcher oracle 改精確相等＋逐 stream 掃描、(4) 標記唯一性涵蓋兩支工具、
@@ -61,9 +62,41 @@
 > WSL2 實測：預設文件 `PASS=95 FAIL=0`；`--doc` 指向刻意改壞的文件 → `PASS=64 FAIL=31`，
 > 證明目標**真的**換掉了。這使 macOS 的驗收面比原本大，驗收項見 handoff §2b 的 B-6／B-7。
 >
-> **macOS 仍為 `pending`**：本批與修正批次都動過 `lib/gate-registration.js`（三鏡像，
-> 新 blob `04eca6f2…`），所以 A-1 結果回到 pending，handoff §1 的 blob 表**已更新**
-> 並標出 🔴 的 8 筆。在完成 macOS 驗收之前，**仍不得據此做 release 或安裝背書**。
+> ### ✅ 2026-08-10 macOS 原生驗收完成
+>
+> macOS 26.6.1 arm64／系統 `/bin/bash` 3.2.57／Node v26.7.0／`uid=501` 非 root／
+> `CLAUDE_CONFIG_DIR` 未設／`git clone` 乾淨 checkout。
+>
+> **修正批次（`a85e88a`）B-0…B-13 全綠**：blob 表 9 筆逐位元相符、
+> `cli-outcome` 44/44、`oracle-teeth` **14/14 殺掉**、`probe-verdict-cases` 56/56
+> （涵蓋清單含 `HALT_EXEC_FORM ×5`、**不含** `UNSUPPORTED_EXEC_FORM`）、
+> `matcher-contract-cli` 70/70（attestation 印 `canonical 平台：macos（與執行平台一致）`，
+> 證明 A-0 身分缺口確實修好、跑的是 macOS 自己的產物）、
+> `gate-registration --strict` 168/168 SKIP 0、`probe-gate-registration` 68/68、
+> `backup-settings --strict` **9/9 SKIP 0**（Windows 上會 SKIP 的 symlink 與 rollback 兩案在
+> macOS 都真的執行了）、反向驗證對舊 blob `5edaa7e` 70/70、
+> 負向控制組 `--target` 指向現行版 exit 2、`--bogus` exit 2。
+>
+> **F8 結案**：`READ_DIR_CODE=EISDIR`，與 Windows／Linux 一致 ——
+> 產品的 `UNREADABLE`／`SHAPE_ERROR` 路徑不需要 macOS 專屬處理。
+>
+> **B1（`4414ae7`）產品邏輯亦通過**：`run-posix.sh` 95/0、M11／M12／M13 三段都真的執行到。
+> 反向驗證實測 `89 PASS／6 FAIL`（文件原本寫 88／7）——
+> **差異出在驗收期望值，不是 B1 的程式碼**：`[M13][live] 列舉失敗 → 回滾中止` 只看退出碼，
+> 而 BSD 的 `rm -rf` 遇到 mode-000 子目錄會拒絕進入並 exit 1、GNU 則用 `rmdir` 移除得掉 exit 0，
+> 所以那條在 macOS 會意外 PASS。具區辨力的 `[live] 中止後 live 未變` 在兩平台都正確地
+> 「修正前 FAIL、B1 後 PASS」（macOS 同機 A／B 已證實）。期望值已改為釘**斷言名稱**而非總數，
+> 說明見 [`tests/ai-install/README.md`](tests/ai-install/README.md)。
+>
+> **驗收同時抓到一個新缺陷並已修**：`run-posix.sh` 的 `--doc ""` 會**靜默退回預設文件**
+> 並印 `PASS=95 FAIL=0 exit 0` —— 正是本批要消滅的假綠形狀（`--doc "$D/f"` 在 `$D` 未設時
+> 就長這樣）。成因是拿「空字串」當「有沒有設過」的 sentinel，同一個 bug 也讓
+> `--doc "" --doc real` 的重複偵測失效。已改用獨立 sentinel ＋ 空值一律 exit 2，
+> 並補上 [`run-posix-args.test.sh`](tests/ai-install/run-posix-args.test.sh)（10/10，**已進 Linux CI**）——
+> 這是 `tests/ai-install/` 第一個進 CI 的項目。
+>
+> ⚠️ **仍未做**：`tests/ai-install/` 的**完整**測試臺仍不在 CI 內（只有參數解析進去了），
+> 那部分依舊只有人工證據。Windows 與 macOS 皆無 CI。
 >
 > <details><summary>原始缺陷清單（2026-08-09 撰寫，保留以存證）</summary>
 >
