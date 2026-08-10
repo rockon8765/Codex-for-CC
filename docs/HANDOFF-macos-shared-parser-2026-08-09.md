@@ -108,7 +108,8 @@ handler 帶 `if`／`async`／`asyncRewake`；另加頂層 `disableAllHooks: true
 | `tests/lib/verdict-manifest.js` | `8b69051b551c93bb9cd389a59cb97f84ed1a4ee4` | 🔴 新增 |
 | `tests/oracle-teeth.test.js` | `4dea8e6e11d391326f5d40b10e05028c005b19d4` | 🔴 新增 |
 | `tests/backup-settings.test.js` | `947ee667233cd4d412aa3f629702696f7a19cbe2` | |
-| `tests/ai-install/run-posix.sh` | `70562b776d6b6867dc7740abf22bb4bf9b06c584` | 🔴 |
+| `tests/ai-install/run-posix.sh` | `7bb235ec47f7721c81d4a4ae080fd6839ee85b57` | 🔴 ⚠️ 已隨 macOS 驗收回饋更新（舊值 `70562b77…` 作廢）|
+| `tests/ai-install/run-posix-args.test.sh` | `248d6ab5cd244675aa7e5efe304e9e498a9d247f` | 🔴 新增 |
 | `docs/AI-INSTALL.md` | `a2b3d69f676112f138e2d48deb459c80afadafc8` | |
 
 未標 🔴 的（`backup-settings.test.js`、`gate-cases.json`、hook、snippet、
@@ -153,13 +154,14 @@ handler 帶 `if`／`async`／`asyncRewake`；另加頂層 `disableAllHooks: true
 
 | # | 指令 | 期望 |
 |---|---|---|
-| B-0 | 逐筆 `git hash-object` 核對 §1 標 🔴 的那 8 筆 ＋ `run-posix.sh`（共 9 筆） | 全符。**有一筆不符就停手回報** |
+| B-0 | 逐筆 `git hash-object` 核對 §1 標 🔴 的**全部 10 筆** | 全符。**有一筆不符就停手回報** |
 | B-1 | `node tests/lib/cli-outcome.test.js` | `TOTAL 44 PASS 44 FAIL 0` |
 | B-2 | `node tests/oracle-teeth.test.js` | `TOTAL 14  殺掉 14  漏掉 0`，且開頭印 `baseline（未變異）：PASS` |
 | B-3 | `node tests/probe-verdict-cases.test.js` | `TOTAL 56 執行 56 PASS 56 FAIL 0`，涵蓋 **12 種**且清單含 `HALT_EXEC_FORM ×5`、**不含** `UNSUPPORTED_EXEC_FORM` |
 | B-4 | `node tests/matcher-contract-cli.test.js` | `TOTAL 70 PASS 70 FAIL 0`，且開頭印 `canonical 平台：macos（與執行平台一致）` |
 | B-5 | `node tools/diagnose-readdir-errno.js` | 最後一行 `READ_DIR_CODE=EISDIR`、exit 0。**這是 F8 的唯一真證據**（見下） |
 | B-6 | `bash tests/ai-install/run-posix.sh --bogus` | exit **2**、印 `FAIL: 未知參數：--bogus`（修正前會被靜默忽略） |
+| B-6b | `bash tests/ai-install/run-posix-args.test.sh` | `TOTAL 10  PASS 10  FAIL 0`。⚠️ 2026-08-10 驗收後新增 —— 當時抓到 `--doc ""` 會**靜默退回預設文件**並印 95/0 exit 0，而參數解析在那之前沒有任何自動化守衛 |
 | B-7 | `bash tests/ai-install/run-posix.sh` | `PASS=95 FAIL=0`，並印出「受測文件：」與「文件 hash：」兩行 |
 | B-8 | 反向驗證 matcher（§3 的 A-10 指令） | `70/70`，且印 `✅ target blob 在已驗證清單內` |
 | B-9 | `node tests/matcher-contract-cli.test.js --target "macos/skills/超級模式/tests/matcher-contract.test.js"` | exit **2**、印「與現行受測檔是**同一個 blob**」（負向控制組：證明 guard 真的會擋） |
