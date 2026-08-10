@@ -35,13 +35,18 @@
 > node tests/matcher-contract-cli.test.js --target "$D/mc-old.js"    # → 70/70
 > ```
 >
-> ⚠️ **A-3b（`probe-verdict-cases.test.js` 的 56/56）本身是假綠**，修正批次落地前不要
-> 拿它當通過依據。理由與其餘缺陷見 [`README.md`](../README.md) 開頭的 ⛔ 與
-> [`docs/backlog.md`](backlog.md)。
+> ✅ **2026-08-10 更新：上面兩個警告描述的缺陷都已修掉**（修正批次），原文保留於下以存證。
 >
-> ⚠️ **A-0 的身分表不完整**：`matcher-contract-cli.test.js` 硬編 `CANON_PLAT="windows"`，
-> 所以 A-3 實際讀的是 **Windows** 的 hook 與 snippet，而下面的 blob 表只釘 macOS 版本。
-> 混合樹有可能 A-0 全符而 A-3 仍在驗別的平台輸入。修正批次會處理。
+> ~~⚠️ **A-3b（`probe-verdict-cases.test.js` 的 56/56）本身是假綠**，修正批次落地前不要
+> 拿它當通過依據。~~ → 已修：exec form 五案改釘 `HALT_EXEC_FORM`、oracle 改錨定、
+> 直方圖改統計實測值。**現在的 56/56 是真的**，且有變異注入證明它會失敗。
+>
+> ~~⚠️ **A-0 的身分表不完整**：`matcher-contract-cli.test.js` 硬編 `CANON_PLAT="windows"`。~~
+> → 已修：改成預設跑**執行平台自己的** canonical（可用 `--plat` 覆寫），
+> 並在啟動時印出執行平台、Node 版本、以及 SUT／hook／snippet／module 四個 blob。
+> **所以在 Mac 上跑會自動驗 macOS 的產物**，不再與下面的 blob 表脫節。
+>
+> 其餘缺陷與進度見 [`README.md`](../README.md) 開頭的 ⛔ 與 [`docs/backlog.md`](backlog.md)。
 >
 > **這批**已經併進 `main`**。**
 >
@@ -80,24 +85,34 @@ handler 帶 `if`／`async`／`asyncRewake`；另加頂層 `disableAllHooks: true
 
 在 checkout 根目錄逐筆執行 `git hash-object <path>`，或一次跑完 §2 的 A-0。
 
-| 檔案 | blob |
-|---|---|
-| `macos/skills/超級模式/lib/gate-registration.js` | `84720e1647cbeef21e9f2e4ea948ca718a88f5cd` |
-| `macos/skills/超級模式/tests/matcher-contract.test.js` | `e4733673f5f331dc6491d7a67d08285372fe050c` |
-| `macos/settings.snippet.json` | `3dfc88fe9399b645898f22df2e93f9eae930e32d` |
-| `macos/skills/超級模式/references/orchestration.md` | `dccea98cb1fca38a3fe6e146dee7fe39c9fa340e` |
-| `macos/hooks/super-mode-consult-gate.js` | `f1781d6e59a06c78d43ae074545f08ea5f0740d3` |
-| `macos/skills/超級模式/tests/gate-cases.json` | `ded377c801cbe9de40719aa1de816b96df0c789b` |
-| `tools/probe-gate-registration.js` | `92f1b5bf0013cbf43180989828e8bcfd70cc8e78` |
-| `tests/probe-gate-registration.test.js` | `826bb4e410505436043ae416eedf828f73cf1545` |
-| `tests/gate-registration.test.js` | `b92d3ef40002c3d0f19986c4d328e9fbf3597b7c` |
-| `tests/probe-verdict-cases.test.js` | `6061eefac1de22e64cbaea329100cc29944ea9d4` |
-| `tests/matcher-contract-cli.test.js` | `f8d6f843dba2f28c6eda254bd2759b56fc0bd6eb` |
-| `tests/backup-settings.test.js` | `947ee667233cd4d412aa3f629702696f7a19cbe2` |
-| `tests/ai-install/run-posix.sh` | `d8b2af215fff89d5273947fbc24af4ade2bcc19e` |
-| `docs/AI-INSTALL.md` | `46c3cb010182b7ad7911e2b6d842254f8a860635` |
+> **⚠️ 2026-08-10：本表已隨修正批次更新。** 標 🔴 的是修正批次改動或新增的檔案；
+> 其餘沿用原值。**舊表裡 `lib/gate-registration.js` 的 `84720e16…` 已作廢**
+> （修正批次拿掉了散文裡的保留字串 `RESULT_CODE=`，見 §0b）。
 
-後三筆（`backup-settings.test.js`、`run-posix.sh`、`gate-cases.json`、hook）**本批未改動**，
+| 檔案 | blob | |
+|---|---|---|
+| `macos/skills/超級模式/lib/gate-registration.js` | `04eca6f2d9cc9aa0f9b532b2d2cf5c07eacfa8f1` | 🔴 |
+| `macos/skills/超級模式/tests/matcher-contract.test.js` | `e4733673f5f331dc6491d7a67d08285372fe050c` | |
+| `macos/settings.snippet.json` | `3dfc88fe9399b645898f22df2e93f9eae930e32d` | |
+| `macos/skills/超級模式/references/orchestration.md` | `dccea98cb1fca38a3fe6e146dee7fe39c9fa340e` | |
+| `macos/hooks/super-mode-consult-gate.js` | `f1781d6e59a06c78d43ae074545f08ea5f0740d3` | |
+| `macos/skills/超級模式/tests/gate-cases.json` | `ded377c801cbe9de40719aa1de816b96df0c789b` | |
+| `tools/probe-gate-registration.js` | `92f1b5bf0013cbf43180989828e8bcfd70cc8e78` | |
+| `tools/diagnose-readdir-errno.js` | `8ebefef6e5d3999bd38f5fdbe13c169674db9334` | 🔴 新增 |
+| `tests/probe-gate-registration.test.js` | `826bb4e410505436043ae416eedf828f73cf1545` | |
+| `tests/gate-registration.test.js` | `b92d3ef40002c3d0f19986c4d328e9fbf3597b7c` | |
+| `tests/probe-verdict-cases.test.js` | `068c9d9beb65bf7f385a301cc6bd7f82e6041323` | 🔴 |
+| `tests/matcher-contract-cli.test.js` | `94b6061b5c92e8a381e594cd24247b1e3d1ac19f` | 🔴 |
+| `tests/lib/cli-outcome.js` | `8522f8293613fc97a209e6e5d401461630b8a6f1` | 🔴 新增 |
+| `tests/lib/cli-outcome.test.js` | `b696374103ad341c16afc5552c3704740d9d02e4` | 🔴 新增 |
+| `tests/lib/verdict-manifest.js` | `8b69051b551c93bb9cd389a59cb97f84ed1a4ee4` | 🔴 新增 |
+| `tests/oracle-teeth.test.js` | `4dea8e6e11d391326f5d40b10e05028c005b19d4` | 🔴 新增 |
+| `tests/backup-settings.test.js` | `947ee667233cd4d412aa3f629702696f7a19cbe2` | |
+| `tests/ai-install/run-posix.sh` | `70562b776d6b6867dc7740abf22bb4bf9b06c584` | 🔴 |
+| `docs/AI-INSTALL.md` | `a2b3d69f676112f138e2d48deb459c80afadafc8` | |
+
+未標 🔴 的（`backup-settings.test.js`、`gate-cases.json`、hook、snippet、
+`probe-gate-registration.js` 等）**本批與修正批次都未改動**，
 列出來是為了確認你手上的樹不是別批的混合物。
 
 > ⚠️ **請用 `git clone` 取得乾淨 checkout，不要複製 Windows 工作目錄**——後者在
@@ -115,14 +130,47 @@ handler 帶 `if`／`async`／`asyncRewake`；另加頂層 `disableAllHooks: true
 | A-2 | `node tests/probe-gate-registration.test.js` | `TOTAL 68 PASS 68 FAIL 0`，exit 0 |
 | A-3 | `node tests/matcher-contract-cli.test.js` | `TOTAL 70 PASS 70 FAIL 0`，exit 0 |
 | A-3b | `node tests/probe-verdict-cases.test.js` | `TOTAL 56 PASS 56 FAIL 0`，並印出涵蓋 **12 種** RESULT_CODE |
-| A-3c | `node tests/probe-verdict-cases.test.js --baseline origin/main` | `56/56`，判定區與 baseline 相同 **45/56**，不同的 11 筆全在檔內「已知的刻意差異」清單 |
+| A-3c | `node tests/probe-verdict-cases.test.js --baseline 5da2624e5f3f103f80ecca520f8ad272d2715ef5` | `56/56`，判定區與 baseline 相同 **45/56**，不同的 11 筆全在「已知的刻意差異」清單。⚠️ **不可用 `origin/main`**（合併後它就是受測版本自己）—— 現在傳它會直接 exit 2 停手 |
 | A-4 | `node "macos/skills/超級模式/tests/matcher-contract.test.js" --repo` | exit 0、印 `PASS matcher-contract (15 個工具名…)`、`RESULT_CODE=OK`，且**印出的兩條路徑指向 checkout 內的 `macos/`** |
 | A-5 | `node "macos/skills/超級模式/tests/run-gate-tests.js"` | `PASS 117/117` |
-| A-6 | `bash tests/ai-install/run-posix.sh` | `PASS=68 FAIL=0` |
+| A-6 | `bash tests/ai-install/run-posix.sh` | `PASS=95 FAIL=0`（⚠️ 舊值 68 是 B1 之前的，已過期）|
 | A-7 | `bash "macos/skills/超級模式/tests/run-e2e.sh"` | `11 passed, 0 failed`；請回報它印的 `GATE_BLOB` |
 | A-8 | `node tests/backup-settings.test.js --strict` | `TOTAL 9 PASS 9 FAIL 0 SKIP 0`（本批未改它，這是回歸對照）|
 | A-9 | 反向驗證 probe，見 §3 | `TOTAL 68 PASS 54 FAIL 14`，且失敗清單**恰為** §3 那 14 個 |
 | A-10 | 反向驗證 matcher-contract CLI，見 §3 | `TOTAL 70 PASS 70 FAIL 0` |
+
+## 2b. 修正批次驗收表（2026-08-10 新增 —— **與上表分開填**）
+
+> **為什麼要兩張表**：B1（回滾前掃描子樹內嵌 link）與修正批次（驗證資產的假綠）
+> 是**兩批獨立的改動**，只是排在同一次 Mac session 跑完。維護者要求分開簽核，
+> 不能只收一句「全部綠」—— 那樣哪一批出問題完全看不出來。
+>
+> **跑法**：先 `git checkout 4414ae7` 填 §2 的 B1 區（A-6／M11／M12／M13），
+> 再 `git checkout <修正批次 tip>` 填本表。兩次都要用 `git clone` 的乾淨 checkout。
+>
+> ⚠️ **用系統的 `/bin/bash` 跑 `.sh`，不要讓 Homebrew 的 bash 代跑** ——
+> macOS 內建是 bash 3.2.57，Homebrew 是 5.x，語義不同；我們要驗的是使用者實際會用到的那個。
+
+| # | 指令 | 期望 |
+|---|---|---|
+| B-0 | 逐筆 `git hash-object` 核對 §1 標 🔴 的那 8 筆 | 全符。**有一筆不符就停手回報** |
+| B-1 | `node tests/lib/cli-outcome.test.js` | `TOTAL 44 PASS 44 FAIL 0` |
+| B-2 | `node tests/oracle-teeth.test.js` | `TOTAL 14  殺掉 14  漏掉 0`，且開頭印 `baseline（未變異）：PASS` |
+| B-3 | `node tests/probe-verdict-cases.test.js` | `TOTAL 56 執行 56 PASS 56 FAIL 0`，涵蓋 **12 種**且清單含 `HALT_EXEC_FORM ×5`、**不含** `UNSUPPORTED_EXEC_FORM` |
+| B-4 | `node tests/matcher-contract-cli.test.js` | `TOTAL 70 PASS 70 FAIL 0`，且開頭印 `canonical 平台：macos（與執行平台一致）` |
+| B-5 | `node tools/diagnose-readdir-errno.js` | 最後一行 `READ_DIR_CODE=EISDIR`、exit 0。**這是 F8 的唯一真證據**（見下） |
+| B-6 | `bash tests/ai-install/run-posix.sh --bogus` | exit **2**、印 `FAIL: 未知參數：--bogus`（修正前會被靜默忽略） |
+| B-7 | `bash tests/ai-install/run-posix.sh` | `PASS=95 FAIL=0`，並印出「受測文件：」與「文件 hash：」兩行 |
+| B-8 | 反向驗證 matcher（§3 的 A-10 指令） | `70/70`，且印 `✅ target blob 在已驗證清單內` |
+| B-9 | `node tests/matcher-contract-cli.test.js --target "macos/skills/超級模式/tests/matcher-contract.test.js"` | exit **2**、印「與現行受測檔是**同一個 blob**」（負向控制組：證明 guard 真的會擋） |
+
+**B-5 特別說明（F8 證據鏈）**：先前 handoff 與 README 都寫過
+「BSD 若不是 `EISDIR` 會被測試抓到」——**那是假話**。
+`tests/gate-registration.test.js` 的 `A14` 是 `probe(readErr(L_MAIN, "EISDIR"))`，
+把字串 `"EISDIR"` 當**資料**注入純函式，任何 OS 都綠、根本沒碰過檔案系統；
+`matcher-contract-cli` 的 `live-is-directory` 也只驗「讀取失敗：」**前綴**。
+所以真的 errno 只有 B-5 這支會量。Windows 與 Linux 實測都是 `EISDIR`；
+**macOS 若不是，請照實回報，不要改測試去迎合**。
 
 ## 3. 反向驗證（§2 的 A-9／A-10）
 
@@ -130,12 +178,20 @@ handler 帶 `if`／`async`／`asyncRewake`；另加頂層 `disableAllHooks: true
 clone 裡會失敗，重導向留下一個**空檔**，測試就拿著空檔照跑並回報「全部失敗」，
 看起來像大發現，其實是量測壞了。所以下面兩段都先驗 bytes 與語法。
 
+> ⚠️ **2026-08-10 訂正：下面這段原本寫 `origin/main` ＋ 固定 `/tmp/probe-old.js`
+> ＋「`wc -c` > 4000 ＋ `node --check`」守衛，三處都要改。**
+> `origin/main` 合併後就是**受測版本自己**（實測會變成 0/56 相同、45 FAIL）；
+> 而那兩道守衛對「抽到現行版」**實測全過** —— 於是反向驗證變成拿新版跟新版比，
+> 全綠看起來像大成功，實際一個舊行為都沒刻畫到。改成**釘完整 SHA ＋ literal blob**，
+> 並用 `mktemp -d`（固定 `/tmp/*.js` 會與並行的測試臺互相覆蓋）。
+
 ```bash
-# A-9：舊版 probe（本批的修正前版本）
-git show origin/main:tools/probe-gate-registration.js > /tmp/probe-old.js
-test "$(wc -c < /tmp/probe-old.js)" -gt 4000 || { echo "抽取失敗，停手"; exit 1; }
-node --check /tmp/probe-old.js || { echo "抽出來的不是可執行檔，停手"; exit 1; }
-node tests/probe-gate-registration.test.js --probe /tmp/probe-old.js
+# A-9：舊版 probe（baseline 5da2624，blob 4ac2afb5…）
+D=$(mktemp -d) || exit 1
+git show 5da2624e5f3f103f80ecca520f8ad272d2715ef5:tools/probe-gate-registration.js > "$D/probe-old.js"
+test "$(git hash-object "$D/probe-old.js")" = 4ac2afb5ca1d99dab7840e0e66804e1a5eacb446 \
+  || { echo "blob 不符，抽錯版本，停手"; exit 1; }
+node tests/probe-gate-registration.test.js --probe "$D/probe-old.js"
 ```
 
 A-9 期望失敗的**恰好**這 14 個（順序不重要，集合要相等；Windows 與 Linux 實測一致）：
@@ -161,16 +217,22 @@ integrity-lonely-probe, integrity-mirror-divergence, integrity-mirror-absent
 > 已經在上面那 14 筆失敗集合裡）。把它們列在正向對照裡是自相矛盾的。
 
 ```bash
-# A-10：舊版 matcher-contract（blob 5edaa7e）
-git show origin/main:"macos/skills/超級模式/tests/matcher-contract.test.js" > /tmp/mc-old.js
-test "$(git hash-object /tmp/mc-old.js)" = 5edaa7efe4fd3e5ebac79442c4b01d106463d4df \
+# A-10：舊版 matcher-contract（baseline 5da2624，blob 5edaa7e…）
+D=$(mktemp -d) || exit 1
+git show 5da2624e5f3f103f80ecca520f8ad272d2715ef5:"macos/skills/超級模式/tests/matcher-contract.test.js" > "$D/mc-old.js"
+test "$(git hash-object "$D/mc-old.js")" = 5edaa7efe4fd3e5ebac79442c4b01d106463d4df \
   || { echo "抽出來的不是預期的舊 blob，停手"; exit 1; }
 # ⚠️ 跑 A-9／A-10 與 A-4 之前，確認你沒有設 CLAUDE_CONFIG_DIR：
 #   echo "[$CLAUDE_CONFIG_DIR]"    # 應為 []
 # 設了它的話 probe 與 --live 會一律 fail-closed 回 CONFIG_DIR_OVERRIDE，
 # 整套看起來「有跑」卻什麼都沒量到。兩支 CLI 測試臺自己會清空它，手動指令不會。
-node tests/matcher-contract-cli.test.js --target /tmp/mc-old.js
+node tests/matcher-contract-cli.test.js --target "$D/mc-old.js"
 ```
+
+> ✅ **2026-08-10：`--target` 現在自己會擋。** 上面那道 `git hash-object` 檢查仍請保留
+> （它讓你在跑之前就知道抽錯了），但即使你忘了，測試本身也會：
+> 與現行受測檔同 blob → exit 2 停手；blob 不在已驗證白名單 → exit 2 停手。
+> 通過時會印 `✅ target blob 在已驗證清單內：…`。
 
 A-10 的每個案子都宣告了舊版的退出碼（少數另宣告必含字串或「必須噴 stack trace」），
 所以它是對舊版行為的**正面刻畫**，期望 **70/70 全數符合**。

@@ -40,19 +40,30 @@
 >
 > ## ⛔ 本批的**驗證資產**目前不可信（2026-08-09；修正批次進行中，2026-08-10 更新）
 >
-> **2026-08-10 進度：10 項必修已完成 7 項，⛔ 尚未解除。**
+> **2026-08-10 進度：10 項必修 ＋ `run-posix.sh` 那列全部完成；⛔ 仍未解除，因為 macOS 尚未驗收。**
+>
 > 已修：(1) exec form 五案改釘 `HALT_EXEC_FORM` ＋ 錨定 oracle、(2) 直方圖改統計實測值、
 > (3) matcher oracle 改精確相等＋逐 stream 掃描、(4) 標記唯一性涵蓋兩支工具、
-> (5) baseline 改完整 SHA ＋ blob 白名單 ＋ region hash ＋ orphan 檢查、
-> (8) A-0 身分缺口（改跑執行平台自己的 canonical）、(10) `oldStack` 改雙向。
+> (5) baseline 改完整 SHA ＋ blob 白名單 ＋ region hash ＋ orphan ＋ 比對 exit、
+> (6) 抽舊版一律 literal blob guard（現行版／未驗證 ref 一律 exit 2 停手）、
+> (7) F8 證據鏈 —— 新增 [`tools/diagnose-readdir-errno.js`](tools/diagnose-readdir-errno.js)
+> **真的**去讀一個目錄並印 `READ_DIR_CODE=<e.code>`、
+> (8) A-0 身分缺口（改跑執行平台自己的 canonical ＋ 印四個 blob）、
+> (9) fixture 指紋改內容雜湊、module digest 改核**值**、(10) `oldStack` 改雙向。
+>
 > 另新增共用 oracle（`tests/lib/cli-outcome.js`）、獨立 code→exit manifest、
-> 以及**變異注入 harness**（`tests/oracle-teeth.test.js`，13/13 殺掉）——
+> 以及**變異注入 harness**（`tests/oracle-teeth.test.js`，**14/14 殺掉**）——
 > 後者正是先前缺的那一塊：舊的 17/17 只證明**模組邏輯**有牙齒，沒證明 **CLI oracle** 有牙齒。
-> **未修**：(6) matcher 側的抽取 blob guard 尚未進碼、(7) F8 證據鏈與原生診斷、
-> (9) module digest 尚未核**值**；另有 `run-posix.sh` 參數解析。
-> **macOS 仍為 `pending` 且本批動過 `lib/gate-registration.js`（三鏡像）**，
-> 所以 handoff §1 的 blob 表與 A-1 結果**已回到 pending**。
-> 在修正批次收尾並完成 macOS 驗收之前，**仍不得據此做 release 或安裝背書**。
+> 新測試都已接進 [`linux.yml`](.github/workflows/linux.yml)，否則本機證據會靜默腐爛。
+>
+> ⚠️ **修正批次使本批不再是「純 Node」。** `tests/ai-install/run-posix.sh` 補了參數解析
+> （補之前 `--doc` 會被**靜默忽略**、改測分支自己的檔案，反向驗證印全綠卻什麼都沒量到）。
+> WSL2 實測：預設文件 `PASS=95 FAIL=0`；`--doc` 指向刻意改壞的文件 → `PASS=64 FAIL=31`，
+> 證明目標**真的**換掉了。這使 macOS 的驗收面比原本大，驗收項見 handoff §2b 的 B-6／B-7。
+>
+> **macOS 仍為 `pending`**：本批與修正批次都動過 `lib/gate-registration.js`（三鏡像，
+> 新 blob `04eca6f2…`），所以 A-1 結果回到 pending，handoff §1 的 blob 表**已更新**
+> 並標出 🔴 的 8 筆。在完成 macOS 驗收之前，**仍不得據此做 release 或安裝背書**。
 >
 > <details><summary>原始缺陷清單（2026-08-09 撰寫，保留以存證）</summary>
 >
@@ -112,7 +123,7 @@
 > ⚠️ **這一段是重寫過的，前兩版都不可靠。** 第一版報「47/47 逐位元相同」，但當時的比對工具把「local 檔不存在」寫成 `null`，實際寫出一個**內容為 `null`** 的檔，於是幾乎每個 fixture 都落在 `SHAPE_ERROR`——數字是真的，涵蓋的分支遠少於宣稱。第二版改用「至少 6 種 code」當自我檢查，但合併前審查指出那仍可能讓大部分案子坍縮而通過，而且工具沒進 repo、宣稱無法重現。現在改成**逐案釘死 code**並把工具提交進 CI。
 > **反向驗證（逐案核對，不只比總數）**：probe 對 `5da2624` 版 → **54 PASS／14 FAIL**，失敗的**恰好**是那 14 個；對 `5cc50e0` 的舊 heredoc → **10 PASS／51 FAIL**，與既有紀錄的 7/37 對得上（44 案的 7/37 ＋ 新案的 3/14）。`matcher-contract-cli` 對 blob `5edaa7e` → **70/70 全部符合宣告的舊行為**（每案都宣告 `oldExit`，少數另宣告 `oldWant`／`oldStack`，所以這是對舊版的**正面刻畫**而非「會失敗」）。其中三案**舊版退出碼也是 1**，只有訊息抓得到差別。
 > **非空驗證**：共用模組做了 17 個變異注入，每個都先自我檢查「注入是否成功」（錨點存在 ＋ 替換後 bytes 不同 ＋ 磁碟內容真的變了），**17/17 被恰好正確的案子抓到**，Windows 與 Linux 各跑一次。
-> **本批的暴險面**：新增與改動的都是純 Node；未動 `run-posix.sh`／`codex-check`／hook 本體，所以 BSD vs GNU 的 `sed`／`awk`／`find`／`cp` 語義差異不在本批範圍內。真正的 macOS 風險面是 `os.homedir()` 與 `readFileSync` 對目錄的錯誤碼（`EISDIR`）——handoff 有專門的診斷項。
+> **本批的暴險面**：~~新增與改動的都是純 Node；未動 `run-posix.sh`~~ —— ⚠️ **2026-08-10 訂正：修正批次動了 `tests/ai-install/run-posix.sh`（補參數解析），所以「純 Node」不再成立**，BSD vs GNU 的 shell 語義差異回到範圍內（該檔用 `mktemp`／`case`／`awk`／`sed`／`grep`）。未動 `codex-check`／hook 本體。真正的 macOS 風險面是 `os.homedir()` 與 `readFileSync` 對目錄的錯誤碼（`EISDIR`）——後者現在有專門的原生診斷 [`tools/diagnose-readdir-errno.js`](tools/diagnose-readdir-errno.js)，**這是唯一真的去讀目錄的檢查**（既有測試把 `"EISDIR"` 當字串資料注入，任何 OS 都綠）。
 >
 > **上一批 delta 的驗證分布（2026-08-09，`5cc50e0..70f305d`：A2 —— MIGRATION 的 probe 抽成 repo 腳本並 fail-closed、判定表拆 1／≥2、第 2 節改 handler 粒度、備份改用跨平台 `tools/backup-settings.js`、10 處註冊入口改成「跑 probe 照它印的判定走」）。**
 > （`70f305d` 是**最後一個動到受測檔**的 commit；其後只有補釘本行 SHA、回寫 macOS 結果、更新 backlog 這類**純文件** commit，未動任何受測檔——處理方式與 2026-08-04 那批的 `e1ec53f` 相同。受測檔的真正釘子是 handoff 的 **10 筆 blob**，可自行核對。）
