@@ -481,8 +481,16 @@ scan_no_link() { # 用途名 路徑
     exit 1
   fi
 }
-# $sbak 只在 precheck 選中它時才掃：全新安裝走 .absent 分支，$sbak 根本不存在，
-# 無條件掃會讓那條合法路徑永遠失敗。
+# ⚠️ **這道守衛的保證範圍**：它拒絕「掃描當下已存在」的內嵌 link，**不防同時修改**。
+# 兩次掃描（$sbak、live）與後續刪除之間仍有 TOCTOU 窗口：別的程序在掃完之後才把子樹換成
+# link、或把備份整個移走，這裡看不到。這是複製貼上式安裝流程的固有限制，不是本次新增的回歸。
+# 所以**不要**把它讀成「回滾已經安全了」。
+# 另外 POSIX 這側用 `find -type l`，**抓不到掛載點**（它是目錄不是 symlink）——
+# Windows 的 ReparsePoint 連 mount point 一起抓，兩邊能力並不對等。掛載點缺口見本文上方表格。
+#
+# `$sbak` 的條件呼叫是**多一層保險，不是缺一不可**：helper 自己已把「路徑不存在」視為成功
+# （`[ -e "$2" ] || return 0`），所以就算無條件呼叫一個不存在的 `$sbak` 也不會失敗。
+# 保留 `-d` 判斷只是讓意圖更明顯。（2026-08-10 合併前審查指出原註解把它說成必要條件，過強。）
 if [ -d "$sbak" ]; then scan_no_link 'skill 備份' "$sbak"; fi
 scan_no_link 'live skill' ~/.claude/skills/超級模式
 
@@ -566,8 +574,13 @@ function Assert-NoReparseUnder($name, $path) {
          Select-Object -First 1
   if ($bad) { throw "$name（$path）底下有 link／reparse point（$($bad.FullName)），狀態不明，中止（live 未變更）" }
 }
-# $sbak 只在 precheck 選中它時才掃：全新安裝走 .absent 分支，$sbak 根本不存在，
-# 無條件掃會讓那條合法路徑永遠失敗。
+# ⚠️ **這道守衛的保證範圍**：它拒絕「掃描當下已存在」的 link／reparse point，**不防同時修改**。
+# 兩次掃描與後續刪除之間仍有 TOCTOU 窗口，這是複製貼上式安裝流程的固有限制，
+# 不是本次新增的回歸。**不要**把它讀成「回滾已經安全了」。
+#
+# `$sbak` 的條件呼叫是**多一層保險，不是缺一不可**：helper 自己已把「路徑不存在」視為成功
+# （`if (-not (Get-Entry $path)) { return }`），無條件呼叫也不會失敗。
+# （2026-08-10 合併前審查指出原註解把它說成必要條件，過強。）
 if (Test-Path -LiteralPath $sbak -PathType Container) { Assert-NoReparseUnder 'skill 備份' $sbak }
 Assert-NoReparseUnder 'live skill' $skill
 

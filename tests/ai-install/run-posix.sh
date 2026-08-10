@@ -299,6 +299,44 @@ rm -rf "$H/.claude/skills/超級模式"
 run_rollback "$TS" "$H"; check '回滾仍成功' $? "$LAST_OUT"
 [ -f "$H/.claude/skills/超級模式/SKILL.md" ]; check '回滾後 live skill 已還原' $? '沒有還原'
 
+echo; echo "[M13] 列舉失敗必須在任何 mutation 之前中止（fail-closed 契約本身）"
+# M11 驗「掃到 link」、M12 驗「沒有子樹可掃」，但**掃不動**這條路徑先前只靠讀原始碼。
+# 那條才是資料安全契約：find 掃不動時若 fail-open，就會先刪 live、再從一棵沒驗證過的樹還原。
+# 2026-08-10 合併前審查點名要求補這一案（「fail-closed 核心契約沒有動態測試」）。
+#
+# ⚠️ **本測試臺沒有 SKIP 機制**，而加一個會改動結尾 `PASS=/FAIL=` 摘要行的契約
+#（交接文件與反向驗證都靠那一行）。所以 root 之下改成**硬失敗並說明原因**——
+# root 會忽略 chmod、注入無效，那時給綠燈等於宣稱驗過一條其實沒驗到的契約。
+if [ "$(id -u)" = 0 ]; then
+  check '[M13] 需以非 root 執行（root 忽略 chmod，注入無效，不能給綠燈）' 1 "uid=$(id -u)"
+else
+  for where in bak live; do
+    H=$(new_home "m13-$where"); seed "$H"
+    run "$B1B" "$H"; TS=$(get_ts "$LAST_OUT")
+    [ -n "$TS" ]; check "[$where] 前置：1b 成功並印出 ts" $? "$LAST_OUT"
+    run "$B1C" "$H"; check "[$where] 前置：1c 安裝成功" $? "$LAST_OUT"
+
+    if [ "$where" = bak ]; then ROOT="$H/.claude/skills-backup/超級模式.bak-$TS"
+    else                       ROOT="$H/.claude/skills/超級模式"; fi
+    mkdir -p "$ROOT/references/locked"
+    # 快照要在 chmod **之前**取（snap 自己也會掃不動）
+    BEFORE=$(snap "$H/.claude/skills")
+    chmod 000 "$ROOT/references/locked"
+    # 注入是否生效：以測試使用者身分 find 必須真的非零。
+    # 少了這一條，chmod 沒生效時本案會因為「回滾剛好成功」而靜默變成假通過。
+    find "$ROOT" -type l >/dev/null 2>&1; find_rc=$?
+    [ "$find_rc" -ne 0 ]; check "[$where] 前置：find 真的掃不動（注入生效）" $? "find rc=$find_rc"
+
+    run_rollback "$TS" "$H"; rc=$?
+    # 先還原權限，後面的 snap 與 cleanup 才掃得動
+    chmod 755 "$ROOT/references/locked" 2>/dev/null || true
+    [ $rc -ne 0 ]; check "[$where] 列舉失敗 → 回滾中止" $? "竟然成功：$LAST_OUT"
+    # 這條才是 B1 的重點。修正前也會非零（cp／rm 自己撞權限），但**那時 live 已經被刪了**，
+    # 所以區辨力全在這一條，不在退出碼。
+    [ "$(snap "$H/.claude/skills")" = "$BEFORE" ]; check "[$where] 中止後 live 未變" $? 'live 被動過'
+  done
+fi
+
 echo; echo "[C3] 對照組（確認上面的斷言不是永遠為真）"
 H=$(new_home c3); seed "$H"
 run "$B1B" "$H"; TS=$(get_ts "$LAST_OUT")
