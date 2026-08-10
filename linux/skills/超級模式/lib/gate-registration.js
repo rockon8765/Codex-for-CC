@@ -625,7 +625,12 @@ function renderProbe(v) {
     out.push("判定：停手 —— 上面是 exec form（handler 帶 `args`）的 gate 註冊，本工具無法判斷。請人工確認。");
     out.push("      理由：`args` 存在與否會改變 runtime 語義（直接 exec vs 經 shell），");
     out.push("      光比字串無法安全判斷兩筆註冊是不是同一筆。這裡若判「正常」或「沒有 gate」都會誤導。");
-    out.push("      matcher-contract 對同一份輸入會回報 RESULT_CODE=UNSUPPORTED_EXEC_FORM，兩邊一致。");
+    // ⚠️ 這裡**刻意不寫** `RESULT_CODE=<CODE>` 字面。那是機器介面的保留命名空間，
+    // 整份輸出只准出現一次（最後那行真標記）。散文裡寫出來的話，會被未錨定的
+    // oracle 抓成假標記 —— 2026-08-09 的靜默假綠就是這樣來的：
+    // 五個 exec form 案子釘成 UNSUPPORTED_EXEC_FORM 仍然 PASS，因為 oracle 抓到了這一行。
+    out.push("      matcher-contract 對同一份輸入也會停手，但它的 code 是 UNSUPPORTED_EXEC_FORM");
+    out.push("      （exit 1）；本工具是 HALT_EXEC_FORM（exit 3）。結論一致，code 與退出碼刻意不同。");
   } else if (v.code === "HALT_SHARED_ENTRY") {
     for (const c of v.shared) {
       out.push("  " + hatOf(c) + " 所在的 entry 底下還有 " + c.siblings + " 個非 gate 的 handler");
