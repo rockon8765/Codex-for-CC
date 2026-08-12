@@ -129,9 +129,9 @@
 > 真正會失效的情況無法可靠前置偵測 → 改由「注入自我檢查」當唯一權威，沒生效就直接 FAIL；
 > 而且自檢是送進**受測 host 的 child 行程**跑的，不是 parent。
 >
-> 實測：`pwsh` 7.6.3 與 Windows PowerShell 5.1.26100 **各 112／0 exit 0**；
-> 反向驗證對 `4a96698`（B1 之前）**各 101／11 exit 1**，兩個 host 逐條相同
-> （M11 四條 ＋ M13 四條快照 ＋ M13c 三條）。清單見
+> 實測：`pwsh` 7.6.3 與 Windows PowerShell 5.1.26100 **各 126／0 exit 0**；
+> 反向驗證對 `4a96698`（B1 之前）**各 112／14 exit 1**，兩個 host 逐條相同
+> （M11 四條 ＋ M13 四條快照 ＋ M13c 六條）。清單見
 > [`tests/ai-install/README.md`](tests/ai-install/README.md)。
 > 與 POSIX 一樣，`列舉失敗 → 回滾中止` 只看退出碼、**不具區辨力**（舊版照樣 PASS）。
 >
@@ -140,7 +140,7 @@
 > 才改 hook 與 settings ——把 hook mutation 搬到預掃前，第一版會全綠放行。已加寬成
 > 「整個假家目錄」並補上 `[M13c]` 當牙齒測試。同一輪還修掉：`[M13b]` 改鎖備份子樹
 > （不再耦合 `Remove-Item` 對部分不可存取樹的刪除語義）、注入自檢移進 child host、
-> 新增 `EXPECTED_CHECKS` 案數硬斷言（先前刪掉任一案仍會印 `PASS=111 FAIL=0` 並 exit 0）、
+> 新增 `EXPECTED_CHECKS` 案數硬斷言（先前刪掉任一案仍會印 `PASS=111 FAIL=0` 並 exit 0（當時總數 112））、
 > `Invoke-Block` 補上 host 解析與 `$LASTEXITCODE` 重設／型別檢查。
 >
 > ⚠️ **順帶修掉一個先前沒人發現的覆蓋缺口**：`run-windows.ps1 -Shell powershell`（5.1）

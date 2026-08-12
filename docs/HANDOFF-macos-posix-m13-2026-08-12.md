@@ -41,6 +41,20 @@ surviving mutant**：`run-posix.sh` 的 `[M13]` 只 `snap "$H/.claude/skills"`�
    `make_locked`／`unlock` 失敗一律 `exit 2`。
 9. 斷言名稱加 `[M13]`／`[M13b]`／`[M13c]` 前綴。
 10. `EXPECTED_CHECKS_NONROOT=125`／`EXPECTED_CHECKS_ROOT=86` 案數硬斷言。
+11. **`snap` 失敗改成「回非 0，由呼叫點硬中止」**（第二輪修）。中間版本用含 `$RANDOM` 的哨兵，
+    對 `=` 比較有效，但 M13b／M13c 的寬 oracle 是 `!=` —— 後置快照失敗反而**必定 PASS**。
+    方向性哨兵在雙向 oracle 下必然有一邊假綠；唯一正解是呼叫點檢查 rc
+    （`$( )` 裡的 `exit` 只結束 subshell）。內層 `cksum`／`readlink` 的錯誤也改成往外傳。
+12. **`unlock_tree`**：事後把**整個假 HOME** 的權限拉回可讀再快照。
+    只解鎖自己建的那一個目錄不夠 —— 回滾若真的走到 mutation（M13b 的 fail-open、
+    或反向驗證時的舊版），`cp -R` 會把 mode-000 子樹**一起複製進 live**，事後就掃不動。
+    ⚠️ **這個問題是新的 fail-closed `snap` 真的抓到的**（`bash run-posix.sh` 當場 `exit 2` 停在 M13b），
+    舊版只是靜默給了一份殘缺快照。
+13. **`bash -n` 改成 `BASH_ENV= ENV= command bash -n`**：`run()` 清的是 child 的環境，
+    管不到 harness 自己這一行；caller 的 startup 檔若定義了 `bash` 函式就會劫持它。
+    **A／B 實測**：修正前在劫持用的 `BASH_ENV` 下是 `123/2`（兩條 `bash -n` 誤紅），修正後 `125/0`。
+14. M13c 自我檢查再加兩條條件：**來源本來就在 anchor 之後**（否則產品若已經有缺陷，
+    「搬移」會變成不搬而照樣綠）、**產出確實與原檔不同**（位置條件可能在什麼都沒搬時碰巧成立）。
 
 ### ⚠️ 第 6 點會改變你熟悉的反向驗證數字（這是刻意的）
 
@@ -55,8 +69,8 @@ surviving mutant**：`run-posix.sh` 的 `[M13]` 只 `snap "$H/.claude/skills"`�
 
 | 檔案 | `git hash-object` | 備註 |
 |---|---|---|
-| `tests/ai-install/run-posix.sh` | `0ca6fa033c96018111fec0e153362f486cff7dc3` | 🔴 **你要驗的就是這個**（`637a9935…`／`a1041030…` 皆作廢）|
-| `tests/ai-install/run-windows.ps1` | `e2b69652278ee953f336d85983d944596bd9fc86` | 🔴 本批同步修，但**不需要你驗**（Windows 兩 host 已驗）|
+| `tests/ai-install/run-posix.sh` | `90ddbd109df6f8ca52f00b4c962e295b820251a6` | 🔴 **你要驗的就是這個**（`637a9935…`／`a1041030…`／`0ca6fa03…` 皆作廢）|
+| `tests/ai-install/run-windows.ps1` | `bfec1fafaf48e7108c81a50d2ed73fb0ff6b9227` | 🔴 本批同步修，但**不需要你驗**（Windows 兩 host 已驗）|
 | `tests/ai-install/run-posix-args.test.sh` | `ee8da03c7f29d16061026622220843a95523cfeb` | 未改動 |
 | `docs/AI-INSTALL.md` | `a2b3d69f676112f138e2d48deb459c80afadafc8` | **未改動** |
 
@@ -80,6 +94,7 @@ surviving mutant**：`run-posix.sh` 的 `[M13]` 只 `snap "$H/.claude/skills"`�
 | B-4 | 案數硬斷言的牙齒（見下）| 印 `PASS=124 FAIL=0` **但**多一行 `STOP 案數不符：實跑 124、預期 125`，**exit 1** |
 | B-5 | root 分支的案數（見下）| `PASS=85 FAIL=1`（合計 86）、**沒有** `STOP 案數不符`、exit 1 |
 | B-6 | `BASH_ENV` 隔離（見下）| 仍為 `PASS=125 FAIL=0`、exit 0 |
+| B-7 | `bash -n` 不被劫持（見下）| 仍為 `PASS=125 FAIL=0`、exit 0 |
 
 ### B-2 反向驗證
 
@@ -132,6 +147,18 @@ BASH_ENV="$D/env.sh" bash tests/ai-install/run-posix.sh; echo "rc=$?"
 
 ⚠️ **bash 3.2 特別值得看這一項**：`$BASH_ENV` 的載入時機在舊版可能不同。
 若它在 macOS 出現 FAIL，請貼完整清單——那代表隔離在 BSD/舊 bash 下不成立，是新資訊。
+
+### B-7 `bash -n` 不會被 `BASH_ENV` 定義的函式劫持
+
+```bash
+D=$(mktemp -d "${TMPDIR:-/tmp}/m13-hijack.XXXXXX") || exit 1
+trap 'rm -rf "$D"' EXIT
+printf '%s\n' 'bash(){ if [ "${1-}" = -n ]; then return 77; else command bash "$@"; fi; }' > "$D/env.sh"
+BASH_ENV="$D/env.sh" bash tests/ai-install/run-posix.sh; echo "rc=$?"
+```
+
+期望 **`PASS=125 FAIL=0`、exit 0**。（Linux 上修正前是 `123/2`，兩條
+`[M13c][*] 產出的區塊語法正確（bash -n）` 誤紅。）
 
 ## 3. B-2 的 18 條（釘**斷言名稱**，不要釘總數）
 

@@ -155,27 +155,41 @@ seed() { local h="$1"
 }
 # 可攜寫法：不用 GNU 的 `find -printf`，也不用 GNU coreutils 的 `md5sum`
 # （BSD/macOS 兩者皆無）。型別與相對路徑在 shell 裡算，雜湊用 POSIX 的 cksum。
+# ⚠️ **掃不動必須讓呼叫點停下來，不能靠「回一個特別的值」。**
+# 三個版本的演進，兩個都錯過：
+#   v1：`find | sort`，find 的退出碼被 sort 蓋掉、stderr 又被吞掉 →
+#       兩次都掃不動時兩份殘缺快照會「相等」，「未變」斷言假通過。
+#   v2：失敗回一個含 `$RANDOM` 的哨兵，想讓比較永遠不成立 —— **對 `=` 有效，對 `!=` 反而必定成立**。
+#       M13b／M13c 的寬 oracle 正是 `!=`，於是「後置快照失敗」會被讀成「有變」而 PASS。
+#       （合併前 Codex 審查抓到；方向性哨兵在雙向 oracle 下必然有一邊假綠。）
+#   v3（現行）：**回非 0 退出碼，由呼叫點 `|| die_snap` 硬中止。**
+# ⚠️ 命令替換 `$(snap …)` 裡的 `exit` 只會結束 subshell，所以**每個呼叫點都必須自己檢查 rc**
+# ——這不是可以靠 helper 內部解決的事。
 snap() {
   [ -e "$1" ] || { echo '<none>'; return 0; }
   local raw
-  # ⚠️ **掃不動必須是明確失敗，不能靜默給出殘缺快照。** 舊寫法把 find 接進 pipe，
-  # find 的退出碼被 sort 蓋掉、stderr 又被吞掉 —— 兩次都掃不動時兩份殘缺快照會「相等」，
-  # 於是「未變」斷言假通過。這裡改成先收集、檢查退出碼，失敗就回一個**永遠不會相等**的
-  # 哨兵（含 $RANDOM），讓任何涉及失敗快照的比較都不可能通過（fail-closed）。
+  # 內層的錯誤也要往外傳：`$(cksum …)` 失敗時替換結果是空字串而 printf 仍成功，
+  # 於是一筆殘缺紀錄會混進正常輸出。改成先取值、驗非空，失敗就讓 sh -c 非 0（find 跟著非 0）。
   if ! raw=$(find "$1" \( -type f -o -type d -o -type l \) -exec sh -c '
     root="$1"; shift
     for p in "$@"; do
       rel=${p#"$root"}; rel=${rel#/}
-      if [ -L "$p" ]; then printf "l|%s|%s\n" "$rel" "$(readlink "$p")"
-      elif [ -f "$p" ]; then printf "f|%s|%s\n" "$rel" "$(cksum < "$p" | cut -d" " -f1)"
+      if [ -L "$p" ]; then
+        tgt=$(readlink "$p") || exit 1
+        printf "l|%s|%s\n" "$rel" "$tgt"
+      elif [ -f "$p" ]; then
+        ck=$(cksum < "$p" | cut -d" " -f1) || exit 1
+        [ -n "$ck" ] || exit 1
+        printf "f|%s|%s\n" "$rel" "$ck"
       else printf "d|%s|-\n" "$rel"
       fi
     done' _ "$1" {} + 2>/dev/null); then
-    echo "SNAP-FAILED|$1|$RANDOM$RANDOM"
     return 1
   fi
   printf '%s\n' "$raw" | sort
 }
+# 呼叫點的統一中止：oracle 觀測不到就不能繼續，也不能把它編成資料值。
+die_snap() { echo "snap 失敗（掃不動）：$1 —— oracle 無法觀測，中止" >&2; exit 2; }
 get_ts() { echo "$1" | sed -n 's/.*backup ts=\([0-9]\{8\}-[0-9]\{6\}\).*/\1/p' | head -1; }
 
 echo; echo "[C1] 既有安裝 -> 安裝 -> 回滾（含冪等）"
@@ -444,9 +458,15 @@ lock_and_verify() { # root locked-dir label
   [ "$pre" -eq 0 ] && [ "$post" -ne 0 ]
   check "$3 前置：chmod 前掃得動、chmod 後掃不動（注入生效）" $? "pre=$pre post=$post（pre 非 0＝路徑就錯了，post 為 0＝chmod 沒咬到）"
 }
-# ⚠️ 不可以 `|| true`。解鎖失敗的話後面的 snap 會掃不動 —— 在 snap 改成 fail-closed 之後
-# 那會變成一連串莫名其妙的紅，不如在這裡就講清楚原因。
-unlock() { chmod 755 "$1" || { echo "unlock 失敗（後續快照會不完整）：$1" >&2; exit 2; }; }
+# ⚠️ 事後要解的**不只是我們鎖的那一個目錄**。
+# 回滾若真的走到 mutation（M13b 的 fail-open、或反向驗證時的舊版文件），
+# `cp -R` 會把 mode-000 的子樹**一起複製進 live** —— 於是事後快照掃不動。
+# 那不是 oracle 失效，是測試自己造出來的殘留；但在 snap 改成 fail-closed 之後它會讓整批中止。
+#（第一版只解鎖自己建的那個目錄，`bash run-posix.sh` 立刻 `exit 2` 停在 M13b —— 這個問題
+#  是新的 fail-closed snap **真的抓到**的，舊版只是靜默給了一份殘缺快照。）
+# snap 不記 mode，所以把權限拉回可讀不影響比對內容。
+# 不可以 `|| true`：拉不回來就代表後面的快照不可信，該明確中止。
+unlock_tree() { chmod -R u+rwX "$1" || { echo "unlock_tree 失敗（後續快照會不完整）：$1" >&2; exit 2; }; }
 
 # 模擬安裝步驟 2 把 hook 條目合併進 settings。
 # ⚠️ **沒有這一步，settings 型的違規在 M13 是看不見的。**
@@ -473,20 +493,23 @@ else
 
     if [ "$where" = bak ]; then ROOT="$H/.claude/skills-backup/超級模式.bak-$TS"
     else                       ROOT="$H/.claude/skills/超級模式"; fi
-    LOCKED=$(make_locked "$ROOT")
+    # `$(…)` 裡的 exit 只結束 subshell，所以 make_locked 的 exit 2 必須在這裡接住
+    LOCKED=$(make_locked "$ROOT") || exit 2
     # 兩份快照都要在 chmod **之前**取（snap 自己也會掃不動）
-    BEFORE_SKILLS=$(snap "$H/.claude/skills")
-    BEFORE_HOME=$(snap "$H")
+    BEFORE_SKILLS=$(snap "$H/.claude/skills") || die_snap "$H/.claude/skills"
+    BEFORE_HOME=$(snap "$H") || die_snap "$H"
     lock_and_verify "$ROOT" "$LOCKED" "[M13][$where]"
 
     run_rollback "$TS" "$H"; rc=$?
-    unlock "$LOCKED"   # 先還原權限，後面的 snap 與 cleanup 才掃得動
+    unlock_tree "$H"   # 先把整個假 HOME 的權限拉回可讀，後面的 snap 與 cleanup 才掃得動
     [ $rc -ne 0 ]; check "[M13][$where] 列舉失敗 → 回滾中止" $? "竟然成功：$LAST_OUT"
     # 這條才是 B1 的重點。修正前也會非零（cp／rm 自己撞權限），但**那時 live 已經被刪了**，
     # 所以區辨力全在快照那兩條，不在退出碼。
-    [ "$(snap "$H/.claude/skills")" = "$BEFORE_SKILLS" ]; check "[M13][$where] 中止後 live 未變" $? 'live 被動過'
+    AFTER_SKILLS=$(snap "$H/.claude/skills") || die_snap "$H/.claude/skills"
+    AFTER_HOME=$(snap "$H") || die_snap "$H"
+    [ "$AFTER_SKILLS" = "$BEFORE_SKILLS" ]; check "[M13][$where] 中止後 live 未變" $? 'live 被動過'
     # 契約講的是「**任何** mutation」——hook 與 settings 也在內。
-    [ "$(snap "$H")" = "$BEFORE_HOME" ]; check "[M13][$where] 中止後整個假 HOME 未變（hook／settings 也在內）" $? '假 HOME 有東西被動過（skills 之外也要看）'
+    [ "$AFTER_HOME" = "$BEFORE_HOME" ]; check "[M13][$where] 中止後整個假 HOME 未變（hook／settings 也在內）" $? '假 HOME 有東西被動過（skills 之外也要看）'
   done
 
   echo; echo "[M13b] 變異注入：把掃描失敗吞掉之後，保護必須消失"
@@ -516,14 +539,16 @@ else
   # 鎖**備份**子樹而不是 live：fail-open 之後第一個 mutation 是 `rm -rf` 一棵**完全可讀**的
   # live，訊號穩定；鎖 live 的話就得依賴「rm 對部分不可讀的樹刪掉一些才失敗」這種實作語義。
   M13B_ROOT="$H/.claude/skills-backup/超級模式.bak-$TS"
-  M13B_LOCKED=$(make_locked "$M13B_ROOT")
-  BEFORE_SKILLS=$(snap "$H/.claude/skills")
+  M13B_LOCKED=$(make_locked "$M13B_ROOT") || exit 2
+  BEFORE_SKILLS=$(snap "$H/.claude/skills") || die_snap "$H/.claude/skills"
   lock_and_verify "$M13B_ROOT" "$M13B_LOCKED" '[M13b]'
   run_rollback_file "$WORK/rb-m13b.sh" "$TS" "$H"; rc=$?
-  unlock "$M13B_LOCKED"
+  unlock_tree "$H"
   # 只釘「live 被動過」：那正是 M13 主斷言的否命題。不額外釘退出碼——
   # 錯誤是否終止會隨 userland 而異，釘了只會製造平台雜訊。
-  [ "$(snap "$H/.claude/skills")" != "$BEFORE_SKILLS" ]
+  # ⚠️ 這是 `!=` oracle：**後置快照失敗會讓它自然 PASS**，所以 rc 一定要先接住（見 snap 註解）。
+  AFTER_SKILLS=$(snap "$H/.claude/skills") || die_snap "$H/.claude/skills"
+  [ "$AFTER_SKILLS" != "$BEFORE_SKILLS" ]
   check '[M13b] 吞掉掃描失敗後 live 確實被動過（保護來自那一行）' $? "live 未變（回滾 rc=$rc）：本案已失去意義，M13 的區辨力來源需重新確認"
 
   echo; echo "[M13c] 變異注入：把預掃**後**的還原步驟原樣搬到預掃之前（證明 oracle 夠寬）"
@@ -555,10 +580,12 @@ else
     # anchor 必須真的是**第一個** scan_no_link 呼叫（定義行是 `scan_no_link() {`，不含空格，抓不到）
     firstscan=$(grep -n 'scan_no_link ' "$BRB" | head -1 | cut -d: -f1)
     an=$(grep -nxF "$M13C_ANCHOR" "$BRB" | head -1 | cut -d: -f1)
+    # ⚠️ 還要驗**來源本來就在 anchor 之後**。少了這一條，若產品哪天把還原挪到預掃前
+    #（也就是缺陷已經存在於產品裡），這個「搬移」會變成不搬 —— 測試照樣綠，卻什麼都沒證明。
     [ "$c1" -eq 1 ] && [ "$c2" -eq 1 ] && [ "$ca" -eq 1 ] \
       && [ -n "$l1n" ] && [ -n "$l2n" ] && [ "$l2n" -eq "$((l1n+1))" ] \
-      && [ -n "$an" ] && [ "$firstscan" = "$an" ]
-    check "[M13c][$target] 來源錨點：三串各唯一、兩行相鄰、anchor 是第一個 scan_no_link" $? \
+      && [ -n "$an" ] && [ "$firstscan" = "$an" ] && [ "$l1n" -gt "$an" ]
+    check "[M13c][$target] 來源錨點：三串各唯一、兩行相鄰、anchor 是第一個 scan_no_link、且來源在 anchor 之後" $? \
       "c1=$c1 c2=$c2 anchor=$ca l1=${l1n:-無} l2=${l2n:-無} first_scan=${firstscan:-無} anchor_ln=${an:-無}（舊版沒有預掃，anchor 會是 0）"
 
     awk -v l1="$L1" -v l2="$L2" -v a="$M13C_ANCHOR" '
@@ -573,13 +600,18 @@ else
     m1=$(grep -nxF "$L1" "$MUT" | head -1 | cut -d: -f1)
     m2=$(grep -nxF "$L2" "$MUT" | head -1 | cut -d: -f1)
     ma=$(grep -nxF "$M13C_ANCHOR" "$MUT" | head -1 | cut -d: -f1)
-    [ "$la" -eq "$lb" ] && [ "$n1" -eq 1 ] && [ "$n2" -eq 1 ] \
+    # 還要驗**產出與原檔真的不同**：所有位置條件都可能在「什麼都沒搬」時碰巧成立。
+    { [ "$la" -eq "$lb" ] && [ "$n1" -eq 1 ] && [ "$n2" -eq 1 ] \
       && [ -n "$m1" ] && [ -n "$m2" ] && [ -n "$ma" ] \
-      && [ "$m2" -eq "$((m1+1))" ] && [ "$ma" -eq "$((m2+1))" ]
-    check "[M13c][$target] 產出：行數不變、各恰一份、兩行相鄰且緊貼 anchor" $? \
+      && [ "$m2" -eq "$((m1+1))" ] && [ "$ma" -eq "$((m2+1))" ] \
+      && ! cmp -s "$BRB" "$MUT"; }
+    check "[M13c][$target] 產出：行數不變、各恰一份、兩行相鄰且緊貼 anchor、且確實與原檔不同" $? \
       "lines=$la/$lb n1=$n1 n2=$n2 l1=${m1:-無} l2=${m2:-無} anchor=${ma:-無}"
     # 語法檢查是上面那條的**獨立**保險：相鄰性驗的是位置，`bash -n` 驗的是「這東西還能不能跑」。
-    bash -n "$MUT" 2>/dev/null
+    # ⚠️ 這一行也要清 `BASH_ENV`／`ENV` 並用 `command`：本 harness 自己是被 caller 的環境啟動的，
+    # 若 caller 的 startup 檔定義了一個 `bash` 函式，這裡的 `bash -n` 會被劫持而誤紅
+    #（`run()` 清的是 child 的環境，管不到這一行 —— 合併前 Codex 審查給了可復現的例子）。
+    BASH_ENV= ENV= command bash -n "$MUT" 2>/dev/null
     check "[M13c][$target] 產出的區塊語法正確（bash -n）" $? '變異產出語法錯誤 —— 執行時可能先 exit 而讓後面三條假綠'
 
     H=$(new_home "m13c-$target"); seed "$H"
@@ -588,12 +620,12 @@ else
     run "$B1C" "$H"; check "[M13c][$target] 前置：1c 安裝成功" $? "$LAST_OUT"
     simulate_step2 "$H" "$TS" "[M13c][$target]"
     M13C_ROOT="$H/.claude/skills-backup/超級模式.bak-$TS"
-    M13C_LOCKED=$(make_locked "$M13C_ROOT")
-    BEFORE_SKILLS=$(snap "$H/.claude/skills")
-    BEFORE_HOME=$(snap "$H")
+    M13C_LOCKED=$(make_locked "$M13C_ROOT") || exit 2
+    BEFORE_SKILLS=$(snap "$H/.claude/skills") || die_snap "$H/.claude/skills"
+    BEFORE_HOME=$(snap "$H") || die_snap "$H"
     lock_and_verify "$M13C_ROOT" "$M13C_LOCKED" "[M13c][$target]"
     run_rollback_file "$MUT" "$TS" "$H"; rc=$?
-    unlock "$M13C_LOCKED"
+    unlock_tree "$H"
     # 非零還不夠，要確認非零**來自 locked scan**：語法錯誤、佔位符沒替換等都會非零。
     # 這裡釘的是**產品自己的**訊息（不是 OS／host 的訊息），所以與 Windows 側「不釘訊息」
     # 的取捨並不衝突 —— 產品訊息改了本來就該讓測試紅。
@@ -601,9 +633,12 @@ else
     check "[M13c][$target] 回滾仍中止，且中止原因是掃描失敗" $? "rc=$rc；輸出：$LAST_OUT"
     # 這兩條要一起看才有意義：前者證明**缺口真實存在**（只看 skills 會放行違規），
     # 後者證明**加寬確實抓得到**。少了前者，讀者無從判斷加寬買到了什麼。
-    [ "$(snap "$H/.claude/skills")" = "$BEFORE_SKILLS" ]
+    # ⚠️ 後者是 `!=` oracle：快照失敗會讓它自然 PASS，所以兩份都先接住 rc（見 snap 註解）。
+    AFTER_SKILLS=$(snap "$H/.claude/skills") || die_snap "$H/.claude/skills"
+    AFTER_HOME=$(snap "$H") || die_snap "$H"
+    [ "$AFTER_SKILLS" = "$BEFORE_SKILLS" ]
     check "[M13c][$target] 窄 oracle（只看 skills）看不到這個違規" $? 'skills 也變了，本案已無法示範窄 oracle 的盲點'
-    [ "$(snap "$H")" != "$BEFORE_HOME" ]
+    [ "$AFTER_HOME" != "$BEFORE_HOME" ]
     check "[M13c][$target] 寬 oracle（整個假 HOME）抓到預掃前的 mutation" $? '寬 oracle 也沒抓到 —— 搬移沒生效或加寬無效'
   done
 fi

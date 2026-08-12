@@ -544,20 +544,23 @@ foreach ($tgt in @(
   #（定義行是 `function Assert-NoReparseUnder($name, $path) {`，沒有空格，抓不到）
   $iFirstScan = -1
   for ($k = 0; $k -lt $brbLines.Count; $k++) { if ($brbLines[$k] -clike '*Assert-NoReparseUnder *') { $iFirstScan = $k; break } }
-  Check "[M13c][$($tgt.n)] 來源錨點：三串各唯一、兩行相鄰、anchor 是第一個 Assert-NoReparseUnder" `
-    (($c1 -eq 1) -and ($c2 -eq 1) -and ($ca -eq 1) -and ($i2 -eq $i1 + 1) -and ($ia -ge 0) -and ($iFirstScan -eq $ia)) `
+  # ⚠️ 還要驗**來源本來就在 anchor 之後**。少了這一條，若產品哪天把還原挪到預掃前
+  #（也就是缺陷已經存在於產品裡），這個「搬移」會變成不搬 —— 測試照樣綠，卻什麼都沒證明。
+  Check "[M13c][$($tgt.n)] 來源錨點：三串各唯一、兩行相鄰、anchor 是第一個 Assert-NoReparseUnder、且來源在 anchor 之後" `
+    (($c1 -eq 1) -and ($c2 -eq 1) -and ($ca -eq 1) -and ($i2 -eq $i1 + 1) -and ($ia -ge 0) -and ($iFirstScan -eq $ia) -and ($i1 -gt $ia)) `
     "c1=$c1 c2=$c2 anchor=$ca i1=$i1 i2=$i2 firstScan=$iFirstScan anchorIdx=$ia（舊版文件沒有預掃，anchor 會是 0）"
 
   $mutLines = Move-TwoLinesBefore $brbLines $tgt.l1 $tgt.l2 $m13cAnchor
   $m1 = Get-ExactLineIndex $mutLines $tgt.l1
   $m2 = Get-ExactLineIndex $mutLines $tgt.l2
   $ma = Get-ExactLineIndex $mutLines $m13cAnchor
-  Check "[M13c][$($tgt.n)] 產出：行數不變、各恰一份、兩行相鄰且緊貼 anchor" `
-    (($mutLines.Count -eq $brbLines.Count) -and ((Get-ExactLineCount $mutLines $tgt.l1) -eq 1) -and `
-     ((Get-ExactLineCount $mutLines $tgt.l2) -eq 1) -and ($m1 -ge 0) -and ($m2 -eq $m1 + 1) -and ($ma -eq $m2 + 1)) `
-    "lines=$($brbLines.Count)/$($mutLines.Count) l1=$m1 l2=$m2 anchor=$ma"
-
   $m13cMut = $mutLines -join "`n"
+  # 還要驗**產出與原檔真的不同**：所有位置條件都可能在「什麼都沒搬」時碰巧成立。
+  Check "[M13c][$($tgt.n)] 產出：行數不變、各恰一份、兩行相鄰且緊貼 anchor、且確實與原檔不同" `
+    (($mutLines.Count -eq $brbLines.Count) -and ((Get-ExactLineCount $mutLines $tgt.l1) -eq 1) -and `
+     ((Get-ExactLineCount $mutLines $tgt.l2) -eq 1) -and ($m1 -ge 0) -and ($m2 -eq $m1 + 1) -and ($ma -eq $m2 + 1) -and `
+     ($m13cMut -cne $Brb)) `
+    "lines=$($brbLines.Count)/$($mutLines.Count) l1=$m1 l2=$m2 anchor=$ma"
   # 解析檢查是上一條的**獨立**保險：相鄰性驗位置，解析驗「這東西還能不能跑」。
   $parseOk = $true; $parseErr = ''
   try { $null = [scriptblock]::Create($m13cMut) } catch { $parseOk = $false; $parseErr = $_.Exception.Message }
