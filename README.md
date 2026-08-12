@@ -113,12 +113,28 @@
 > 已改為在套用預設值**之前**捕捉 `DOC_ENV_SET`／`DOC_ENV_VALUE`，完全不做值推論；
 > 測試補到 13 案（含「兩來源同值必須放行」的正向案）。
 >
+> ✅ **Windows 側的 M13 已補（2026-08-12，單獨一批）。**
+> 先前只有 `$ErrorActionPreference = 'Stop'` 的**靜態推論**，現在有動態測試：
+> 注入手法是**對自己下 Deny ACE**（POSIX 側是 `chmod 000`）——目錄擁有者即使沒有
+> 管理員權限也隱含保有 `WRITE_DAC`，所以不需要提權。`[M13]` 兩變體（備份子樹／live 子樹）
+> ＋ `[M13b]`（把 `Stop` 改成 `Continue`，證明**保護就是來自那一行**）共 **+16 案**。
+> **不照抄 POSIX 的 root 前置守衛**：Deny ACE 優先於 Allow，提權不會讓注入失效，
+> 真正會失效的情況無法可靠前置偵測 → 改由「注入自我檢查」當唯一權威，沒生效就直接 FAIL。
+>
+> 實測：`pwsh` 7.6.3 與 Windows PowerShell 5.1.26100 **各 102／0 exit 0**；
+> 反向驗證對 `4a96698`（B1 之前）**各 96／6 exit 1**，失敗的恰好是 M11 四條
+> ＋ `[M13][備份子樹]／[live 子樹] 中止後 live 未變` 兩條，兩個 host 逐條相同。
+> 與 POSIX 一樣，`列舉失敗 → 回滾中止` 只看退出碼、**不具區辨力**（舊版照樣 PASS）。
+>
+> ⚠️ **順帶修掉一個先前沒人發現的覆蓋缺口**：`run-windows.ps1 -Shell powershell`（5.1）
+> 一直**跑不完**——5.1 把 native command 的 stderr 包成 `NativeCommandError` ErrorRecord，
+> 撞上檔案開頭的 `Stop` 就整個中止，實測連未改動的 `ad8ff12` 也停在 `[M1]` 第一個「被拒」案。
+> 也就是說在此之前 Windows 側**實際只有 pwsh 一個 host 有覆蓋**，而 5.1 才是本 repo 記載的
+> hook 執行環境。已在 `Invoke-Block` 內以函式作用域降級為 `Continue` 修掉。
+>
 > ⚠️ **仍未做**（據實列，不含糊）：
-> - **Windows 側的 M13**（列舉失敗 → 在任何 mutation 之前中止 → live 未變）
->   **沒有動態測試**，只有 `$ErrorActionPreference='Stop'` 的靜態推論。
->   POSIX 側有 M13 動態案，Windows 側沒有對應物。這是**先前就存在的缺口**，
->   不是本批引入，但它涵蓋的是**遞迴刪除**路徑，值得單獨排一批。
-> - Windows 與 macOS 皆**無 CI**，仍靠人工原生驗證。
+> - Windows 與 macOS 皆**無 CI**，仍靠人工原生驗證；`run-windows.ps1` 的 102 案
+>   （含新增的 M13）遠端沒有任何 gate 會攔，改壞了不會有人被擋下來。
 >
 > ✅ **訂正一個我自己寫錯的範圍宣稱**：先前這裡寫「`tests/ai-install/` 的完整測試臺仍不在 CI 內，
 > 只有參數解析進去了」——**不準確**。[`run-posix-args.test.sh`](tests/ai-install/run-posix-args.test.sh)

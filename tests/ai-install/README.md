@@ -20,6 +20,15 @@ bash tests/ai-install/run-posix.sh
 
 兩者都在**全部通過時 exit 0**，任何一案失敗即 exit 1。
 
+⚠️ **`-Shell powershell`（5.1）先前跑不完，2026-08-12 才修好。**
+5.1 會把 native command 寫到 stderr 的輸出包成 `NativeCommandError` 的 ErrorRecord，
+撞上本檔開頭的 `$ErrorActionPreference = 'Stop'` 就讓**整個測試臺**當場中止（7.x 不會）。
+實測連未改動的 `ad8ff12` 也一樣：一路綠到 `[M1]` 第一個「被拒」案就停，
+因為那是第一個會寫 stderr 的子行程。**所以在那之前，Windows 側實際只有 pwsh 一個 host 有覆蓋**
+——README 宣傳兩種跑法，但第二種跑不完。已在 `Invoke-Block` 內以**函式作用域**
+降級為 `Continue` 修掉（離開函式自動還原，其餘斷言的 Stop 語義不變）；
+子行程的成敗本來就一律以 `$LASTEXITCODE` 判斷，不該由 host 的錯誤串流決定。
+
 指定別的文件版本（用途見下方「反向驗證」）：
 - Windows：`-Doc <path>`
 - POSIX：`--doc <path>`，或環境變數 `DOC=<path>`
@@ -42,6 +51,35 @@ bash tests/ai-install/run-posix.sh
 
 **每個注入點都有自我檢查**：注入用的錨點字串若因文件改寫而失效，該案會明確 FAIL
 （`變異確實注入（否則本案等於沒測）`），不會靜默變成假通過。
+
+### Windows 的 `[M13]`：怎麼讓列舉**真的**失敗（2026-08-12）
+
+「列舉失敗必須在任何 mutation 之前中止」是回滾的**資料安全契約**：掃不動時若 fail-open，
+就會先刪 live、再從一棵沒驗證過的樹還原。POSIX 側 2026-08-10 就有動態案（`chmod 000`），
+Windows 側在那之前只有 `$ErrorActionPreference = 'Stop'` 的**靜態推論**。
+
+注入手法是**對自己下 Deny ACE**：目錄的擁有者即使沒有管理員權限也隱含保有 `WRITE_DAC`，
+所以「拒絕自己 `ListDirectory`」以及事後把它拿掉都做得到，不需要提權。實測本機 non-elevated，
+`pwsh 7.6.3` 與 `Windows PowerShell 5.1.26100` 都拋 `UnauthorizedAccessException`；
+**同一段拿掉 `Stop` 則只記 1 筆非終止錯誤、列舉「完成」**——那正是 fail-open 的樣子。
+
+⚠️ **不要照抄 POSIX 的 root 前置守衛。** 那邊必須先擋 root，是因為 root 會忽略權限位元、
+讓 `chmod 000` 整個失效；Windows 這邊 Deny ACE 在存取檢查裡優先於 Allow，
+提權本身並不會讓注入失效（`Get-ChildItem` 不會去用 `SeBackupPrivilege`）。
+真正會讓它失效的是「檔案系統不支援 ACL」「行程啟用了備份權限」這類情況，
+而那些**無法可靠地前置偵測**——所以改由「注入自我檢查」當唯一權威：
+注入沒生效就直接 FAIL，不給綠燈、也不靜默跳過（本測試臺沒有 SKIP 機制，
+加一個會改動結尾 `PASS=`／`FAIL=` 摘要行的契約，而交接文件與反向驗證都靠那一行）。
+
+`[M13b]` 另外證明**是哪一行讓它 fail-closed**：把區塊開頭的 `Stop` 改成 `Continue`、
+其餘完全不動，`[M13b] 拿掉 Stop 後 live 確實被動過` 必須成立。
+沒有這一案，日後有人刪掉那行時只會知道 `[M13]` 紅了，不會知道紅在哪裡。
+
+⚠️ 錨點必須**行首錨定**：區塊裡有一句註解也含 `$ErrorActionPreference = 'Stop'` 這個字面，
+`String.Replace` 會連註解一起改掉，就不是「其餘完全不動」的單點變異了。
+這與 2026-08-10 那批「散文裡的 `RESULT_CODE=` 被未錨定 oracle 抓走」是同一形狀，
+而且是**自我檢查先紅才發現的**，不是事先想到的。所以 `[M13b]` 除了驗錨點唯一＋位在 index 0，
+還用 `Compare-Object` 驗「變異只動一行」（差異行數必須恰為 2，一去一回）。
 
 ## 反向驗證（改動守衛後務必做）
 
@@ -86,6 +124,28 @@ macOS 的同機 A／B 已證實這一點。
 M11 四條（`[bak]`／`[live]` 各「回滾中止」＋「被拒後 live 未變」）
 ＋ M13 的「中止後 live 未變」（`[bak]`／`[live]`）必須 FAIL；
 `[live] 列舉失敗 → 回滾中止` 是否 FAIL **依平台而定，不列入判準**。
+
+### Windows 側對 `4a96698`（B1 之前）的反向驗證實測（2026-08-12）
+
+| host | 現行文件 | `4a96698` |
+|---|---|---|
+| `pwsh` 7.6.3 | **102 PASS／0 FAIL** exit 0 | **96／6** exit 1 |
+| Windows PowerShell 5.1.26100 | **102 PASS／0 FAIL** exit 0 | **96／6** exit 1 |
+
+失敗的**恰好**是這六條，兩個 host 逐條相同：
+
+- `[備份子樹] 回滾中止`、`[備份子樹] 被拒後 live 未變`
+- `[live 子樹] 回滾中止`、`[live 子樹] 被拒後 live 未變`　←（以上四條為 M11，本來就有）
+- `[M13][備份子樹] 中止後 live 未變`、`[M13][live 子樹] 中止後 live 未變`　←（M13 新增的兩條）
+
+⚠️ **`[M13][…] 列舉失敗 → 回滾中止` 在舊版照樣 PASS**——舊版沒有預掃，
+`Remove-Item`／`Copy-Item` 自己撞權限一樣會非零。這與 POSIX 側的結論一致：
+**區辨力全在「中止後 live 未變」，不在退出碼**。加 M13 之前的基準是 `86／0` 與 `82／4`，
+所以這一批的 delta 是「+16 案、反向驗證 +2 條該紅的」。
+
+Windows 的 M13 斷言名稱一律帶 `[M13]` 前綴：M11 也用 `[備份子樹]`／`[live 子樹]`，
+不加前綴的話「前置：1b 成功並印出 ts」等名稱會在兩個區塊裡重複，就沒辦法逐條核對
+（POSIX 側目前是靠散文加前綴，字串本身仍會重複）。
 
 ## 已知界線
 

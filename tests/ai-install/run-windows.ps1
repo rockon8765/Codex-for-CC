@@ -41,6 +41,15 @@ function Invoke-Block($code, $fakeHome) {
   [IO.File]::WriteAllText($f, $code, (New-Object Text.UTF8Encoding $true))
   $prev = $env:USERPROFILE
   $env:USERPROFILE = $fakeHome
+  # ⚠️ **Windows PowerShell 5.1 專屬**：native command 寫 stderr 時，5.1 會把它包成
+  # `NativeCommandError` 的 ErrorRecord；撞上本檔開頭的 `$ErrorActionPreference = 'Stop'`
+  # 就會讓**整個測試臺**當場中止。7.x 不會。實測（HEAD ad8ff12、未含 M13 的版本亦同）：
+  # `-Shell powershell` 一路綠到 `[M2]` 之前，然後停在 M1 第一個「被拒」案 ——
+  # 那是第一個會寫 stderr 的子行程。也就是說 README 宣傳的 5.1 跑法先前**跑不完**，
+  # Windows 側實際只有 pwsh 一個 host 有覆蓋。
+  # 這裡只在**函式作用域**內降級（離開函式自動還原，不影響其他斷言的 Stop 語義）：
+  # 子行程的成敗一律以 `$LASTEXITCODE` 判斷，本來就不該由 host 的錯誤串流決定。
+  $ErrorActionPreference = 'Continue'
   try {
     $out = & $exe -NoProfile -NonInteractive -File $f 2>&1 | Out-String
     $rc = $LASTEXITCODE
