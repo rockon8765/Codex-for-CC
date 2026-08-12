@@ -153,13 +153,16 @@
 > - Windows 與 macOS 皆**無 CI**，仍靠人工原生驗證；`run-windows.ps1` 的 126 案
 >   （含新增的 M13）遠端沒有任何 gate 會攔，改壞了不會有人被擋下來。
 > - ~~🔴 **POSIX 側的 `[M13]` 有與 Windows 完全同型的窄 oracle**~~
->   **✅ 2026-08-12 已修（Linux 實測），macOS 🔴 PENDING** ——
+>   **✅ 2026-08-12 已修，2026-08-13 macOS 原生驗證完成（B-0…B-7 全綠）** ——
 >   `[M13]` 加寬到整個假 HOME、新增 `[M13b]`／`[M13c]`、注入自我檢查改成前後對照、
->   補 `EXPECTED_CHECKS`。Linux **125／0**、反向驗證 **107／18**。
+>   補 `EXPECTED_CHECKS`。**Linux 與 macOS（26.6.1 arm64、系統 bash 3.2.57）皆 125／0、
+>   反向驗證皆 107／18，18 條逐條相同。**
 >   `[M13c]` 對 **hook 與 settings 兩個目標**各做一次「原樣搬移」，
 >   「窄 oracle 看不到 ＋ 寬 oracle 抓得到」四條全 PASS，**缺口與修法都被實證**。
 >   同日 Windows 側補上同樣的 fixture 修正（**126／0**、反向 **112／14**，兩 host 逐條相同）。
->   macOS 驗收單見
+>   ✅ **順帶消除了記載已久的平台差異**：2026-08-10 的 `Linux 88/7 vs macOS 89/6`
+>   根因是被鎖目錄是空的（GNU 能 `rmdir`、BSD 不能），放進檔案後兩平台**完全一致**。
+>   驗收單與完整結果見
 >   [`docs/HANDOFF-macos-posix-m13-2026-08-12.md`](docs/HANDOFF-macos-posix-m13-2026-08-12.md)。
 > - 🔴 **1b 有同型的靜態依賴未測**（Codex 指出）：1b 的 link 掃描與 `Get-TreeFingerprint`
 >   同樣依賴區塊開頭的 `Stop`，若列舉 fail-open 可能留下部分備份卻仍印 `backup ts=`
