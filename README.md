@@ -76,7 +76,7 @@
 > 續用成立，不需重跑。
 >
 > ⚠️ **這段的 `run-posix.sh` 結果（blob `637a9935…`、`PASS=95 FAIL=0`）已被 2026-08-12 取代。**
-> 該檔現在是 blob `0ca6fa03…`、**125 案**，**macOS 尚未重驗**——
+> 該檔現在是 blob `90ddbd10…`、**125 案**，**macOS 已於 2026-08-13 重驗完成**——
 > 驗收單見 [`docs/HANDOFF-macos-posix-m13-2026-08-12.md`](docs/HANDOFF-macos-posix-m13-2026-08-12.md)。
 > 本段其餘項目（`run-posix-args` 13/13、兩個 `exit 2` 案）不受影響：
 > `run-posix-args.test.sh` 的 blob `ee8da03c…` 未改動。
@@ -164,6 +164,17 @@
 >   根因是被鎖目錄是空的（GNU 能 `rmdir`、BSD 不能），放進檔案後兩平台**完全一致**。
 >   驗收單與完整結果見
 >   [`docs/HANDOFF-macos-posix-m13-2026-08-12.md`](docs/HANDOFF-macos-posix-m13-2026-08-12.md)。
+> - 🔴 **`run-posix.sh` 的 harness 自身有四個已知缺陷（2026-08-13 合併前審查抓到，未修）**：
+>   (1) **`unlock_tree` 會抹掉 mode 型的違規** —— 它在後置快照前正規化整個假 HOME，
+>   而 `snap` 不記 mode，所以中止前的 `chmod 000 "$setf"` 仍會 125/0；
+>   (2) **`die_snap` 只接了 3 處，其餘 13 處 `$(snap …)` 的 rc 被吃掉**
+>   （讓 `readlink` 一律失敗即可讓 M11 前後快照都變空字串而 `"" = ""` 通過）；
+>   (3) **`cksum` 的錯誤沒往外傳**（內層 `sh -c` 沒有 pipefail，只看到 `cut` 的狀態）；
+>   (4) **`run()` 仍以名稱呼叫 `bash`**，父層的 `bash()` 函式攔得到 —— 隔離只做了一半。
+>   ⚠️ **(1) 是 2026-08-12 那批引入的回歸**，其餘三項是既有弱點被部分修正後留下的。
+> - 🔴 **`.absent`（刪除）分支從未在「列舉失敗」情境跑過**：M13 家族的 fixture 全是「既有安裝」，
+>   在首掃前**新增**一個 `.absent`-guarded 的提前刪除，mutant 會存活為 125/0。
+>   先前就存在的覆蓋缺口，詳情與可復現腳本見 [`docs/backlog.md`](docs/backlog.md)。
 > - 🔴 **1b 有同型的靜態依賴未測**（Codex 指出）：1b 的 link 掃描與 `Get-TreeFingerprint`
 >   同樣依賴區塊開頭的 `Stop`，若列舉 fail-open 可能留下部分備份卻仍印 `backup ts=`
 >   ——而 `backup ts=` 正是「三個備份都完成」的宣稱。那是**另一條契約**（備份完整性，

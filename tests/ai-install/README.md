@@ -86,11 +86,24 @@ POSIX 側 2026-08-10 就有 `[M13]`（`chmod 000` 注入），但它**只快照 
 - **`run()` 清掉 `BASH_ENV`／`ENV`、釘 `HISTFILE=/dev/null`**：非互動 bash（含 3.2）會 source
   `$BASH_ENV`。繼承進來的 startup 檔若往假 HOME 寫東西，寬 oracle 會**誤紅**，
   M13c 的「有變」還可能被**不相干的側檔冒充**。A／B 實測：修正前在 `BASH_ENV` 下
-  兩條寬 oracle 斷言誤紅（109/2），修正後 125/0。
-- **`snap` 掃不動時回傳永遠不會相等的哨兵**：舊寫法把 `find` 接進 pipe，退出碼被 `sort` 蓋掉、
-  stderr 又被吞掉——兩次都掃不動時兩份殘缺快照會「相等」，「未變」斷言假通過。
-  `make_locked`／`unlock` 失敗一律 `exit 2`（原本 `make_locked` 最後無條件 `echo`，
-  會掩蓋 `mkdir`／`printf` 失敗）。
+  兩條寬 oracle 斷言誤紅，修正後 125/0（對現行腳本的等價 A／B 是 `123/2`；
+  早期版本記載的 `109/2` 是 `aa74cfa` 的舊案數 111，對現行腳本不可復現）。
+  🔴 **這條隔離只做了一半**：`run()` 清了 `BASH_ENV`／`ENV`，卻仍以 `bash` 這個**名稱**呼叫，
+  父 shell 已載入的 `bash()` 函式照樣攔得到。B-7 只證明了 `bash -n` 那一行（用了 `command`）。
+  見 backlog。
+- **`snap` 掃不動時回非 0，由呼叫點 `|| die_snap` 硬中止**（中間版本用 `$RANDOM` 哨兵，
+  **對 `=` 有效、對 `!=` 必定成立** → 寬 oracle 假綠；方向性哨兵在雙向 oracle 下必然有一邊假綠）。
+  `make_locked`／`unlock_tree` 失敗一律 `exit 2`。
+  🔴 **`die_snap` 只接了 M13 家族的 3 處，其餘 13 處 `$(snap …)` 仍直接展開在 `[ ]` 裡、rc 被吃掉。**
+  「那些樹從不 chmod」不是有效界線 —— snap 也會因 `readlink`／`cksum`／IO 失敗；
+  合併前審查用「讓 `readlink` 一律失敗」的探針證明 M11 的前後快照都變成空字串、`"" = ""` 照樣 PASS。見 backlog。
+  🔴 **`cksum` 的錯誤仍沒有往外傳**：`ck=$(cksum < "$p" | cut …) || exit 1` 在內層 `sh -c` 裡
+  只看得到 `cut` 的狀態（父層的 `pipefail` 不會傳進去）。應先 `line=$(cksum < "$p") || exit 1` 再切欄。見 backlog。
+- 🔴 **`unlock_tree` 會抹掉 mode 型的違規**：它在後置快照前把**整個假 HOME** 的權限正規化，
+  而 `snap` **不記 mode** —— 所以產品若在中止前做 `chmod 000 "$setf"`（已違反契約），
+  `unlock_tree` 會讓它重新可讀、快照相同、M13 仍 125/0。
+  ⚠️ 我原本的論證是「snap 不記 mode，所以正規化不影響比對內容」——**那個論證是錯的**：
+  正因為不記 mode，正規化等於**主動銷毀證據**。舊版反而抓得到（`cksum` 讀不到會讓紀錄變空）。見 backlog。
 - **搬移的自我檢查必須包含相鄰性與 `bash -n`**：awk 只丟掉 L1／L2 兩行，
   若日後有人在兩行之間插入 `elif`，中間那些行會留在原處 → 產出**語法壞掉**的區塊；
   而 locked scan 會先 `exit 1`，bash 根本還沒讀到尾端的語法錯誤，於是三條斷言**全部照樣綠**。
@@ -283,8 +296,8 @@ BSD 則拒絕進入（exit 1）。現在 `make_locked()` 會在裡面放一個 `
 順帶讓「掃不動的子樹裡有真實資料」這件事成立——空目錄的注入有可能**被 `rmdir` 掉而自己消失**。
 
 ⚠️ 上面那條「總數會因平台而異」的教訓**仍然成立**（釘名稱不要釘總數），
-只是這個**特定**的差異已經沒有了。Linux 實測 `107 PASS／18 FAIL`；
-**macOS 預測相同但尚未驗證**，見 [`HANDOFF-macos-posix-m13-2026-08-12.md`](../../docs/HANDOFF-macos-posix-m13-2026-08-12.md)。
+只是這個**特定**的差異已經沒有了。Linux 與 macOS 實測**皆為 `107 PASS／18 FAIL`**
+（macOS 2026-08-13 原生驗證完成），見 [`HANDOFF-macos-posix-m13-2026-08-12.md`](../../docs/HANDOFF-macos-posix-m13-2026-08-12.md)。
 
 ### POSIX 側對 `4a96698` 的反向驗證（2026-08-12，Linux 實測）
 
