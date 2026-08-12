@@ -82,6 +82,15 @@ cleanup() {
 }
 trap cleanup EXIT
 
+# 本檔預期跑出的**總案數**（PASS + FAIL）。結尾硬斷言。
+# 沒有這一條，刪掉任何一個 check 仍會印 `PASS=110 FAIL=0` 並 exit 0 ——「少一案」是抓不到的假綠。
+# ⚠️ 這個總數與**受測文件無關**（反向驗證只改變 PASS/FAIL 的分佈，不改變案數），所以是穩定的不變量。
+# 兩個值：非 root 走完整的 M13／M13b／M13c；root 之下那三段整體換成一條硬失敗
+#（root 忽略 chmod、注入無效，給綠燈等於宣稱驗過一條其實沒驗到的契約）。
+# 新增或移除案時必須同步更新，那是刻意的摩擦。
+EXPECTED_CHECKS_NONROOT=111
+EXPECTED_CHECKS_ROOT=86
+
 pass=0; fail=0
 check() { # name rc detail
   if [ "$2" = 0 ]; then pass=$((pass+1)); echo "  PASS  $1"
@@ -122,6 +131,14 @@ run_rollback() {
   awk -v ph="$PLACEHOLDER" -v v="$1" '{ i=index($0,ph); if(i){ $0=substr($0,1,i-1) v substr($0,i+length(ph)) } print }' "$BRB" > "$f"
   if grep -qF "$PLACEHOLDER" "$f"; then echo "佔位符替換失敗" >&2; return 99; fi
   run "$f" "$2"
+}
+# 跑**變異過的**回滾區塊（M13b／M13c 用）。與 run_rollback 同樣要替換 ts 佔位符，
+# 差別只在來源檔不是 $BRB。
+run_rollback_file() { # 區塊檔 ts home
+  local f="$WORK/rb-mut.sh"
+  awk -v ph="$PLACEHOLDER" -v v="$2" '{ i=index($0,ph); if(i){ $0=substr($0,1,i-1) v substr($0,i+length(ph)) } print }' "$1" > "$f"
+  if grep -qF "$PLACEHOLDER" "$f"; then echo "佔位符替換失敗" >&2; return 99; fi
+  run "$f" "$3"
 }
 
 new_home() { local h="$WORK/$1"; rm -rf "$h"; mkdir -p "$h/.claude/hooks" "$h/.claude/skills"; echo "$h"; }
@@ -372,34 +389,151 @@ echo; echo "[M13] 列舉失敗必須在任何 mutation 之前中止（fail-close
 # ⚠️ **本測試臺沒有 SKIP 機制**，而加一個會改動結尾 `PASS=/FAIL=` 摘要行的契約
 #（交接文件與反向驗證都靠那一行）。所以 root 之下改成**硬失敗並說明原因**——
 # root 會忽略 chmod、注入無效，那時給綠燈等於宣稱驗過一條其實沒驗到的契約。
+#
+# ── 2026-08-12：oracle 的範圍加寬到整個假 HOME ──────────────────────────
+# 契約說的是「**任何** mutation 之前中止」，但本段原本只快照 `.claude/skills`。
+# 回滾在預掃**之後**還會還原 hook 與 settings，所以「把 hook 還原搬到預掃之前」這個違規
+# 舊 oracle 會**全綠放行**。那是 2026-08-12 Codex 在 Windows 側抓到、POSIX 側同型存在的
+# surviving mutant（第二輪就是以此 BLOCK）。現在每個變體比兩份快照，`[M13c]` 是它的牙齒測試。
+#
+# ⚠️ 這是**狀態** oracle 不是**事件** oracle：快照相等只證明最終內容相同，
+# 不證明「途中從未刪除又還原」。產品沒有失敗後還原的邏輯，所以足以當證據，
+# 但不要讀成「證明 mutation 從未開始」。
+#
+# ⚠️ 斷言名稱一律帶 `[M13]`／`[M13b]`／`[M13c]` 前綴：M11 也用 `[bak]`／`[live]`，
+# 不加前綴的話「前置：1b 成功並印出 ts」等名稱會在多個區塊裡重複，反向驗證就沒辦法逐條核對。
+
+# 上鎖用的子樹。**裡面一定要放一個檔**：空目錄會被 GNU `rm -rf` 直接 rmdir 掉、BSD 則拒絕進入，
+# 那個差異正是 2026-08-10 macOS 驗收時「同一條退出碼斷言在兩平台結論相反」的成因
+#（Linux 88/7 vs macOS 89/6）。放了檔之後兩邊一致，而且「掃不動的子樹裡有真實資料」才成立。
+make_locked() { # root → 印出被鎖目錄路徑
+  mkdir -p "$1/references/locked"
+  printf 'LOCKED' > "$1/references/locked/payload.txt"
+  echo "$1/references/locked"
+}
+# 注入自我檢查：**chmod 前必須掃得動、chmod 後必須掃不動**。
+# 只驗「chmod 後 find 非零」不夠 —— `$ROOT` 算錯時 find 一樣非零，
+# 於是「注入生效」通過、回滾又因為不相干的理由中止、live 剛好沒被動 → 整案假綠。
+# 前後對照才證明得了「失敗是我們的 chmod 造成的」。
+# （POSIX 這側不必像 Windows 那樣把探針送進 child：產品跑在同 uid 的 `bash` 子行程、
+#   用的是同一支 `find`，沒有 parent/child 的 host 不對稱問題。）
+lock_and_verify() { # root locked-dir label
+  local pre post
+  find "$1" -type l >/dev/null 2>&1; pre=$?
+  chmod 000 "$2"
+  find "$1" -type l >/dev/null 2>&1; post=$?
+  [ "$pre" -eq 0 ] && [ "$post" -ne 0 ]
+  check "$3 前置：chmod 前掃得動、chmod 後掃不動（注入生效）" $? "pre=$pre post=$post（pre 非 0＝路徑就錯了，post 為 0＝chmod 沒咬到）"
+}
+unlock() { chmod 755 "$1" 2>/dev/null || true; }
+
 if [ "$(id -u)" = 0 ]; then
   check '[M13] 需以非 root 執行（root 忽略 chmod，注入無效，不能給綠燈）' 1 "uid=$(id -u)"
 else
   for where in bak live; do
     H=$(new_home "m13-$where"); seed "$H"
     run "$B1B" "$H"; TS=$(get_ts "$LAST_OUT")
-    [ -n "$TS" ]; check "[$where] 前置：1b 成功並印出 ts" $? "$LAST_OUT"
-    run "$B1C" "$H"; check "[$where] 前置：1c 安裝成功" $? "$LAST_OUT"
+    [ -n "$TS" ]; check "[M13][$where] 前置：1b 成功並印出 ts" $? "$LAST_OUT"
+    run "$B1C" "$H"; check "[M13][$where] 前置：1c 安裝成功" $? "$LAST_OUT"
 
     if [ "$where" = bak ]; then ROOT="$H/.claude/skills-backup/超級模式.bak-$TS"
     else                       ROOT="$H/.claude/skills/超級模式"; fi
-    mkdir -p "$ROOT/references/locked"
-    # 快照要在 chmod **之前**取（snap 自己也會掃不動）
-    BEFORE=$(snap "$H/.claude/skills")
-    chmod 000 "$ROOT/references/locked"
-    # 注入是否生效：以測試使用者身分 find 必須真的非零。
-    # 少了這一條，chmod 沒生效時本案會因為「回滾剛好成功」而靜默變成假通過。
-    find "$ROOT" -type l >/dev/null 2>&1; find_rc=$?
-    [ "$find_rc" -ne 0 ]; check "[$where] 前置：find 真的掃不動（注入生效）" $? "find rc=$find_rc"
+    LOCKED=$(make_locked "$ROOT")
+    # 兩份快照都要在 chmod **之前**取（snap 自己也會掃不動）
+    BEFORE_SKILLS=$(snap "$H/.claude/skills")
+    BEFORE_HOME=$(snap "$H")
+    lock_and_verify "$ROOT" "$LOCKED" "[M13][$where]"
 
     run_rollback "$TS" "$H"; rc=$?
-    # 先還原權限，後面的 snap 與 cleanup 才掃得動
-    chmod 755 "$ROOT/references/locked" 2>/dev/null || true
-    [ $rc -ne 0 ]; check "[$where] 列舉失敗 → 回滾中止" $? "竟然成功：$LAST_OUT"
+    unlock "$LOCKED"   # 先還原權限，後面的 snap 與 cleanup 才掃得動
+    [ $rc -ne 0 ]; check "[M13][$where] 列舉失敗 → 回滾中止" $? "竟然成功：$LAST_OUT"
     # 這條才是 B1 的重點。修正前也會非零（cp／rm 自己撞權限），但**那時 live 已經被刪了**，
-    # 所以區辨力全在這一條，不在退出碼。
-    [ "$(snap "$H/.claude/skills")" = "$BEFORE" ]; check "[$where] 中止後 live 未變" $? 'live 被動過'
+    # 所以區辨力全在快照那兩條，不在退出碼。
+    [ "$(snap "$H/.claude/skills")" = "$BEFORE_SKILLS" ]; check "[M13][$where] 中止後 live 未變" $? 'live 被動過'
+    # 契約講的是「**任何** mutation」——hook 與 settings 也在內。
+    [ "$(snap "$H")" = "$BEFORE_HOME" ]; check "[M13][$where] 中止後整個假 HOME 未變（hook／settings 也在內）" $? '假 HOME 有東西被動過（skills 之外也要看）'
   done
+
+  echo; echo "[M13b] 變異注入：把掃描失敗吞掉之後，保護必須消失"
+  # M13 只證明「現在是 fail-closed」，不證明**是哪一段**讓它 fail-closed。
+  # 本案把 scan_no_link 裡「掃描失敗 → 中止」那一行換成把錯誤吞掉，其餘完全不動：
+  # find 失敗 → _lnk 被設成空 → 守衛放行 → 走到 `rm -rf` → live 被動過。
+  # 注意 POSIX 這側的保護有**兩層**（顯式 rc 檢查 ＋ 區塊開頭的 `set -e`），與 Windows
+  # 只靠一行 `$ErrorActionPreference = 'Stop'` 不同；本變異拆掉的是顯式那層
+  #（`set -e` 對 `if ! cmd; then` 的條件式本來就不生效，所以擋不住這個變異）。
+  M13B_OLD='    echo "掃描 $1（$2）失敗，狀態不明，中止（live 未變更）"; exit 1'
+  M13B_NEW='    _lnk=""  # M13B-FAIL-OPEN'
+  # 用 `grep -cxF`（**整行**精確比對）而不是子字串比對：
+  # 子字串比對在本批的 Windows 側連續踩了兩次（註解含同樣字面、注入行是既有行的子字串）。
+  m13b_hits=$(grep -cxF "$M13B_OLD" "$BRB")
+  [ "$m13b_hits" -eq 1 ]; check '[M13b] 變異錨點唯一（否則本案等於沒測）' $? "整行命中 $m13b_hits 次（預期 1）"
+  awk -v o="$M13B_OLD" -v n="$M13B_NEW" '{ if ($0 == o) print n; else print }' "$BRB" > "$WORK/rb-m13b.sh"
+  m13b_new_hits=$(grep -cxF "$M13B_NEW" "$WORK/rb-m13b.sh")
+  m13b_old_left=$(grep -cxF "$M13B_OLD" "$WORK/rb-m13b.sh")
+  m13b_lines_a=$(wc -l < "$BRB"); m13b_lines_b=$(wc -l < "$WORK/rb-m13b.sh")
+  [ "$m13b_new_hits" -eq 1 ] && [ "$m13b_old_left" -eq 0 ] && [ "$m13b_lines_a" -eq "$m13b_lines_b" ]
+  check '[M13b] 變異確實注入且只動一行' $? "new=$m13b_new_hits old_left=$m13b_old_left lines=$m13b_lines_a/$m13b_lines_b"
+
+  H=$(new_home m13b); seed "$H"
+  run "$B1B" "$H"; TS=$(get_ts "$LAST_OUT")
+  [ -n "$TS" ]; check '[M13b] 前置：1b 成功並印出 ts' $? "$LAST_OUT"
+  run "$B1C" "$H"; check '[M13b] 前置：1c 安裝成功' $? "$LAST_OUT"
+  # 鎖**備份**子樹而不是 live：fail-open 之後第一個 mutation 是 `rm -rf` 一棵**完全可讀**的
+  # live，訊號穩定；鎖 live 的話就得依賴「rm 對部分不可讀的樹刪掉一些才失敗」這種實作語義。
+  M13B_ROOT="$H/.claude/skills-backup/超級模式.bak-$TS"
+  M13B_LOCKED=$(make_locked "$M13B_ROOT")
+  BEFORE_SKILLS=$(snap "$H/.claude/skills")
+  lock_and_verify "$M13B_ROOT" "$M13B_LOCKED" '[M13b]'
+  run_rollback_file "$WORK/rb-m13b.sh" "$TS" "$H"; rc=$?
+  unlock "$M13B_LOCKED"
+  # 只釘「live 被動過」：那正是 M13 主斷言的否命題。不額外釘退出碼——
+  # 錯誤是否終止會隨 userland 而異，釘了只會製造平台雜訊。
+  [ "$(snap "$H/.claude/skills")" != "$BEFORE_SKILLS" ]
+  check '[M13b] 吞掉掃描失敗後 live 確實被動過（保護來自那一行）' $? "live 未變（回滾 rc=$rc）：本案已失去意義，M13 的區辨力來源需重新確認"
+
+  echo; echo "[M13c] 變異注入：把 hook 還原搬到預掃之前（證明 M13 的 oracle 夠寬）"
+  # 這正是 2026-08-12 第二輪 Codex 給的可復現步驟：把回滾裡**既有的** hook 還原兩行
+  # 原樣搬到第一個 scan_no_link 之前。搬移（而非另外注入一行）是最強的證據形式 ——
+  # 產物就是產品自己的程式碼，只是順序錯了。
+  M13C_H1='if [ -f "$hbak" ]; then cp "$hbak" ~/.claude/hooks/super-mode-consult-gate.js'
+  M13C_H2='else rm -f ~/.claude/hooks/super-mode-consult-gate.js; fi'
+  M13C_ANCHOR='if [ -d "$sbak" ]; then scan_no_link '"'"'skill 備份'"'"' "$sbak"; fi'
+  m13c_h1=$(grep -cxF "$M13C_H1" "$BRB"); m13c_h2=$(grep -cxF "$M13C_H2" "$BRB"); m13c_a=$(grep -cxF "$M13C_ANCHOR" "$BRB")
+  [ "$m13c_h1" -eq 1 ] && [ "$m13c_h2" -eq 1 ] && [ "$m13c_a" -eq 1 ]
+  check '[M13c] 三個錨點各自唯一（否則本案等於沒測）' $? "h1=$m13c_h1 h2=$m13c_h2 anchor=$m13c_a（預期各 1；舊版文件沒有預掃，anchor 會是 0）"
+  awk -v h1="$M13C_H1" -v h2="$M13C_H2" -v a="$M13C_ANCHOR" '
+    $0 == h1 { drop = 1; next }
+    drop == 1 && $0 == h2 { drop = 0; next }
+    $0 == a { print h1; print h2 }
+    { print }
+  ' "$BRB" > "$WORK/rb-m13c.sh"
+  # 搬移的自我檢查：行數不變、兩行各仍恰 1 次、且**位置確實早於**首個掃描。
+  m13c_lines_a=$(wc -l < "$BRB"); m13c_lines_b=$(wc -l < "$WORK/rb-m13c.sh")
+  m13c_h1_after=$(grep -cxF "$M13C_H1" "$WORK/rb-m13c.sh")
+  m13c_h1_ln=$(grep -nxF "$M13C_H1" "$WORK/rb-m13c.sh" | head -1 | cut -d: -f1)
+  m13c_a_ln=$(grep -nxF "$M13C_ANCHOR" "$WORK/rb-m13c.sh" | head -1 | cut -d: -f1)
+  [ "$m13c_lines_a" -eq "$m13c_lines_b" ] && [ "$m13c_h1_after" -eq 1 ] \
+    && [ -n "$m13c_h1_ln" ] && [ -n "$m13c_a_ln" ] && [ "$m13c_h1_ln" -lt "$m13c_a_ln" ]
+  check '[M13c] 確實是「搬移」：行數不變、仍恰一份、且位置早於首個掃描' $? "lines=$m13c_lines_a/$m13c_lines_b h1_count=$m13c_h1_after h1_line=${m13c_h1_ln:-無} anchor_line=${m13c_a_ln:-無}"
+
+  H=$(new_home m13c); seed "$H"
+  run "$B1B" "$H"; TS=$(get_ts "$LAST_OUT")
+  [ -n "$TS" ]; check '[M13c] 前置：1b 成功並印出 ts' $? "$LAST_OUT"
+  run "$B1C" "$H"; check '[M13c] 前置：1c 安裝成功' $? "$LAST_OUT"
+  M13C_ROOT="$H/.claude/skills-backup/超級模式.bak-$TS"
+  M13C_LOCKED=$(make_locked "$M13C_ROOT")
+  BEFORE_SKILLS=$(snap "$H/.claude/skills")
+  BEFORE_HOME=$(snap "$H")
+  lock_and_verify "$M13C_ROOT" "$M13C_LOCKED" '[M13c]'
+  run_rollback_file "$WORK/rb-m13c.sh" "$TS" "$H"; rc=$?
+  unlock "$M13C_LOCKED"
+  [ $rc -ne 0 ]; check '[M13c] 回滾仍中止' $? "竟然成功：$LAST_OUT"
+  # 這兩條要一起看才有意義：前者證明**缺口真實存在**（只看 skills 會放行違規），
+  # 後者證明**加寬確實抓得到**。少了前者，讀者無從判斷加寬買到了什麼。
+  [ "$(snap "$H/.claude/skills")" = "$BEFORE_SKILLS" ]
+  check '[M13c] 窄 oracle（只看 skills）看不到這個違規' $? 'skills 也變了，本案已無法示範窄 oracle 的盲點'
+  [ "$(snap "$H")" != "$BEFORE_HOME" ]
+  check '[M13c] 寬 oracle（整個假 HOME）抓到預掃前的 mutation' $? '寬 oracle 也沒抓到 —— 搬移沒生效或加寬無效'
 fi
 
 echo; echo "[C3] 對照組（確認上面的斷言不是永遠為真）"
@@ -410,4 +544,10 @@ run_rollback "$TS" "$H"; check '正確 ts 的回滾必須成功（否則上面�
 
 echo; echo "========================================"
 echo "bash  PASS=$pass  FAIL=$fail"
+if [ "$(id -u)" = 0 ]; then EXPECTED=$EXPECTED_CHECKS_ROOT; else EXPECTED=$EXPECTED_CHECKS_NONROOT; fi
+ran=$((pass+fail))
+if [ "$ran" -ne "$EXPECTED" ]; then
+  echo "  STOP 案數不符：實跑 $ran、預期 $EXPECTED（uid=$(id -u)）—— 有案被刪除或跳過，或新增後忘了更新 EXPECTED_CHECKS_*"
+  exit 1
+fi
 [ "$fail" = 0 ]

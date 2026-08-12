@@ -75,6 +75,12 @@
 > `git diff --name-only` 核過）。所以下面那批在 `a85e88a` 跑的 Node 項目（B-1…B-5、B-8…B-13）
 > 續用成立，不需重跑。
 >
+> ⚠️ **這段的 `run-posix.sh` 結果（blob `637a9935…`、`PASS=95 FAIL=0`）已被 2026-08-12 取代。**
+> 該檔現在是 blob `a1041030…`、**111 案**，**macOS 尚未重驗**——
+> 驗收單見 [`docs/HANDOFF-macos-posix-m13-2026-08-12.md`](docs/HANDOFF-macos-posix-m13-2026-08-12.md)。
+> 本段其餘項目（`run-posix-args` 13/13、兩個 `exit 2` 案）不受影響：
+> `run-posix-args.test.sh` 的 blob `ee8da03c…` 未改動。
+>
 > ### ✅ 2026-08-10 macOS 原生驗收（`a85e88a`）
 >
 > macOS 26.6.1 arm64／系統 `/bin/bash` 3.2.57／Node v26.7.0／`uid=501` 非 root／
@@ -146,9 +152,13 @@
 > ⚠️ **仍未做**（據實列，不含糊）：
 > - Windows 與 macOS 皆**無 CI**，仍靠人工原生驗證；`run-windows.ps1` 的 112 案
 >   （含新增的 M13）遠端沒有任何 gate 會攔，改壞了不會有人被擋下來。
-> - 🔴 **POSIX 側的 `[M13]` 有與 Windows 完全同型的窄 oracle**（第二輪 Codex 審查抓到）：
->   `run-posix.sh` 只 `snap "$H/.claude/skills"`，沒有寬 oracle 也沒有 `M13c`，
->   所以「把 hook mutation 搬到 `scan_no_link` 之前」在 POSIX 側仍會全綠。**下一批 P0。**
+> - ~~🔴 **POSIX 側的 `[M13]` 有與 Windows 完全同型的窄 oracle**~~
+>   **✅ 2026-08-12 已修（Linux 實測），macOS 🔴 PENDING** ——
+>   `[M13]` 加寬到整個假 HOME、新增 `[M13b]`／`[M13c]`、注入自我檢查改成前後對照、
+>   補 `EXPECTED_CHECKS`。Linux **111／0**、反向驗證 **98／13**。
+>   `[M13c]` 的「窄 oracle 看不到 ＋ 寬 oracle 抓得到」兩條都 PASS，
+>   **缺口與修法都被實證**。macOS 驗收單見
+>   [`docs/HANDOFF-macos-posix-m13-2026-08-12.md`](docs/HANDOFF-macos-posix-m13-2026-08-12.md)。
 > - 🔴 **1b 有同型的靜態依賴未測**（Codex 指出）：1b 的 link 掃描與 `Get-TreeFingerprint`
 >   同樣依賴區塊開頭的 `Stop`，若列舉 fail-open 可能留下部分備份卻仍印 `backup ts=`
 >   ——而 `backup ts=` 正是「三個備份都完成」的宣稱。那是**另一條契約**（備份完整性，

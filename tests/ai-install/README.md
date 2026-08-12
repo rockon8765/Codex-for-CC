@@ -66,6 +66,28 @@ bash tests/ai-install/run-posix.sh
 **每個注入點都有自我檢查**：注入用的錨點字串若因文件改寫而失效，該案會明確 FAIL
 （`變異確實注入（否則本案等於沒測）`），不會靜默變成假通過。
 
+### POSIX 的 `[M13]`／`[M13b]`／`[M13c]`（2026-08-12 補齊，與 Windows 對等）
+
+POSIX 側 2026-08-10 就有 `[M13]`（`chmod 000` 注入），但它**只快照 `.claude/skills`**——
+與 Windows 第一版同型的窄 oracle。2026-08-12 補齊：
+
+- `[M13]` 兩變體各多比一份**整個假 HOME** 的快照。
+- `[M13c]`：把回滾裡**既有的** hook 還原兩行**原樣搬到**第一個 `scan_no_link` 之前。
+  搬移（而不是另外注入一行）是最強的證據形式——產物就是產品自己的程式碼，只是順序錯了。
+  同時斷言「窄 oracle 看不到」＋「寬 oracle 抓得到」，兩條一起看才知道加寬買到了什麼。
+  **兩條在 Linux 都 PASS ⇒ 缺口與修法都被實證。**
+- `[M13b]`：把 `scan_no_link` 裡「掃描失敗 → 中止」那一行換成把錯誤吞掉，斷言 live 確實被動過。
+  ⚠️ POSIX 的保護有**兩層**（顯式 rc 檢查 ＋ 區塊開頭的 `set -e`），與 Windows 只靠一行
+  `$ErrorActionPreference = 'Stop'` 不同。本變異拆掉的是顯式那層——
+  `set -e` 對 `if ! cmd; then` 的**條件式**本來就不生效，所以擋不住這個變異。
+- 注入自我檢查改成 **chmod 前必須掃得動、chmod 後必須掃不動**。
+  舊寫法只驗「chmod 後 `find` 非零」，但 `$ROOT` 算錯時 `find` 一樣非零 →
+  「注入生效」通過、回滾又因不相干的理由中止、live 剛好沒被動 → **整案假綠**。前後對照才證明得了因果。
+- 錨點比對一律用 `grep -cxF`／`grep -nxF`（**整行**精確比對）。
+  Windows 側在同一批用子字串比對連續踩了兩次坑（見下），整行比對從源頭避開。
+- ⚠️ POSIX 這側**不必**像 Windows 把探針送進 child 行程：產品跑在同 uid 的 `bash` 子行程、
+  用的是同一支 `find`，沒有 parent／child 的 host 不對稱問題。
+
 ### Windows 的 `[M13]`：怎麼讓列舉**真的**失敗（2026-08-12）
 
 「列舉失敗必須在任何 mutation 之前中止」是回滾的**資料安全契約**：掃不動時若 fail-open，
@@ -128,7 +150,11 @@ hook 與 settings，所以把 hook mutation 搬到預掃前，窄 oracle 會全�
 這個總數與受測文件**無關**（反向驗證只改變 PASS／FAIL 的分佈，不改變案數），所以是穩定的不變量。
 新增或移除案時必須同步更新常數，那是刻意的摩擦。
 
-（POSIX 側的 `run-posix.sh` 目前**沒有**這道斷言，已記進 [`docs/backlog.md`](../../docs/backlog.md)。）
+POSIX 側 2026-08-12 起也有（`EXPECTED_CHECKS_NONROOT=111` / `EXPECTED_CHECKS_ROOT=86`）。
+POSIX 需要兩個常數是因為 root 之下 `[M13]`／`[M13b]`／`[M13c]` 整體換成**一條硬失敗**
+（root 忽略 `chmod`、注入無效，那時給綠燈等於宣稱驗過一條沒驗到的契約）。
+兩個值都實測過：少一案 → `PASS=110 FAIL=0` **但 STOP 觸發、exit 1**；
+root 分支（用 PATH 前置的假 `id` 模擬）→ `PASS=85 FAIL=1`＝86，不觸發 STOP。
 
 #### 為什麼 `列舉失敗 → 回滾中止` **沒有**加失敗訊息 signature（考慮過並否決）
 
@@ -214,6 +240,30 @@ macOS 的同機 A／B 已證實這一點。
 M11 四條（`[bak]`／`[live]` 各「回滾中止」＋「被拒後 live 未變」）
 ＋ M13 的「中止後 live 未變」（`[bak]`／`[live]`）必須 FAIL；
 `[live] 列舉失敗 → 回滾中止` 是否 FAIL **依平台而定，不列入判準**。
+
+#### ✅ 這個平台差異已於 2026-08-12 消除（成因是 fixture，不是平台）
+
+根因是**被鎖的目錄是空的**：GNU 的 `rm -rf` 能直接 `rmdir` 掉一個空的 mode-000 目錄（exit 0），
+BSD 則拒絕進入（exit 1）。現在 `make_locked()` 會在裡面放一個 `payload.txt`，
+兩邊的 `rm -rf` 都失敗，那條在兩個平台都 PASS。
+
+順帶讓「掃不動的子樹裡有真實資料」這件事成立——空目錄的注入有可能**被 `rmdir` 掉而自己消失**。
+
+⚠️ 上面那條「總數會因平台而異」的教訓**仍然成立**（釘名稱不要釘總數），
+只是這個**特定**的差異已經沒有了。Linux 實測 `98 PASS／13 FAIL`；
+**macOS 預測相同但尚未驗證**，見 [`HANDOFF-macos-posix-m13-2026-08-12.md`](../../docs/HANDOFF-macos-posix-m13-2026-08-12.md)。
+
+### POSIX 側對 `4a96698` 的反向驗證（2026-08-12，Linux 實測）
+
+| | 現行文件 | `4a96698` |
+|---|---|---|
+| Linux（WSL2 ext4、bash 5.x、非 root）| **111 PASS／0 FAIL** exit 0 | **98／13** exit 1 |
+| macOS | 🔴 **PENDING** | 🔴 **PENDING**（預測同上）|
+
+失敗的十三條：M11 四條 ＋ M13 四條快照（`中止後 live 未變`／`中止後整個假 HOME 未變` × `[bak]`／`[live]`）
+＋ `[M13b]` 兩條錨點／注入 ＋ `[M13c]` 三條（錨點／搬移／`窄 oracle 看不到`）。
+逐條清單見 handoff §3。M13b／M13c 的錨點在舊版落空是**預期且正確的**——
+`4a96698` 根本沒有 `scan_no_link`。
 
 ### Windows 側對 `4a96698`（B1 之前）的反向驗證實測（2026-08-12）
 
