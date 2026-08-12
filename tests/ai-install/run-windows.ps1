@@ -308,6 +308,120 @@ $r = Invoke-Rollback $ts $h
 Check '回滾仍成功' $r.Ok $r.Out
 Check '回滾後 live skill 已還原' (Test-Path -LiteralPath "$h\.claude\skills\超級模式\SKILL.md" -PathType Leaf) '沒有還原'
 
+"`n[M13] 列舉失敗必須在任何 mutation 之前中止（fail-closed 契約本身）"
+# M11 驗「掃到 link」、M12 驗「沒有子樹可掃」，但**掃不動**這條路徑在 Windows 側先前
+# 只有區塊開頭 `$ErrorActionPreference = 'Stop'` 的**靜態推論**，沒有動態測試
+# （POSIX 側 2026-08-10 已補 `[M13]`，Windows 側當時列為單獨一批）。
+# 那條才是資料安全契約：列舉失敗時若 fail-open，就會先刪 live、再從一棵沒驗證過的樹還原。
+#
+# 注入手法＝**對自己下 Deny ACE**（POSIX 側是 `chmod 000`）。目錄的擁有者即使沒有管理員
+# 權限也隱含保有 WRITE_DAC，所以「拒絕自己 ListDirectory」以及事後把它拿掉都做得到。
+#
+# ⚠️ **不要照抄 POSIX 的 root 前置守衛。** 那邊必須先擋 root，是因為 root 會忽略權限位元、
+# 讓 `chmod 000` 整個失效。Windows 這邊不一樣：Deny ACE 在存取檢查裡優先於 Allow，
+# 提權本身並不會讓注入失效（`Get-ChildItem` 不會去用 SeBackupPrivilege）。真正會讓它失效的是
+# 「檔案系統不支援 ACL」「行程啟用了備份權限」這類情況 ——**那些無法可靠地前置偵測**，
+# 所以改由下面的**注入自我檢查當唯一權威**：注入沒生效就直接 FAIL，不給綠燈、也不靜默跳過
+# （本測試臺沒有 SKIP 機制，加一個會改動結尾 `PASS=/FAIL=` 摘要行的契約，
+# 而交接文件與反向驗證都靠那一行）。
+#
+# 斷言名稱一律帶 `[M13]` 前綴：M11 也用 `[備份子樹]`／`[live 子樹]`，不加前綴的話
+# 「前置：1b 成功並印出 ts」等名稱會在兩個區塊裡重複，反向驗證就沒辦法逐條核對。
+$m13Me = [Security.Principal.WindowsIdentity]::GetCurrent().User
+foreach ($case in @(@{ n='備份子樹'; where='bak' }, @{ n='live 子樹'; where='live' })) {
+  $tag = "m13-$($case.where)"
+  $h = New-FakeHome $tag; Add-ExistingInstall $h
+  $r = Invoke-Block $B1b $h; $ts = Get-Ts $r.Out
+  Check "[M13][$($case.n)] 前置：1b 成功並印出 ts" ($r.Ok -and $ts) $r.Out
+  $r = Invoke-Block $B1c $h
+  Check "[M13][$($case.n)] 前置：1c 安裝成功" $r.Ok $r.Out
+
+  $root = if ($case.where -eq 'bak') { "$h\.claude\skills-backup\超級模式.bak-$ts" }
+          else                       { "$h\.claude\skills\超級模式" }
+  $locked = "$root\references\locked"
+  New-Item -ItemType Directory -Force -Path $locked | Out-Null
+  # 裡面放一個檔：空目錄有機會被「剛好 rmdir 掉」而讓注入自己消失（POSIX 側正是這個差異
+  # 造成 GNU／BSD 退出碼不一致），放了檔才讓「掃不動的子樹裡有真實資料」這件事成立。
+  Set-Content -LiteralPath "$locked\payload.txt" -Value 'LOCKED' -NoNewline
+
+  # 快照必須在 Deny **之前**取 —— Get-Snapshot 自己也是 -Recurse，之後同樣掃不動。
+  $before = Get-Snapshot "$h\.claude\skills"
+
+  $denyRule = New-Object Security.AccessControl.FileSystemAccessRule(
+    $m13Me, 'ListDirectory', 'ContainerInherit,ObjectInherit', 'None', 'Deny')
+  $acl = Get-Acl -LiteralPath $locked
+  $acl.AddAccessRule($denyRule)
+  Set-Acl -LiteralPath $locked -AclObject $acl
+  try {
+    # 注入是否生效：以測試身分列舉 $root 必須**真的**拋錯。
+    # 少了這一條，Deny 沒咬到時本案會因為「回滾剛好成功」而靜默變成假通過。
+    $enumFailed = $false; $enumErr = '列舉竟然成功'
+    try { $null = @(Get-ChildItem -LiteralPath $root -Recurse -Force -ErrorAction Stop) }
+    catch { $enumFailed = $true; $enumErr = $_.Exception.GetType().Name }
+    Check "[M13][$($case.n)] 前置：列舉真的失敗（注入生效）" $enumFailed "$enumErr —— Deny ACE 沒咬到（檔案系統不支援 ACL？行程有備份權限？），不能給綠燈"
+    $r = Invoke-Rollback $ts $h
+  } finally {
+    # 先還原權限，後面的 Get-Snapshot 與 $work 清理才掃得動
+    $acl2 = Get-Acl -LiteralPath $locked
+    $null = $acl2.RemoveAccessRule($denyRule)
+    Set-Acl -LiteralPath $locked -AclObject $acl2
+  }
+  Check "[M13][$($case.n)] 列舉失敗 → 回滾中止" (-not $r.Ok) "竟然成功：$($r.Out)"
+  # 這條才是重點。修正前也會非零（Remove-Item／Copy-Item 自己撞權限），
+  # 但**那時 live 已經被刪了**，所以區辨力全在這一條，不在退出碼。
+  Check "[M13][$($case.n)] 中止後 live 未變" ((Get-Snapshot "$h\.claude\skills") -eq $before) 'live 被動過'
+}
+
+"`n[M13b] 變異注入：拿掉 Stop 後保護必須消失（證明 M13 的區辨力來自那一行）"
+# M13 只證明「現在是 fail-closed」，不證明**是哪一行讓它 fail-closed**。
+# 本案把區塊開頭的 Stop 改成 Continue、其餘完全不動：列舉錯誤退回非終止錯誤 →
+# `$bad` 為 $null → 守衛不拋 → 走到 `Remove-Item -Recurse` → live 被動過。
+# 沒有這一案，日後有人把那行刪掉時只會知道 M13 紅了，不會知道紅在哪裡。
+$m13Anchor = "`$ErrorActionPreference = 'Stop'"
+# 錨點必須**行首錨定**：區塊裡還有一句註解含同樣字面
+#（`# 本區塊開頭的 $ErrorActionPreference = 'Stop' 讓真正的列舉失敗…直接拋出＝fail-closed。`），
+# 用 `String.Replace` 會連註解一起改掉 —— 那就不是「其餘完全不動」的單點變異了。
+# 這是散文含程式碼字面、被未錨定比對抓走的同一形狀（同 2026-08-10 那批的 `RESULT_CODE=`），
+# 而且是本案的自我檢查先紅才發現的，不是事先想到的。
+$m13Re   = [regex]('(?m)^' + [regex]::Escape($m13Anchor) + '$')
+$m13Hits = $m13Re.Matches($Brb)
+$m13Ok   = ($m13Hits.Count -eq 1) -and ($m13Hits[0].Index -eq 0)
+$m13Idx  = if ($m13Hits.Count -ge 1) { $m13Hits[0].Index } else { 'n/a' }
+Check '[M13b] 變異錨點唯一且在區塊開頭（否則本案等於沒測）' $m13Ok "命中 $($m13Hits.Count) 次、index=$m13Idx（預期 1 次、index 0）"
+# 錨點失效時**刻意不跳過**後面兩案，改用未變異的區塊讓它們自然變紅：
+# 案數必須釘死，少印一案是抓不到的假綠。
+$m13Mut = if ($m13Ok) { "`$ErrorActionPreference = 'Continue'" + $Brb.Substring($m13Hits[0].Length) } else { $Brb }
+$m13Diff = @(Compare-Object ($Brb -split "`n") ($m13Mut -split "`n")).Count
+Check '[M13b] 變異確實注入且只動一行' (($m13Mut -ne $Brb) -and ($m13Diff -eq 2)) "差異行數=$m13Diff（預期 2：一去一回；0＝沒注入，>2＝動到不該動的行）"
+$h = New-FakeHome 'm13b'; Add-ExistingInstall $h
+$r = Invoke-Block $B1b $h; $ts = Get-Ts $r.Out
+Check '[M13b] 前置：1b 成功並印出 ts' ($r.Ok -and $ts) $r.Out
+$r = Invoke-Block $B1c $h
+Check '[M13b] 前置：1c 安裝成功' $r.Ok $r.Out
+$locked = "$h\.claude\skills\超級模式\references\locked"
+New-Item -ItemType Directory -Force -Path $locked | Out-Null
+Set-Content -LiteralPath "$locked\payload.txt" -Value 'LOCKED' -NoNewline
+$before = Get-Snapshot "$h\.claude\skills"
+$denyRule = New-Object Security.AccessControl.FileSystemAccessRule(
+  $m13Me, 'ListDirectory', 'ContainerInherit,ObjectInherit', 'None', 'Deny')
+$acl = Get-Acl -LiteralPath $locked
+$acl.AddAccessRule($denyRule)
+Set-Acl -LiteralPath $locked -AclObject $acl
+try {
+  $enumFailed = $false; $enumErr = '列舉竟然成功'
+  try { $null = @(Get-ChildItem -LiteralPath "$h\.claude\skills\超級模式" -Recurse -Force -ErrorAction Stop) }
+  catch { $enumFailed = $true; $enumErr = $_.Exception.GetType().Name }
+  Check '[M13b] 前置：列舉真的失敗（注入生效）' $enumFailed "$enumErr —— Deny ACE 沒咬到，本案等於沒測"
+  $r = Invoke-Block ($m13Mut.Replace($PLACEHOLDER, $ts)) $h
+} finally {
+  $acl2 = Get-Acl -LiteralPath $locked
+  $null = $acl2.RemoveAccessRule($denyRule)
+  Set-Acl -LiteralPath $locked -AclObject $acl2
+}
+# 只釘「live 被動過」：那正是 M13 主斷言的否命題。**不**額外釘退出碼——
+# 錯誤是否終止會隨 host 版本而異，釘了只會製造平台雜訊（同 M13／POSIX 的教訓）。
+Check '[M13b] 拿掉 Stop 後 live 確實被動過（保護來自該行）' ((Get-Snapshot "$h\.claude\skills") -ne $before) "live 未變（回滾 ok=$($r.Ok)）：本案已失去意義，M13 的區辨力來源需重新確認"
+
 "`n[C3] 對照組（確認上面的斷言不是永遠為真）"
 $h = New-FakeHome 'c3'; Add-ExistingInstall $h
 $r = Invoke-Block $B1b $h; $ts = Get-Ts $r.Out
