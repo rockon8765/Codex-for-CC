@@ -72,10 +72,29 @@ POSIX 側 2026-08-10 就有 `[M13]`（`chmod 000` 注入），但它**只快照 
 與 Windows 第一版同型的窄 oracle。2026-08-12 補齊：
 
 - `[M13]` 兩變體各多比一份**整個假 HOME** 的快照。
-- `[M13c]`：把回滾裡**既有的** hook 還原兩行**原樣搬到**第一個 `scan_no_link` 之前。
+- `[M13c]`：把回滾裡**既有的**還原兩行**原樣搬到**第一個 `scan_no_link` 之前，
+  **hook 與 settings 兩個目標各跑一次**。
   搬移（而不是另外注入一行）是最強的證據形式——產物就是產品自己的程式碼，只是順序錯了。
   同時斷言「窄 oracle 看不到」＋「寬 oracle 抓得到」，兩條一起看才知道加寬買到了什麼。
-  **兩條在 Linux 都 PASS ⇒ 缺口與修法都被實證。**
+  **四條在 Linux 都 PASS ⇒ 缺口與修法都被實證。**
+- **`simulate_step2`**：M13／M13c 在快照前模擬安裝步驟 2 改動 settings。
+  ⚠️ **沒有這一步，settings 型的違規看不見**——`seed` 寫的 settings 與 1b 的備份一模一樣
+  （1c 不碰 settings），把 settings 還原搬到預掃前只是 `OLD → OLD`、內容雜湊不變、mutant 存活。
+  C1／C2 早就有這個手法（註解寫「否則還原斷言恆真」），**M13 當初漏了**。
+  Windows 側同型、同日一起修。這是「oracle 夠寬，但 fixture 讓它沒東西可看」的例子——
+  **加寬 oracle 不等於補上覆蓋**。
+- **`run()` 清掉 `BASH_ENV`／`ENV`、釘 `HISTFILE=/dev/null`**：非互動 bash（含 3.2）會 source
+  `$BASH_ENV`。繼承進來的 startup 檔若往假 HOME 寫東西，寬 oracle 會**誤紅**，
+  M13c 的「有變」還可能被**不相干的側檔冒充**。A／B 實測：修正前在 `BASH_ENV` 下
+  兩條寬 oracle 斷言誤紅（109/2），修正後 125/0。
+- **`snap` 掃不動時回傳永遠不會相等的哨兵**：舊寫法把 `find` 接進 pipe，退出碼被 `sort` 蓋掉、
+  stderr 又被吞掉——兩次都掃不動時兩份殘缺快照會「相等」，「未變」斷言假通過。
+  `make_locked`／`unlock` 失敗一律 `exit 2`（原本 `make_locked` 最後無條件 `echo`，
+  會掩蓋 `mkdir`／`printf` 失敗）。
+- **搬移的自我檢查必須包含相鄰性與 `bash -n`**：awk 只丟掉 L1／L2 兩行，
+  若日後有人在兩行之間插入 `elif`，中間那些行會留在原處 → 產出**語法壞掉**的區塊；
+  而 locked scan 會先 `exit 1`，bash 根本還沒讀到尾端的語法錯誤，於是三條斷言**全部照樣綠**。
+  （合併前 Codex 審查用同形狀 awk 實跑出 `bash_n_rc=2` 但 `runtime_rc=7`。）
 - `[M13b]`：把 `scan_no_link` 裡「掃描失敗 → 中止」那一行換成把錯誤吞掉，斷言 live 確實被動過。
   ⚠️ POSIX 的保護有**兩層**（顯式 rc 檢查 ＋ 區塊開頭的 `set -e`），與 Windows 只靠一行
   `$ErrorActionPreference = 'Stop'` 不同。本變異拆掉的是顯式那層——
@@ -124,9 +143,22 @@ hook 與 settings，所以把 hook mutation 搬到預掃前，窄 oracle 會全�
 現在每個變體都比兩份快照：`中止後 live 未變`（skills，訊息清楚）
 ＋ `中止後整個假家目錄未變（hook／settings 也在內）`（真正對應契約的那條）。
 
-`[M13c]` 是這條加寬的**牙齒測試**：注入一個預掃前的 hook mutation，然後同時斷言
-**窄 oracle 看不到**（證明缺口真實存在）與**寬 oracle 抓得到**（證明加寬有效）。
+`[M13c]` 是這條加寬的**牙齒測試**：把回滾裡**既有的**還原兩行**原樣搬到**預掃之前，
+然後同時斷言**窄 oracle 看不到**（證明缺口真實存在）與**寬 oracle 抓得到**（證明加寬有效）。
 兩條要一起看才有意義——少了前者，讀者無從判斷加寬到底買到了什麼。
+
+⚠️ **hook 與 settings 兩個目標各跑一次。** 第一版只做 hook，而且是**注入**一行而非搬移；
+第二版改成搬移並補上 settings 目標，理由有二：
+
+1. **settings 型的同契約 mutant 原本測不到**，而且在 `Set-Step2Settings` 之前**根本殺不掉**
+   ——`Add-ExistingInstall` 寫的 settings 與 1b 的備份一模一樣（1c 不碰 settings），
+   把 settings 還原搬到預掃前只是 `OLD → OLD`、雜湊不變。
+   **那是 fixture 的盲點，不是 oracle 的**——加寬 oracle 不等於補上覆蓋。
+2. **搬移比注入強**：產物就是產品自己的程式碼，只是順序錯了。
+   代價是自我檢查要更嚴：驗來源兩行相鄰、驗產出相鄰且緊貼 anchor、
+   再驗**產出仍可解析**（`[scriptblock]::Create`）。少了最後一條，
+   日後有人在兩行之間插入東西時，搬移會產出語法壞掉的區塊，
+   而回滾可能在讀到錯誤之前就先中止 → 後面三條全部假綠。
 
 ⚠️ **這是狀態 oracle，不是事件 oracle。** 快照相等只能證明「最終內容相同」，
 **不能**證明「途中從未刪除又還原」。產品目前沒有任何失敗後還原的邏輯，所以狀態比對足以當證據，
@@ -146,14 +178,14 @@ hook 與 settings，所以把 hook mutation 搬到預掃前，窄 oracle 會全�
 #### 案數硬斷言（`EXPECTED_CHECKS`）
 
 結尾會斷言 `PASS + FAIL` 等於一個寫死的常數。**沒有這一條，刪掉任何一個 `Check`
-仍會印 `PASS=111 FAIL=0` 並 exit 0**——「少一案」是抓不到的假綠。
+仍會印 `PASS=125 FAIL=0` 並 exit 0**——「少一案」是抓不到的假綠。
 這個總數與受測文件**無關**（反向驗證只改變 PASS／FAIL 的分佈，不改變案數），所以是穩定的不變量。
 新增或移除案時必須同步更新常數，那是刻意的摩擦。
 
-POSIX 側 2026-08-12 起也有（`EXPECTED_CHECKS_NONROOT=111` / `EXPECTED_CHECKS_ROOT=86`）。
+POSIX 側 2026-08-12 起也有（`EXPECTED_CHECKS_NONROOT=125` / `EXPECTED_CHECKS_ROOT=86`）。
 POSIX 需要兩個常數是因為 root 之下 `[M13]`／`[M13b]`／`[M13c]` 整體換成**一條硬失敗**
 （root 忽略 `chmod`、注入無效，那時給綠燈等於宣稱驗過一條沒驗到的契約）。
-兩個值都實測過：少一案 → `PASS=110 FAIL=0` **但 STOP 觸發、exit 1**；
+兩個值都實測過：少一案 → `PASS=124 FAIL=0` **但 STOP 觸發、exit 1**；
 root 分支（用 PATH 前置的假 `id` 模擬）→ `PASS=85 FAIL=1`＝86，不觸發 STOP。
 
 #### 為什麼 `列舉失敗 → 回滾中止` **沒有**加失敗訊息 signature（考慮過並否決）
@@ -186,9 +218,10 @@ root 分支（用 PATH 前置的假 `id` 模擬）→ `PASS=85 FAIL=1`＝86，�
 
 1. 上一批：產品**散文**裡的 `RESULT_CODE=` 字面被未錨定 oracle 抓成假標記。
 2. `[M13b]`：回滾區塊的**註解**含 `$ErrorActionPreference = 'Stop'` 字面 → `String.Replace` 會連註解一起改。
-3. `[M13c]`：注入行 `if (Get-Entry $hook) { Remove-Item -LiteralPath $hook -Force }`
+3. `[M13c]`（**第一版，注入式**）：注入行 `if (Get-Entry $hook) { Remove-Item -LiteralPath $hook -Force }`
    是產品既有的 `elseif (Get-Entry $hook) { … }` 的**子字串** → 直接數會得到 2 次。
-   修法是讓注入行帶一個唯一標記（`# M13C-PRE-SCAN-MUTATION`）再數標記。
+   當時的修法是讓注入行帶唯一標記再數標記；**第二版改成搬移之後，
+   所有比對都改用整行精確相等（`-ceq` / `grep -cxF`），從源頭避開這一類坑**。
 
 錨點失效時**刻意不跳過**後面的案，改用未變異的區塊讓它們自然變紅。
 **這一點是實測過的，不是推論**：把受測文件的回滾區塊第一行縮排一格
@@ -250,14 +283,14 @@ BSD 則拒絕進入（exit 1）。現在 `make_locked()` 會在裡面放一個 `
 順帶讓「掃不動的子樹裡有真實資料」這件事成立——空目錄的注入有可能**被 `rmdir` 掉而自己消失**。
 
 ⚠️ 上面那條「總數會因平台而異」的教訓**仍然成立**（釘名稱不要釘總數），
-只是這個**特定**的差異已經沒有了。Linux 實測 `98 PASS／13 FAIL`；
+只是這個**特定**的差異已經沒有了。Linux 實測 `107 PASS／18 FAIL`；
 **macOS 預測相同但尚未驗證**，見 [`HANDOFF-macos-posix-m13-2026-08-12.md`](../../docs/HANDOFF-macos-posix-m13-2026-08-12.md)。
 
 ### POSIX 側對 `4a96698` 的反向驗證（2026-08-12，Linux 實測）
 
 | | 現行文件 | `4a96698` |
 |---|---|---|
-| Linux（WSL2 ext4、bash 5.x、非 root）| **111 PASS／0 FAIL** exit 0 | **98／13** exit 1 |
+| Linux（WSL2 ext4、bash 5.x、非 root）| **125 PASS／0 FAIL** exit 0 | **107／18** exit 1 |
 | macOS | 🔴 **PENDING** | 🔴 **PENDING**（預測同上）|
 
 失敗的十三條：M11 四條 ＋ M13 四條快照（`中止後 live 未變`／`中止後整個假 HOME 未變` × `[bak]`／`[live]`）

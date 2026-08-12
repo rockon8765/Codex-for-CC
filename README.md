@@ -76,7 +76,7 @@
 > 續用成立，不需重跑。
 >
 > ⚠️ **這段的 `run-posix.sh` 結果（blob `637a9935…`、`PASS=95 FAIL=0`）已被 2026-08-12 取代。**
-> 該檔現在是 blob `a1041030…`、**111 案**，**macOS 尚未重驗**——
+> 該檔現在是 blob `0ca6fa03…`、**125 案**，**macOS 尚未重驗**——
 > 驗收單見 [`docs/HANDOFF-macos-posix-m13-2026-08-12.md`](docs/HANDOFF-macos-posix-m13-2026-08-12.md)。
 > 本段其餘項目（`run-posix-args` 13/13、兩個 `exit 2` 案）不受影響：
 > `run-posix-args.test.sh` 的 blob `ee8da03c…` 未改動。
@@ -150,20 +150,23 @@
 > hook 執行環境。已在 `Invoke-Block` 內以函式作用域降級為 `Continue` 修掉。
 >
 > ⚠️ **仍未做**（據實列，不含糊）：
-> - Windows 與 macOS 皆**無 CI**，仍靠人工原生驗證；`run-windows.ps1` 的 112 案
+> - Windows 與 macOS 皆**無 CI**，仍靠人工原生驗證；`run-windows.ps1` 的 126 案
 >   （含新增的 M13）遠端沒有任何 gate 會攔，改壞了不會有人被擋下來。
 > - ~~🔴 **POSIX 側的 `[M13]` 有與 Windows 完全同型的窄 oracle**~~
 >   **✅ 2026-08-12 已修（Linux 實測），macOS 🔴 PENDING** ——
 >   `[M13]` 加寬到整個假 HOME、新增 `[M13b]`／`[M13c]`、注入自我檢查改成前後對照、
->   補 `EXPECTED_CHECKS`。Linux **111／0**、反向驗證 **98／13**。
->   `[M13c]` 的「窄 oracle 看不到 ＋ 寬 oracle 抓得到」兩條都 PASS，
->   **缺口與修法都被實證**。macOS 驗收單見
+>   補 `EXPECTED_CHECKS`。Linux **125／0**、反向驗證 **107／18**。
+>   `[M13c]` 對 **hook 與 settings 兩個目標**各做一次「原樣搬移」，
+>   「窄 oracle 看不到 ＋ 寬 oracle 抓得到」四條全 PASS，**缺口與修法都被實證**。
+>   同日 Windows 側補上同樣的 fixture 修正（**126／0**、反向 **112／14**，兩 host 逐條相同）。
+>   macOS 驗收單見
 >   [`docs/HANDOFF-macos-posix-m13-2026-08-12.md`](docs/HANDOFF-macos-posix-m13-2026-08-12.md)。
 > - 🔴 **1b 有同型的靜態依賴未測**（Codex 指出）：1b 的 link 掃描與 `Get-TreeFingerprint`
 >   同樣依賴區塊開頭的 `Stop`，若列舉 fail-open 可能留下部分備份卻仍印 `backup ts=`
 >   ——而 `backup ts=` 正是「三個備份都完成」的宣稱。那是**另一條契約**（備份完整性，
 >   不是回滾的資料安全），本批未處理，已記進 backlog。**下一批 P0。**
-> - **`run-posix.sh` 沒有案數硬斷言**，Windows 側現在有；POSIX 側刪掉一案不會被抓到。
+> - ~~**`run-posix.sh` 沒有案數硬斷言**~~ **✅ 2026-08-12 已補**
+>   （`EXPECTED_CHECKS_NONROOT` / `EXPECTED_CHECKS_ROOT`，兩個值都實測過牙齒）。
 >
 > ⚠️ **在上面兩個 🔴 修好之前，不要拿本段對「安裝流程的安全性」做完整背書。**
 > 本段的綠只涵蓋**Windows 側回滾的列舉 fail-closed 契約**，不涵蓋 1b 的備份完整性，
@@ -172,8 +175,9 @@
 >
 > ✅ **訂正一個我自己寫錯的範圍宣稱**：先前這裡寫「`tests/ai-install/` 的完整測試臺仍不在 CI 內，
 > 只有參數解析進去了」——**不準確**。[`run-posix-args.test.sh`](tests/ai-install/run-posix-args.test.sh)
-> 的三個「必須被接受」案各自都會**完整跑完 95 案測試臺**（它們斷言 exit 0，而 exit 0 的前提就是
-> `PASS=95 FAIL=0`），所以 Linux CI 其實已經間接跑到完整 harness。缺的是**Windows 側**
+> 的三個「必須被接受」案各自都會**完整跑完整套測試臺**（它們斷言 exit 0，而 exit 0 的前提就是
+> `FAIL=0` **且**案數等於 `EXPECTED_CHECKS`；撰寫當時是 95 案，2026-08-12 起是 **125 案**），
+> 所以 Linux CI 其實已經間接跑到完整 harness。缺的是**Windows 側**
 > （`run-windows.ps1` 無 CI），不是 POSIX 側。
 >
 > <details><summary>原始缺陷清單（2026-08-09 撰寫，保留以存證）</summary>

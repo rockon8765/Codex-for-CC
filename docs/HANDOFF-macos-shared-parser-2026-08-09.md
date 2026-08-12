@@ -1,5 +1,14 @@
 # macOS 原生驗證交接：gate 辨識共用模組 ＋ A1 顯式模式（2026-08-09）
 
+> ## 📌 2026-08-12 補註：`run-posix.sh` 的期望值已過期
+>
+> 本文件 A-6／B-7 寫 `bash tests/ai-install/run-posix.sh` 期望 `PASS=95 FAIL=0`，
+> 而 §1 blob 表釘的是 `637a9935…`。該檔已於 2026-08-12 大改（`[M13]` 加寬 oracle
+> ＋ 新增 `[M13b]`／`[M13c]`），現在是 **125 案**、blob `0ca6fa03…`。
+> **要驗 `run-posix.sh` 請改用
+> [`HANDOFF-macos-posix-m13-2026-08-12.md`](HANDOFF-macos-posix-m13-2026-08-12.md)**，
+> 不要照本文件的數字判定。其餘項目（Node 測試、`run-posix-args`）未受影響。
+
 > ## ⛔ 狀態：**已執行完畢，結論 BLOCK。本文件的部分指令是壞的，不要照原樣重跑。**
 >
 > macOS 於 2026-08-09 跑完全部項目：**產品判定邏輯 A-0～A-10 全綠**，
