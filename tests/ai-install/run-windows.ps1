@@ -104,7 +104,7 @@ function Get-Ts($out) { if ($out -match 'backup ts=(\d{8}-\d{6})') { $Matches[1]
 # 沒有這一條，刪掉任何一個 Check 仍會印 `PASS=111 FAIL=0` 並 exit 0 ——「少一案」是抓不到的假綠。
 # ⚠️ 這個總數與受測文件**無關**（反向驗證只會改變 PASS/FAIL 的分佈，不會改變案數），
 # 所以它是穩定的不變量。新增或移除案時必須同步更新，那是刻意的摩擦。
-$EXPECTED_CHECKS = 112
+$EXPECTED_CHECKS = 126
 $script:pass = 0; $script:fail = 0
 function Check($name, $cond, $detail) {
   if ($cond) { $script:pass++; "  PASS  $name" }
@@ -392,6 +392,38 @@ function Clear-DenyEnumerate($path, $rule) {
   $null = $acl.RemoveAccessRule($rule)
   Set-Acl -LiteralPath $path -AclObject $acl
 }
+# 模擬安裝步驟 2 把 hook 條目合併進 settings。
+# ⚠️ **沒有這一步，settings 型的違規在 M13 是看不見的。**
+# `Add-ExistingInstall` 寫的 settings 與 1b 的備份一模一樣（1c 不碰 settings），
+# 所以把回滾的「settings 還原」搬到預掃之前只是 OLD → OLD ——
+# 內容雜湊不變、快照相等、mutant 存活。C1／C2 早就有這個手法
+#（註解寫「否則還原斷言恆真」），**M13 當初漏了**。POSIX 側同型、同日一起修。
+function Set-Step2Settings($h, $ts, $label) {
+  Set-Content -LiteralPath "$h\.claude\settings.json" -Value '{"new":true,"hooks":{"PreToolUse":[]}}' -NoNewline
+  $cur = Get-Content -LiteralPath "$h\.claude\settings.json" -Raw
+  $bak = Get-Content -LiteralPath "$h\.claude\settings.json.bak-$ts" -Raw
+  Check "$label 前置：settings 已與備份不同（否則 settings 型的違規看不見）" ($cur -cne $bak) '注入失敗：settings 仍等於備份'
+}
+# 整行精確比對的小工具。**一律用 `-ceq`（大小寫敏感、整行相等）**，
+# 不用 `-like`／`-match` —— 本批在 Windows 側因為子字串比對連續踩了兩次坑。
+function Get-ExactLineCount($lines, $needle) { @($lines | Where-Object { $_ -ceq $needle }).Count }
+function Get-ExactLineIndex($lines, $needle) {
+  for ($i = 0; $i -lt $lines.Count; $i++) { if ($lines[$i] -ceq $needle) { return $i } }
+  return -1
+}
+# 把相鄰的兩行**原樣搬到** anchor 之前（不是另外注入一行）。
+# 搬移是最強的證據形式：產物就是產品自己的程式碼，只是順序錯了。
+function Move-TwoLinesBefore($lines, $l1, $l2, $anchor) {
+  $out = New-Object System.Collections.ArrayList
+  $skip = $false
+  foreach ($ln in $lines) {
+    if ($ln -ceq $l1) { $skip = $true; continue }
+    if ($skip -and ($ln -ceq $l2)) { $skip = $false; continue }
+    if ($ln -ceq $anchor) { [void]$out.Add($l1); [void]$out.Add($l2) }
+    [void]$out.Add($ln)
+  }
+  ,$out.ToArray()
+}
 function Test-EnumBlocked($root, $fakeHome) {
   # 注入自我檢查要在**受測 host 的 child 行程**裡跑。自檢跑在 parent、產品跑在 `$exe` child，
   # 兩者不保證是同一個 host（`-Shell powershell` 時 parent 仍可能是 pwsh），
@@ -406,6 +438,8 @@ foreach ($case in @(@{ n='備份子樹'; where='bak' }, @{ n='live 子樹'; wher
   Check "[M13][$($case.n)] 前置：1b 成功並印出 ts" ($r.Ok -and $ts) $r.Out
   $r = Invoke-Block $B1c $h
   Check "[M13][$($case.n)] 前置：1c 安裝成功" $r.Ok $r.Out
+
+  Set-Step2Settings $h $ts "[M13][$($case.n)]"
 
   $root = if ($case.where -eq 'bak') { "$h\.claude\skills-backup\超級模式.bak-$ts" }
           else                       { "$h\.claude\skills\超級模式" }
@@ -478,49 +512,84 @@ try {
 # 錯誤是否終止會隨 host 版本而異，釘了只會製造平台雜訊（同 M13／POSIX 的教訓）。
 Check '[M13b] 拿掉 Stop 後 live 確實被動過（保護來自該行）' ((Get-Snapshot "$h\.claude\skills") -ne $before) "live 未變（回滾 ok=$($r.Ok)）：本案已失去意義，M13 的區辨力來源需重新確認"
 
-"`n[M13c] 變異注入：把一個 mutation 搬到預掃之前（證明 M13 的 oracle 夠寬）"
+"`n[M13c] 變異注入：把預掃**後**的還原步驟原樣搬到預掃之前（證明 oracle 夠寬）"
 # 合併前 Codex 審查抓到的 surviving mutant：契約說的是「**任何** mutation 之前中止」，
-# 但我原本只快照 `.claude\skills`。產品在預掃**之後**才改 hook 與 settings，
-# 所以「把 hook mutation 搬到預掃前」這個違規，舊的窄 oracle 會全綠放行。
-# 本案就是那條加寬的牙齒測試：注入一個預掃前的 hook mutation，然後同時檢查
-# **窄 oracle 看不到**（證明缺口真實存在）與**寬 oracle 抓得到**（證明加寬有效）。
+# 但原本只快照 `.claude\skills`。產品在預掃**之後**才還原 hook 與 settings，
+# 所以「把還原搬到預掃前」這個違規，窄 oracle 會全綠放行。
+#
+# ⚠️ **兩個目標都要跑**：hook 與 settings。只跑 hook 的話，settings 型的同契約 mutant
+# 仍然沒被測到 —— 而且在 `Set-Step2Settings` 之前它根本殺不掉，因為 settings 等於它的備份
+#（那是 fixture 的盲點，不是 oracle 的）。
+#
+# ⚠️ 改用**搬移**而非注入（第一版是注入一行）。Codex 評注入為「對 oracle 是等價類」，
+# 但也指出**搬既有兩行才是最強證據** —— 產物就是產品自己的程式碼，只是順序錯了。
+# 搬移的代價是自我檢查要更嚴：驗來源兩行相鄰、驗產出相鄰且緊貼 anchor、
+# 再驗**產出仍可解析**。少了最後一條，日後若有人在兩行之間插入東西，
+# 搬移會產生語法壞掉的區塊，而回滾可能在讀到錯誤之前就先中止 → 後面三條全部假綠。
 $m13cAnchor = "if (Test-Path -LiteralPath `$sbak -PathType Container) { Assert-NoReparseUnder 'skill 備份' `$sbak }"
-# ⚠️ 注入行要帶一個**唯一標記**才數得準：產品本來就有
-# `elseif (Get-Entry $hook) { Remove-Item -LiteralPath $hook -Force }`，
-# 而它**包含**不帶標記的注入字串當子字串 —— 直接數會得到 2 次。
-# 這是本批第三次撞上同一個「未錨定／子字串比對」的坑（前兩次：註解含 `$ErrorActionPreference = 'Stop'` 字面、
-# 以及上一批散文含 `RESULT_CODE=`），三次都是自我檢查先紅才發現的。
-$m13cMarker = '# M13C-PRE-SCAN-MUTATION'
-$m13cInject = "if (Get-Entry `$hook) { Remove-Item -LiteralPath `$hook -Force } $m13cMarker"
-$m13cHits = ([regex]::Matches($Brb, [regex]::Escape($m13cAnchor))).Count
-$m13cOk   = ($m13cHits -eq 1)
-Check '[M13c] 變異錨點唯一（否則本案等於沒測）' $m13cOk "錨點命中 $m13cHits 次（預期 1）—— 舊版文件沒有預掃，本案在反向驗證時本來就會紅"
-$m13cMut = if ($m13cOk) { $Brb.Replace($m13cAnchor, $m13cInject + "`n" + $m13cAnchor) } else { $Brb }
-$m13cAdded = (($m13cMut -split "`n").Count - ($Brb -split "`n").Count)
-$m13cInjHits = ([regex]::Matches($m13cMut, [regex]::Escape($m13cMarker))).Count
-Check '[M13c] 變異確實注入且只多一行' (($m13cMut -ne $Brb) -and ($m13cAdded -eq 1) -and ($m13cInjHits -eq 1)) "多出 $m13cAdded 行、注入標記出現 $m13cInjHits 次（預期 1／1）"
-$h = New-FakeHome 'm13c'; Add-ExistingInstall $h
-$r = Invoke-Block $B1b $h; $ts = Get-Ts $r.Out
-Check '[M13c] 前置：1b 成功並印出 ts' ($r.Ok -and $ts) $r.Out
-$r = Invoke-Block $B1c $h
-Check '[M13c] 前置：1c 安裝成功' $r.Ok $r.Out
-$m13cRoot = "$h\.claude\skills-backup\超級模式.bak-$ts"
-$m13cLocked = New-LockedDir $m13cRoot
-$beforeSkills = Get-Snapshot "$h\.claude\skills"
-$beforeHome   = Get-Snapshot $h
-$denyRule = Set-DenyEnumerate $m13cLocked
-try {
-  $probeOut = Test-EnumBlocked $m13cRoot $h
-  Check '[M13c] 前置：列舉真的失敗（在受測 host 內驗證注入生效）' ($probeOut -match 'ENUM=FAIL TYPE=UnauthorizedAccessException') "probe 輸出：$probeOut —— Deny ACE 沒咬到，本案等於沒測"
-  $r = Invoke-Block ($m13cMut.Replace($PLACEHOLDER, $ts)) $h
-} finally {
-  Clear-DenyEnumerate $m13cLocked $denyRule
+$brbLines = $Brb -split "`n"
+foreach ($tgt in @(
+  @{ n='hook';     l1="if (Test-Path -LiteralPath `$hbak -PathType Leaf) { Copy-Item -LiteralPath `$hbak -Destination `$hook -Force }"
+                   l2="elseif (Get-Entry `$hook) { Remove-Item -LiteralPath `$hook -Force }" },
+  @{ n='settings'; l1="if (Test-Path -LiteralPath `$setbak -PathType Leaf) { Copy-Item -LiteralPath `$setbak -Destination `$setf -Force }"
+                   l2="elseif (Get-Entry `$setf) { Remove-Item -LiteralPath `$setf -Force }" })) {
+
+  $c1 = Get-ExactLineCount $brbLines $tgt.l1
+  $c2 = Get-ExactLineCount $brbLines $tgt.l2
+  $ca = Get-ExactLineCount $brbLines $m13cAnchor
+  $i1 = Get-ExactLineIndex $brbLines $tgt.l1
+  $i2 = Get-ExactLineIndex $brbLines $tgt.l2
+  $ia = Get-ExactLineIndex $brbLines $m13cAnchor
+  # anchor 必須真的是**第一個** Assert-NoReparseUnder 呼叫
+  #（定義行是 `function Assert-NoReparseUnder($name, $path) {`，沒有空格，抓不到）
+  $iFirstScan = -1
+  for ($k = 0; $k -lt $brbLines.Count; $k++) { if ($brbLines[$k] -clike '*Assert-NoReparseUnder *') { $iFirstScan = $k; break } }
+  Check "[M13c][$($tgt.n)] 來源錨點：三串各唯一、兩行相鄰、anchor 是第一個 Assert-NoReparseUnder" `
+    (($c1 -eq 1) -and ($c2 -eq 1) -and ($ca -eq 1) -and ($i2 -eq $i1 + 1) -and ($ia -ge 0) -and ($iFirstScan -eq $ia)) `
+    "c1=$c1 c2=$c2 anchor=$ca i1=$i1 i2=$i2 firstScan=$iFirstScan anchorIdx=$ia（舊版文件沒有預掃，anchor 會是 0）"
+
+  $mutLines = Move-TwoLinesBefore $brbLines $tgt.l1 $tgt.l2 $m13cAnchor
+  $m1 = Get-ExactLineIndex $mutLines $tgt.l1
+  $m2 = Get-ExactLineIndex $mutLines $tgt.l2
+  $ma = Get-ExactLineIndex $mutLines $m13cAnchor
+  Check "[M13c][$($tgt.n)] 產出：行數不變、各恰一份、兩行相鄰且緊貼 anchor" `
+    (($mutLines.Count -eq $brbLines.Count) -and ((Get-ExactLineCount $mutLines $tgt.l1) -eq 1) -and `
+     ((Get-ExactLineCount $mutLines $tgt.l2) -eq 1) -and ($m1 -ge 0) -and ($m2 -eq $m1 + 1) -and ($ma -eq $m2 + 1)) `
+    "lines=$($brbLines.Count)/$($mutLines.Count) l1=$m1 l2=$m2 anchor=$ma"
+
+  $m13cMut = $mutLines -join "`n"
+  # 解析檢查是上一條的**獨立**保險：相鄰性驗位置，解析驗「這東西還能不能跑」。
+  $parseOk = $true; $parseErr = ''
+  try { $null = [scriptblock]::Create($m13cMut) } catch { $parseOk = $false; $parseErr = $_.Exception.Message }
+  Check "[M13c][$($tgt.n)] 產出的區塊語法正確（可解析）" $parseOk "解析失敗：$parseErr —— 執行時可能先中止而讓後面三條假綠"
+
+  $h = New-FakeHome "m13c-$($tgt.n)"; Add-ExistingInstall $h
+  $r = Invoke-Block $B1b $h; $ts = Get-Ts $r.Out
+  Check "[M13c][$($tgt.n)] 前置：1b 成功並印出 ts" ($r.Ok -and $ts) $r.Out
+  $r = Invoke-Block $B1c $h
+  Check "[M13c][$($tgt.n)] 前置：1c 安裝成功" $r.Ok $r.Out
+  Set-Step2Settings $h $ts "[M13c][$($tgt.n)]"
+  $m13cRoot = "$h\.claude\skills-backup\超級模式.bak-$ts"
+  $m13cLocked = New-LockedDir $m13cRoot
+  $beforeSkills = Get-Snapshot "$h\.claude\skills"
+  $beforeHome   = Get-Snapshot $h
+  $denyRule = Set-DenyEnumerate $m13cLocked
+  try {
+    $probeOut = Test-EnumBlocked $m13cRoot $h
+    Check "[M13c][$($tgt.n)] 前置：列舉真的失敗（在受測 host 內驗證注入生效）" ($probeOut -match 'ENUM=FAIL TYPE=UnauthorizedAccessException') "probe 輸出：$probeOut —— Deny ACE 沒咬到，本案等於沒測"
+    $r = Invoke-Block ($m13cMut.Replace($PLACEHOLDER, $ts)) $h
+  } finally {
+    Clear-DenyEnumerate $m13cLocked $denyRule
+  }
+  # ⚠️ 這裡**不**釘失敗訊息（POSIX 側有釘）：Windows 的中止是 `Get-ChildItem` 未攔截的
+  # .NET 例外，沒有產品自己的訊息可釘，釘 cmdlet 名稱等於綁死實作。
+  # 「非零是不是來自語法錯誤」改由上面的解析檢查結構性排除。
+  Check "[M13c][$($tgt.n)] 回滾仍中止" (-not $r.Ok) "竟然成功：$($r.Out)"
+  # 這兩條要一起看才有意義：前者證明**缺口真實存在**（只看 skills 會放行違規），
+  # 後者證明**加寬確實抓得到**。少了前者，讀者無從判斷加寬有沒有買到東西。
+  Check "[M13c][$($tgt.n)] 窄 oracle（只看 skills）看不到這個違規" ((Get-Snapshot "$h\.claude\skills") -eq $beforeSkills) 'skills 也變了，本案已無法示範窄 oracle 的盲點'
+  Check "[M13c][$($tgt.n)] 寬 oracle（整個假家目錄）抓到預掃前的 mutation" ((Get-Snapshot $h) -ne $beforeHome) '寬 oracle 也沒抓到 —— 搬移沒生效或加寬無效'
 }
-Check '[M13c] 回滾仍中止' (-not $r.Ok) "竟然成功：$($r.Out)"
-# 這兩條要一起看才有意義：前者證明**缺口真實存在**（只看 skills 會放行違規），
-# 後者證明**加寬確實抓得到**。少了前者，讀者無從判斷加寬有沒有買到東西。
-Check '[M13c] 窄 oracle（只看 skills）看不到這個違規' ((Get-Snapshot "$h\.claude\skills") -eq $beforeSkills) 'skills 也變了，本案已無法示範窄 oracle 的盲點'
-Check '[M13c] 寬 oracle（整個假家目錄）抓到預掃前的 mutation' ((Get-Snapshot $h) -ne $beforeHome) '寬 oracle 也沒抓到 —— 注入沒生效或 M13 的加寬無效'
 
 "`n[C3] 對照組（確認上面的斷言不是永遠為真）"
 $h = New-FakeHome 'c3'; Add-ExistingInstall $h
