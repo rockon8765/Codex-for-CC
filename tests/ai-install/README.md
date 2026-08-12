@@ -87,7 +87,11 @@ Windows 側在那之前只有 `$ErrorActionPreference = 'Stop'` 的**靜態推�
 
 ⚠️ **注入自我檢查跑在受測 host 的 child 行程裡，不是 parent。** 自檢跑在 parent host、
 產品跑在 `$exe` child，兩者不保證同一個 host（`-Shell powershell` 時 parent 仍可能是 pwsh），
-token 與 provider 行為不能當成邏輯上相同。所以探針是送進 `Invoke-Block` 執行、印 `ENUM=FAIL`。
+token 與 provider 行為不能當成邏輯上相同。所以探針是送進 `Invoke-Block` 執行。
+
+探針印的是 `ENUM=FAIL TYPE=<例外型別>`，斷言**釘死 `UnauthorizedAccessException`**。
+只認「有沒有拋錯」的話，任何不相干的錯誤（路徑打錯、暫存目錄被清掉…）都能冒充成
+「Deny ACE 生效」，本案就變成假通過。兩個 host 實測都是 `UnauthorizedAccessException`。
 
 #### oracle 的範圍：整個假家目錄，不是只有 `.claude\skills`
 

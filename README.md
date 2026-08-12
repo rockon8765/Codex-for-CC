@@ -146,10 +146,19 @@
 > ⚠️ **仍未做**（據實列，不含糊）：
 > - Windows 與 macOS 皆**無 CI**，仍靠人工原生驗證；`run-windows.ps1` 的 112 案
 >   （含新增的 M13）遠端沒有任何 gate 會攔，改壞了不會有人被擋下來。
-> - **1b 有同型的靜態依賴未測**（Codex 指出）：1b 的 link 掃描與 `Get-TreeFingerprint`
->   同樣依賴區塊開頭的 `Stop`，若列舉 fail-open 可能留下部分備份卻仍印 `backup ts=`。
->   那是**另一條契約**（不是回滾），本批未處理，已記進 backlog。
+> - 🔴 **POSIX 側的 `[M13]` 有與 Windows 完全同型的窄 oracle**（第二輪 Codex 審查抓到）：
+>   `run-posix.sh` 只 `snap "$H/.claude/skills"`，沒有寬 oracle 也沒有 `M13c`，
+>   所以「把 hook mutation 搬到 `scan_no_link` 之前」在 POSIX 側仍會全綠。**下一批 P0。**
+> - 🔴 **1b 有同型的靜態依賴未測**（Codex 指出）：1b 的 link 掃描與 `Get-TreeFingerprint`
+>   同樣依賴區塊開頭的 `Stop`，若列舉 fail-open 可能留下部分備份卻仍印 `backup ts=`
+>   ——而 `backup ts=` 正是「三個備份都完成」的宣稱。那是**另一條契約**（備份完整性，
+>   不是回滾的資料安全），本批未處理，已記進 backlog。**下一批 P0。**
 > - **`run-posix.sh` 沒有案數硬斷言**，Windows 側現在有；POSIX 側刪掉一案不會被抓到。
+>
+> ⚠️ **在上面兩個 🔴 修好之前，不要拿本段對「安裝流程的安全性」做完整背書。**
+> 本段的綠只涵蓋**Windows 側回滾的列舉 fail-closed 契約**，不涵蓋 1b 的備份完整性，
+> 也不涵蓋 POSIX 側的同一條契約。另外「預掃成功」不代表後續一定可刪／可寫
+> （ACL 可以允許列舉卻拒絕 Delete／DeleteChild），那是既有的非交易式回滾限制。
 >
 > ✅ **訂正一個我自己寫錯的範圍宣稱**：先前這裡寫「`tests/ai-install/` 的完整測試臺仍不在 CI 內，
 > 只有參數解析進去了」——**不準確**。[`run-posix-args.test.sh`](tests/ai-install/run-posix-args.test.sh)

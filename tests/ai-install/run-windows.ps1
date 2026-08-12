@@ -84,8 +84,12 @@ function Add-ExistingInstall($h) {
 function Get-Snapshot($h) {
   if (-not (Test-Path -LiteralPath $h)) { return '<none>' }
   # 比對整個假 USERPROFILE，但明確忽略 pwsh 自己在被重導的 HOME 下建的 profile 資料
-  # （AppData\Local\Microsoft\PowerShell\StartupProfileData-*），那是測試臺雜訊。
+  # （典型是 AppData\Local\Microsoft\PowerShell\StartupProfileData-*），那是測試臺雜訊。
   # 明確忽略而非縮小比對範圍，否則未來新增的 .claude 之外副作用會逃過檢查。
+  # ⚠️ 據實說明範圍：排除樣式是 `*\AppData\Local\Microsoft\PowerShell*`，
+  # **比 `StartupProfileData-*` 寬** —— 整個 PowerShell 子樹都不比對。
+  # 這是 fail-safe 方向的取捨（寧可漏看該子樹，也不要每次執行都因 host 自建檔案誤紅），
+  # 但代價是：若產品哪天真的往那個子樹寫東西，這裡看不到。（第二輪 Codex 審查要求寫清楚。）
   (Get-ChildItem -LiteralPath $h -Recurse -Force |
     Where-Object { $_.FullName -notlike '*\AppData\Local\Microsoft\PowerShell*' } |
     Sort-Object FullName | ForEach-Object {
@@ -334,10 +338,13 @@ Check '回滾仍成功' $r.Ok $r.Out
 Check '回滾後 live skill 已還原' (Test-Path -LiteralPath "$h\.claude\skills\超級模式\SKILL.md" -PathType Leaf) '沒有還原'
 
 # 注入自我檢查的探針，會被送進**受測 host 的 child 行程**執行（見 Test-EnumBlocked）。
+# ⚠️ 例外**型別**要一起印出來並釘住。只認「有沒有拋錯」的話，任何不相干的錯誤
+# （路徑打錯、暫存目錄被清掉…）都能冒充成「Deny ACE 生效」，本案就變成假通過。
+# 我們要的是 UnauthorizedAccessException，不是隨便一個例外。（第二輪 Codex 審查建議。）
 $m13ProbeTpl = @'
 $ErrorActionPreference = 'Stop'
 try { $null = @(Get-ChildItem -LiteralPath '<ROOT>' -Recurse -Force -ErrorAction Stop); 'ENUM=OK' }
-catch { 'ENUM=FAIL' }
+catch { "ENUM=FAIL TYPE=$($_.Exception.GetType().Name)" }
 '@
 
 "`n[M13] 列舉失敗必須在任何 mutation 之前中止（fail-closed 契約本身）"
@@ -411,7 +418,7 @@ foreach ($case in @(@{ n='備份子樹'; where='bak' }, @{ n='live 子樹'; wher
   $denyRule = Set-DenyEnumerate $locked
   try {
     $probeOut = Test-EnumBlocked $root $h
-    Check "[M13][$($case.n)] 前置：列舉真的失敗（在受測 host 內驗證注入生效）" ($probeOut -match 'ENUM=FAIL') "probe 輸出：$probeOut —— Deny ACE 沒咬到（檔案系統不支援 ACL？行程有備份權限？），不能給綠燈"
+    Check "[M13][$($case.n)] 前置：列舉真的失敗（在受測 host 內驗證注入生效）" ($probeOut -match 'ENUM=FAIL TYPE=UnauthorizedAccessException') "probe 輸出：$probeOut —— Deny ACE 沒咬到（檔案系統不支援 ACL？行程有備份權限？），不能給綠燈"
     $r = Invoke-Rollback $ts $h
   } finally {
     # 先還原權限，後面的 Get-Snapshot 與 $work 清理才掃得動
@@ -462,7 +469,7 @@ $before = Get-Snapshot "$h\.claude\skills"
 $denyRule = Set-DenyEnumerate $m13bLocked
 try {
   $probeOut = Test-EnumBlocked "$h\.claude\skills-backup\超級模式.bak-$ts" $h
-  Check '[M13b] 前置：列舉真的失敗（在受測 host 內驗證注入生效）' ($probeOut -match 'ENUM=FAIL') "probe 輸出：$probeOut —— Deny ACE 沒咬到，本案等於沒測"
+  Check '[M13b] 前置：列舉真的失敗（在受測 host 內驗證注入生效）' ($probeOut -match 'ENUM=FAIL TYPE=UnauthorizedAccessException') "probe 輸出：$probeOut —— Deny ACE 沒咬到，本案等於沒測"
   $r = Invoke-Block ($m13Mut.Replace($PLACEHOLDER, $ts)) $h
 } finally {
   Clear-DenyEnumerate $m13bLocked $denyRule
@@ -504,7 +511,7 @@ $beforeHome   = Get-Snapshot $h
 $denyRule = Set-DenyEnumerate $m13cLocked
 try {
   $probeOut = Test-EnumBlocked $m13cRoot $h
-  Check '[M13c] 前置：列舉真的失敗（在受測 host 內驗證注入生效）' ($probeOut -match 'ENUM=FAIL') "probe 輸出：$probeOut —— Deny ACE 沒咬到，本案等於沒測"
+  Check '[M13c] 前置：列舉真的失敗（在受測 host 內驗證注入生效）' ($probeOut -match 'ENUM=FAIL TYPE=UnauthorizedAccessException') "probe 輸出：$probeOut —— Deny ACE 沒咬到，本案等於沒測"
   $r = Invoke-Block ($m13cMut.Replace($PLACEHOLDER, $ts)) $h
 } finally {
   Clear-DenyEnumerate $m13cLocked $denyRule
