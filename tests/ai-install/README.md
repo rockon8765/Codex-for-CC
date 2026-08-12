@@ -29,6 +29,20 @@ bash tests/ai-install/run-posix.sh
 降級為 `Continue` 修掉（離開函式自動還原，其餘斷言的 Stop 語義不變）；
 子行程的成敗本來就一律以 `$LASTEXITCODE` 判斷，不該由 host 的錯誤串流決定。
 
+同一次順帶硬化了 `Invoke-Block` 的兩個既有弱點（合併前 Codex 審查指出，**已復現**）：
+
+- **host 未先解析**：executable 不存在時 `& $exe` **不會設定 `$LASTEXITCODE`**，
+  上一次成功留下的 `0` 會被沿用 →「找不到 host 卻判定成功」。
+  兩個 host 實測皆然（先跑 `cmd /c exit 0`、再呼叫不存在的 exe，`rc` 仍是 `0`）。
+  現行寫法最後是靠 `$out` 為 null、`.Trim()` 再爆掉才變紅——那是**偶然**的誤紅保護，不是結構。
+  → 改成啟動時用 `Get-Command -CommandType Application -ErrorAction Stop` 解析成絕對路徑並印出。
+- **呼叫前未重設、事後未驗型別** → 改成每次呼叫前 `$global:LASTEXITCODE = $null`、
+  事後 `$rc -isnot [int]` 就 throw，並用 `("$out").Trim()` 安全轉字串。
+  實測：加了重設之後 `rc` 為 null、型別檢查正確拒絕判定成敗。
+
+⚠️ 摘要行印的是 host **名稱**（`pwsh` / `powershell`）而不是解析後的絕對路徑——
+交接文件與反向驗證都在比對那一行。
+
 指定別的文件版本（用途見下方「反向驗證」）：
 - Windows：`-Doc <path>`
 - POSIX：`--doc <path>`，或環境變數 `DOC=<path>`
@@ -71,9 +85,46 @@ Windows 側在那之前只有 `$ErrorActionPreference = 'Stop'` 的**靜態推�
 注入沒生效就直接 FAIL，不給綠燈、也不靜默跳過（本測試臺沒有 SKIP 機制，
 加一個會改動結尾 `PASS=`／`FAIL=` 摘要行的契約，而交接文件與反向驗證都靠那一行）。
 
-`[M13b]` 另外證明**是哪一行讓它 fail-closed**：把區塊開頭的 `Stop` 改成 `Continue`、
-其餘完全不動，`[M13b] 拿掉 Stop 後 live 確實被動過` 必須成立。
+⚠️ **注入自我檢查跑在受測 host 的 child 行程裡，不是 parent。** 自檢跑在 parent host、
+產品跑在 `$exe` child，兩者不保證同一個 host（`-Shell powershell` 時 parent 仍可能是 pwsh），
+token 與 provider 行為不能當成邏輯上相同。所以探針是送進 `Invoke-Block` 執行、印 `ENUM=FAIL`。
+
+#### oracle 的範圍：整個假家目錄，不是只有 `.claude\skills`
+
+契約說的是「**任何** mutation 之前中止」。第一版我只快照 `.claude\skills`，
+**那是可復現的 surviving mutant**（合併前 Codex 審查抓到）：產品在預掃**之後**才改
+hook 與 settings，所以把 hook mutation 搬到預掃前，窄 oracle 會全綠放行。
+
+現在每個變體都比兩份快照：`中止後 live 未變`（skills，訊息清楚）
+＋ `中止後整個假家目錄未變（hook／settings 也在內）`（真正對應契約的那條）。
+
+`[M13c]` 是這條加寬的**牙齒測試**：注入一個預掃前的 hook mutation，然後同時斷言
+**窄 oracle 看不到**（證明缺口真實存在）與**寬 oracle 抓得到**（證明加寬有效）。
+兩條要一起看才有意義——少了前者，讀者無從判斷加寬到底買到了什麼。
+
+⚠️ **這是狀態 oracle，不是事件 oracle。** 快照相等只能證明「最終內容相同」，
+**不能**證明「途中從未刪除又還原」。產品目前沒有任何失敗後還原的邏輯，所以狀態比對足以當證據，
+但不要把它讀成「證明 mutation 從未開始」。真要那樣宣稱得加 mutation-reached sentinel
+或代理所有 `Remove-Item`／`Copy-Item`。
+
+#### `[M13b]`：證明**是哪一行**讓它 fail-closed
+
+把區塊開頭的 `Stop` 改成 `Continue`、其餘完全不動，`拿掉 Stop 後 live 確實被動過` 必須成立。
 沒有這一案，日後有人刪掉那行時只會知道 `[M13]` 紅了，不會知道紅在哪裡。
+
+⚠️ 它鎖的是**備份**子樹，不是 live。鎖 live 的話，fail-open 之後的負向訊號要依賴
+`Remove-Item -Recurse` 對一棵**部分不可存取**的樹「刪掉一些才失敗」——那是 provider 語義，
+日後若改成更早、更原子地拒絕就會誤紅。鎖備份則是：預掃 fail-open → 第一個 mutation
+刪除一棵**完全可存取**的 live → 訊號穩定。
+
+#### 案數硬斷言（`EXPECTED_CHECKS`）
+
+結尾會斷言 `PASS + FAIL` 等於一個寫死的常數。**沒有這一條，刪掉任何一個 `Check`
+仍會印 `PASS=111 FAIL=0` 並 exit 0**——「少一案」是抓不到的假綠。
+這個總數與受測文件**無關**（反向驗證只改變 PASS／FAIL 的分佈，不改變案數），所以是穩定的不變量。
+新增或移除案時必須同步更新常數，那是刻意的摩擦。
+
+（POSIX 側的 `run-posix.sh` 目前**沒有**這道斷言，已記進 [`docs/backlog.md`](../../docs/backlog.md)。）
 
 #### 為什麼 `列舉失敗 → 回滾中止` **沒有**加失敗訊息 signature（考慮過並否決）
 
@@ -101,10 +152,20 @@ Windows 側在那之前只有 `$ErrorActionPreference = 'Stop'` 的**靜態推�
 而且是**自我檢查先紅才發現的**，不是事先想到的。所以 `[M13b]` 除了驗錨點唯一＋位在 index 0，
 還用 `Compare-Object` 驗「變異只動一行」（差異行數必須恰為 2，一去一回）。
 
-錨點失效時**刻意不跳過**後面兩案，改用未變異的區塊讓它們自然變紅——案數必須釘死，
-少印一案是抓不到的假綠。**這一點是實測過的，不是推論**：把受測文件的回滾區塊第一行
-縮排一格（縮排不改變 PowerShell 語義，產品仍 fail-closed，只讓 `(?m)^` 失去命中），
-harness 印 **99 PASS／3 FAIL**、案數仍為 102，紅的恰好是那三條 `[M13b]`。
+**同一個坑在本批出現三次**，三次都是自我檢查先紅：
+
+1. 上一批：產品**散文**裡的 `RESULT_CODE=` 字面被未錨定 oracle 抓成假標記。
+2. `[M13b]`：回滾區塊的**註解**含 `$ErrorActionPreference = 'Stop'` 字面 → `String.Replace` 會連註解一起改。
+3. `[M13c]`：注入行 `if (Get-Entry $hook) { Remove-Item -LiteralPath $hook -Force }`
+   是產品既有的 `elseif (Get-Entry $hook) { … }` 的**子字串** → 直接數會得到 2 次。
+   修法是讓注入行帶一個唯一標記（`# M13C-PRE-SCAN-MUTATION`）再數標記。
+
+錨點失效時**刻意不跳過**後面的案，改用未變異的區塊讓它們自然變紅。
+**這一點是實測過的，不是推論**：把受測文件的回滾區塊第一行縮排一格
+（縮排不改變 PowerShell 語義，產品仍 fail-closed，只讓 `(?m)^` 失去命中），
+harness 印 **109 PASS／3 FAIL**、**總案數仍為 112**，紅的恰好是那三條 `[M13b]`。
+⚠️ 注意這只證明「錨點失效不會**少**案」，**不等於**「案數已釘死」——後者要靠上面的
+`EXPECTED_CHECKS`（這個區別是合併前 Codex 審查指出的，我原本把兩件事混為一談）。
 
 ## 反向驗證（改動守衛後務必做）
 
@@ -154,19 +215,30 @@ M11 四條（`[bak]`／`[live]` 各「回滾中止」＋「被拒後 live 未變
 
 | host | 現行文件 | `4a96698` |
 |---|---|---|
-| `pwsh` 7.6.3 | **102 PASS／0 FAIL** exit 0 | **96／6** exit 1 |
-| Windows PowerShell 5.1.26100 | **102 PASS／0 FAIL** exit 0 | **96／6** exit 1 |
+| `pwsh` 7.6.3 | **112 PASS／0 FAIL** exit 0 | **101／11** exit 1 |
+| Windows PowerShell 5.1.26100 | **112 PASS／0 FAIL** exit 0 | **101／11** exit 1 |
 
-失敗的**恰好**是這六條，兩個 host 逐條相同：
+失敗的**恰好**是這十一條，兩個 host 逐條相同：
 
+M11（本來就有，4 條）
 - `[備份子樹] 回滾中止`、`[備份子樹] 被拒後 live 未變`
-- `[live 子樹] 回滾中止`、`[live 子樹] 被拒後 live 未變`　←（以上四條為 M11，本來就有）
-- `[M13][備份子樹] 中止後 live 未變`、`[M13][live 子樹] 中止後 live 未變`　←（M13 新增的兩條）
+- `[live 子樹] 回滾中止`、`[live 子樹] 被拒後 live 未變`
+
+M13（4 條）
+- `[M13][備份子樹] 中止後 live 未變`、`[M13][備份子樹] 中止後整個假家目錄未變（hook／settings 也在內）`
+- `[M13][live 子樹] 中止後 live 未變`、`[M13][live 子樹] 中止後整個假家目錄未變（hook／settings 也在內）`
+
+M13c（3 條）
+- `[M13c] 變異錨點唯一（否則本案等於沒測）`、`[M13c] 變異確實注入且只多一行`
+- `[M13c] 窄 oracle（只看 skills）看不到這個違規`
+
+M13c 那三條在舊版紅是**預期且正確的**：`4a96698` 根本沒有預掃那一行，所以錨點必然落空，
+而未變異的舊區塊會刪掉 live，窄 oracle 也就看得到差異。
 
 ⚠️ **`[M13][…] 列舉失敗 → 回滾中止` 在舊版照樣 PASS**——舊版沒有預掃，
 `Remove-Item`／`Copy-Item` 自己撞權限一樣會非零。這與 POSIX 側的結論一致：
-**區辨力全在「中止後 live 未變」，不在退出碼**。加 M13 之前的基準是 `86／0` 與 `82／4`，
-所以這一批的 delta 是「+16 案、反向驗證 +2 條該紅的」。
+**區辨力全在快照那兩條，不在退出碼**。加 M13 之前的基準是 `86／0` 與 `82／4`，
+所以這一批的 delta 是「+26 案、反向驗證 +7 條該紅的」。
 
 Windows 的 M13 斷言名稱一律帶 `[M13]` 前綴：M11 也用 `[備份子樹]`／`[live 子樹]`，
 不加前綴的話「前置：1b 成功並印出 ts」等名稱會在兩個區塊裡重複，就沒辦法逐條核對

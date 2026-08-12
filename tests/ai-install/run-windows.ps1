@@ -35,7 +35,14 @@ $PLACEHOLDER = '<貼上 1b 印出的值>'
 if ($Brb -notlike "*$PLACEHOLDER*") { throw '回滾區塊找不到 ts 佔位符，抽取邏輯已過期' }
 
 # 執行器
-$exe = if ($Shell -eq 'pwsh') { 'pwsh' } else { 'powershell' }
+# 先把 host 解析成絕對路徑，找不到就在這裡失敗。不解析的話，executable 不存在時
+# `& $exe` **不會設定 `$LASTEXITCODE`**，於是上一次成功留下的 0 會被沿用
+# ——「找不到 host 卻判定成功」。（合併前 Codex 審查用最小探針在 5.1 與 7.x 都復現；
+# 現行寫法最後是靠 `$out` 為 null、`.Trim()` 再爆掉才變紅，那是偶然的誤紅保護，不是結構。）
+$exeName = if ($Shell -eq 'pwsh') { 'pwsh' } else { 'powershell' }
+$exe = try { (Get-Command $exeName -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source }
+       catch { throw "找不到可執行的 host '$exeName'（-Shell $Shell）：$($_.Exception.Message)" }
+"執行 host：$exe"
 function Invoke-Block($code, $fakeHome) {
   $f = Join-Path $work 'block.ps1'
   [IO.File]::WriteAllText($f, $code, (New-Object Text.UTF8Encoding $true))
@@ -50,11 +57,15 @@ function Invoke-Block($code, $fakeHome) {
   # 這裡只在**函式作用域**內降級（離開函式自動還原，不影響其他斷言的 Stop 語義）：
   # 子行程的成敗一律以 `$LASTEXITCODE` 判斷，本來就不該由 host 的錯誤串流決定。
   $ErrorActionPreference = 'Continue'
+  # 每次呼叫前重設：不重設就可能沿用上一次的退出碼（見上方 host 解析的註解）。
+  $global:LASTEXITCODE = $null
   try {
     $out = & $exe -NoProfile -NonInteractive -File $f 2>&1 | Out-String
     $rc = $LASTEXITCODE
   } finally { $env:USERPROFILE = $prev }
-  [pscustomobject]@{ Ok = ($rc -eq 0); Out = $out.Trim() }
+  # 拿不到整數退出碼就無法判定成敗 —— 明確炸掉，不要退化成「$rc -eq 0 為 false」而看似正常。
+  if ($rc -isnot [int]) { throw "子行程沒有回傳整數退出碼（rc=[$rc]），無法判定成敗：$f" }
+  [pscustomobject]@{ Ok = ($rc -eq 0); Out = ("$out").Trim() }
 }
 function Invoke-Rollback($ts, $fakeHome) { Invoke-Block ($Brb.Replace($PLACEHOLDER, $ts)) $fakeHome }
 
@@ -85,6 +96,11 @@ function Get-Snapshot($h) {
 }
 function Get-Ts($out) { if ($out -match 'backup ts=(\d{8}-\d{6})') { $Matches[1] } else { $null } }
 
+# 本檔預期跑出的**總案數**（PASS + FAIL）。結尾會硬斷言。
+# 沒有這一條，刪掉任何一個 Check 仍會印 `PASS=111 FAIL=0` 並 exit 0 ——「少一案」是抓不到的假綠。
+# ⚠️ 這個總數與受測文件**無關**（反向驗證只會改變 PASS/FAIL 的分佈，不會改變案數），
+# 所以它是穩定的不變量。新增或移除案時必須同步更新，那是刻意的摩擦。
+$EXPECTED_CHECKS = 112
 $script:pass = 0; $script:fail = 0
 function Check($name, $cond, $detail) {
   if ($cond) { $script:pass++; "  PASS  $name" }
@@ -317,6 +333,13 @@ $r = Invoke-Rollback $ts $h
 Check '回滾仍成功' $r.Ok $r.Out
 Check '回滾後 live skill 已還原' (Test-Path -LiteralPath "$h\.claude\skills\超級模式\SKILL.md" -PathType Leaf) '沒有還原'
 
+# 注入自我檢查的探針，會被送進**受測 host 的 child 行程**執行（見 Test-EnumBlocked）。
+$m13ProbeTpl = @'
+$ErrorActionPreference = 'Stop'
+try { $null = @(Get-ChildItem -LiteralPath '<ROOT>' -Recurse -Force -ErrorAction Stop); 'ENUM=OK' }
+catch { 'ENUM=FAIL' }
+'@
+
 "`n[M13] 列舉失敗必須在任何 mutation 之前中止（fail-closed 契約本身）"
 # M11 驗「掃到 link」、M12 驗「沒有子樹可掃」，但**掃不動**這條路徑在 Windows 側先前
 # 只有區塊開頭 `$ErrorActionPreference = 'Stop'` 的**靜態推論**，沒有動態測試
@@ -336,7 +359,39 @@ Check '回滾後 live skill 已還原' (Test-Path -LiteralPath "$h\.claude\skill
 #
 # 斷言名稱一律帶 `[M13]` 前綴：M11 也用 `[備份子樹]`／`[live 子樹]`，不加前綴的話
 # 「前置：1b 成功並印出 ts」等名稱會在兩個區塊裡重複，反向驗證就沒辦法逐條核對。
+#
+# ⚠️ **這是狀態 oracle，不是事件 oracle。** 快照相等只能證明「最終內容相同」，
+# 不能證明「途中從未刪除又還原」。產品目前沒有任何失敗後還原的邏輯，所以狀態比對足以當證據，
+# 但**文件不要把它讀成「證明 mutation 從未開始」**。（合併前 Codex 審查要求講清楚。）
 $m13Me = [Security.Principal.WindowsIdentity]::GetCurrent().User
+
+function New-LockedDir($root) {
+  # 在 <root>\references\locked 放一個檔再上鎖：空目錄有機會被「剛好 rmdir 掉」而讓注入
+  # 自己消失（POSIX 側正是這個差異造成 GNU／BSD 退出碼不一致），
+  # 放了檔才讓「掃不動的子樹裡有真實資料」這件事成立。
+  $p = "$root\references\locked"
+  New-Item -ItemType Directory -Force -Path $p | Out-Null
+  Set-Content -LiteralPath "$p\payload.txt" -Value 'LOCKED' -NoNewline
+  $p
+}
+function Set-DenyEnumerate($path) {
+  $rule = New-Object Security.AccessControl.FileSystemAccessRule(
+    $script:m13Me, 'ListDirectory', 'ContainerInherit,ObjectInherit', 'None', 'Deny')
+  $acl = Get-Acl -LiteralPath $path; $acl.AddAccessRule($rule); Set-Acl -LiteralPath $path -AclObject $acl
+  $rule
+}
+function Clear-DenyEnumerate($path, $rule) {
+  $acl = Get-Acl -LiteralPath $path
+  $null = $acl.RemoveAccessRule($rule)
+  Set-Acl -LiteralPath $path -AclObject $acl
+}
+function Test-EnumBlocked($root, $fakeHome) {
+  # 注入自我檢查要在**受測 host 的 child 行程**裡跑。自檢跑在 parent、產品跑在 `$exe` child，
+  # 兩者不保證是同一個 host（`-Shell powershell` 時 parent 仍可能是 pwsh），
+  # token 與 provider 行為不能當成邏輯上相同。（合併前 Codex 審查指出。）
+  (Invoke-Block ($script:m13ProbeTpl.Replace('<ROOT>', $root)) $fakeHome).Out
+}
+
 foreach ($case in @(@{ n='備份子樹'; where='bak' }, @{ n='live 子樹'; where='live' })) {
   $tag = "m13-$($case.where)"
   $h = New-FakeHome $tag; Add-ExistingInstall $h
@@ -347,38 +402,29 @@ foreach ($case in @(@{ n='備份子樹'; where='bak' }, @{ n='live 子樹'; wher
 
   $root = if ($case.where -eq 'bak') { "$h\.claude\skills-backup\超級模式.bak-$ts" }
           else                       { "$h\.claude\skills\超級模式" }
-  $locked = "$root\references\locked"
-  New-Item -ItemType Directory -Force -Path $locked | Out-Null
-  # 裡面放一個檔：空目錄有機會被「剛好 rmdir 掉」而讓注入自己消失（POSIX 側正是這個差異
-  # 造成 GNU／BSD 退出碼不一致），放了檔才讓「掃不動的子樹裡有真實資料」這件事成立。
-  Set-Content -LiteralPath "$locked\payload.txt" -Value 'LOCKED' -NoNewline
+  $locked = New-LockedDir $root
 
-  # 快照必須在 Deny **之前**取 —— Get-Snapshot 自己也是 -Recurse，之後同樣掃不動。
-  $before = Get-Snapshot "$h\.claude\skills"
+  # 兩份快照都必須在 Deny **之前**取 —— Get-Snapshot 自己也是 -Recurse，之後同樣掃不動。
+  $beforeSkills = Get-Snapshot "$h\.claude\skills"
+  $beforeHome   = Get-Snapshot $h
 
-  $denyRule = New-Object Security.AccessControl.FileSystemAccessRule(
-    $m13Me, 'ListDirectory', 'ContainerInherit,ObjectInherit', 'None', 'Deny')
-  $acl = Get-Acl -LiteralPath $locked
-  $acl.AddAccessRule($denyRule)
-  Set-Acl -LiteralPath $locked -AclObject $acl
+  $denyRule = Set-DenyEnumerate $locked
   try {
-    # 注入是否生效：以測試身分列舉 $root 必須**真的**拋錯。
-    # 少了這一條，Deny 沒咬到時本案會因為「回滾剛好成功」而靜默變成假通過。
-    $enumFailed = $false; $enumErr = '列舉竟然成功'
-    try { $null = @(Get-ChildItem -LiteralPath $root -Recurse -Force -ErrorAction Stop) }
-    catch { $enumFailed = $true; $enumErr = $_.Exception.GetType().Name }
-    Check "[M13][$($case.n)] 前置：列舉真的失敗（注入生效）" $enumFailed "$enumErr —— Deny ACE 沒咬到（檔案系統不支援 ACL？行程有備份權限？），不能給綠燈"
+    $probeOut = Test-EnumBlocked $root $h
+    Check "[M13][$($case.n)] 前置：列舉真的失敗（在受測 host 內驗證注入生效）" ($probeOut -match 'ENUM=FAIL') "probe 輸出：$probeOut —— Deny ACE 沒咬到（檔案系統不支援 ACL？行程有備份權限？），不能給綠燈"
     $r = Invoke-Rollback $ts $h
   } finally {
     # 先還原權限，後面的 Get-Snapshot 與 $work 清理才掃得動
-    $acl2 = Get-Acl -LiteralPath $locked
-    $null = $acl2.RemoveAccessRule($denyRule)
-    Set-Acl -LiteralPath $locked -AclObject $acl2
+    Clear-DenyEnumerate $locked $denyRule
   }
   Check "[M13][$($case.n)] 列舉失敗 → 回滾中止" (-not $r.Ok) "竟然成功：$($r.Out)"
   # 這條才是重點。修正前也會非零（Remove-Item／Copy-Item 自己撞權限），
   # 但**那時 live 已經被刪了**，所以區辨力全在這一條，不在退出碼。
-  Check "[M13][$($case.n)] 中止後 live 未變" ((Get-Snapshot "$h\.claude\skills") -eq $before) 'live 被動過'
+  Check "[M13][$($case.n)] 中止後 live 未變" ((Get-Snapshot "$h\.claude\skills") -eq $beforeSkills) 'live 被動過'
+  # ⚠️ 契約講的是「**任何** mutation 之前中止」，不是「skill 樹未變」。
+  # 產品在預掃之後還會改 hook 與 settings；只快照 skills 的話，把 hook mutation 搬到
+  # 預掃之前仍會全綠 —— 那是合併前 Codex 審查抓到的 surviving mutant，`[M13c]` 就是它的牙齒測試。
+  Check "[M13][$($case.n)] 中止後整個假家目錄未變（hook／settings 也在內）" ((Get-Snapshot $h) -eq $beforeHome) '假家目錄有東西被動過（skills 之外也要看）'
 }
 
 "`n[M13b] 變異注入：拿掉 Stop 後保護必須消失（證明 M13 的區辨力來自那一行）"
@@ -407,29 +453,67 @@ $r = Invoke-Block $B1b $h; $ts = Get-Ts $r.Out
 Check '[M13b] 前置：1b 成功並印出 ts' ($r.Ok -and $ts) $r.Out
 $r = Invoke-Block $B1c $h
 Check '[M13b] 前置：1c 安裝成功' $r.Ok $r.Out
-$locked = "$h\.claude\skills\超級模式\references\locked"
-New-Item -ItemType Directory -Force -Path $locked | Out-Null
-Set-Content -LiteralPath "$locked\payload.txt" -Value 'LOCKED' -NoNewline
+# ⚠️ 鎖的是**備份**子樹，不是 live。鎖 live 的話，fail-open 之後的負向訊號要依賴
+# `Remove-Item -Recurse` 對一棵**部分不可存取**的樹「刪掉一些才失敗」——那是 provider 語義，
+# 日後若改成更早、更原子地拒絕就會誤紅。鎖備份則是：預掃 fail-open → 第一個 mutation
+# 刪除一棵**完全可存取**的 live → 訊號穩定。（合併前 Codex 審查建議，已採納。）
+$m13bLocked = New-LockedDir "$h\.claude\skills-backup\超級模式.bak-$ts"
 $before = Get-Snapshot "$h\.claude\skills"
-$denyRule = New-Object Security.AccessControl.FileSystemAccessRule(
-  $m13Me, 'ListDirectory', 'ContainerInherit,ObjectInherit', 'None', 'Deny')
-$acl = Get-Acl -LiteralPath $locked
-$acl.AddAccessRule($denyRule)
-Set-Acl -LiteralPath $locked -AclObject $acl
+$denyRule = Set-DenyEnumerate $m13bLocked
 try {
-  $enumFailed = $false; $enumErr = '列舉竟然成功'
-  try { $null = @(Get-ChildItem -LiteralPath "$h\.claude\skills\超級模式" -Recurse -Force -ErrorAction Stop) }
-  catch { $enumFailed = $true; $enumErr = $_.Exception.GetType().Name }
-  Check '[M13b] 前置：列舉真的失敗（注入生效）' $enumFailed "$enumErr —— Deny ACE 沒咬到，本案等於沒測"
+  $probeOut = Test-EnumBlocked "$h\.claude\skills-backup\超級模式.bak-$ts" $h
+  Check '[M13b] 前置：列舉真的失敗（在受測 host 內驗證注入生效）' ($probeOut -match 'ENUM=FAIL') "probe 輸出：$probeOut —— Deny ACE 沒咬到，本案等於沒測"
   $r = Invoke-Block ($m13Mut.Replace($PLACEHOLDER, $ts)) $h
 } finally {
-  $acl2 = Get-Acl -LiteralPath $locked
-  $null = $acl2.RemoveAccessRule($denyRule)
-  Set-Acl -LiteralPath $locked -AclObject $acl2
+  Clear-DenyEnumerate $m13bLocked $denyRule
 }
 # 只釘「live 被動過」：那正是 M13 主斷言的否命題。**不**額外釘退出碼——
 # 錯誤是否終止會隨 host 版本而異，釘了只會製造平台雜訊（同 M13／POSIX 的教訓）。
 Check '[M13b] 拿掉 Stop 後 live 確實被動過（保護來自該行）' ((Get-Snapshot "$h\.claude\skills") -ne $before) "live 未變（回滾 ok=$($r.Ok)）：本案已失去意義，M13 的區辨力來源需重新確認"
+
+"`n[M13c] 變異注入：把一個 mutation 搬到預掃之前（證明 M13 的 oracle 夠寬）"
+# 合併前 Codex 審查抓到的 surviving mutant：契約說的是「**任何** mutation 之前中止」，
+# 但我原本只快照 `.claude\skills`。產品在預掃**之後**才改 hook 與 settings，
+# 所以「把 hook mutation 搬到預掃前」這個違規，舊的窄 oracle 會全綠放行。
+# 本案就是那條加寬的牙齒測試：注入一個預掃前的 hook mutation，然後同時檢查
+# **窄 oracle 看不到**（證明缺口真實存在）與**寬 oracle 抓得到**（證明加寬有效）。
+$m13cAnchor = "if (Test-Path -LiteralPath `$sbak -PathType Container) { Assert-NoReparseUnder 'skill 備份' `$sbak }"
+# ⚠️ 注入行要帶一個**唯一標記**才數得準：產品本來就有
+# `elseif (Get-Entry $hook) { Remove-Item -LiteralPath $hook -Force }`，
+# 而它**包含**不帶標記的注入字串當子字串 —— 直接數會得到 2 次。
+# 這是本批第三次撞上同一個「未錨定／子字串比對」的坑（前兩次：註解含 `$ErrorActionPreference = 'Stop'` 字面、
+# 以及上一批散文含 `RESULT_CODE=`），三次都是自我檢查先紅才發現的。
+$m13cMarker = '# M13C-PRE-SCAN-MUTATION'
+$m13cInject = "if (Get-Entry `$hook) { Remove-Item -LiteralPath `$hook -Force } $m13cMarker"
+$m13cHits = ([regex]::Matches($Brb, [regex]::Escape($m13cAnchor))).Count
+$m13cOk   = ($m13cHits -eq 1)
+Check '[M13c] 變異錨點唯一（否則本案等於沒測）' $m13cOk "錨點命中 $m13cHits 次（預期 1）—— 舊版文件沒有預掃，本案在反向驗證時本來就會紅"
+$m13cMut = if ($m13cOk) { $Brb.Replace($m13cAnchor, $m13cInject + "`n" + $m13cAnchor) } else { $Brb }
+$m13cAdded = (($m13cMut -split "`n").Count - ($Brb -split "`n").Count)
+$m13cInjHits = ([regex]::Matches($m13cMut, [regex]::Escape($m13cMarker))).Count
+Check '[M13c] 變異確實注入且只多一行' (($m13cMut -ne $Brb) -and ($m13cAdded -eq 1) -and ($m13cInjHits -eq 1)) "多出 $m13cAdded 行、注入標記出現 $m13cInjHits 次（預期 1／1）"
+$h = New-FakeHome 'm13c'; Add-ExistingInstall $h
+$r = Invoke-Block $B1b $h; $ts = Get-Ts $r.Out
+Check '[M13c] 前置：1b 成功並印出 ts' ($r.Ok -and $ts) $r.Out
+$r = Invoke-Block $B1c $h
+Check '[M13c] 前置：1c 安裝成功' $r.Ok $r.Out
+$m13cRoot = "$h\.claude\skills-backup\超級模式.bak-$ts"
+$m13cLocked = New-LockedDir $m13cRoot
+$beforeSkills = Get-Snapshot "$h\.claude\skills"
+$beforeHome   = Get-Snapshot $h
+$denyRule = Set-DenyEnumerate $m13cLocked
+try {
+  $probeOut = Test-EnumBlocked $m13cRoot $h
+  Check '[M13c] 前置：列舉真的失敗（在受測 host 內驗證注入生效）' ($probeOut -match 'ENUM=FAIL') "probe 輸出：$probeOut —— Deny ACE 沒咬到，本案等於沒測"
+  $r = Invoke-Block ($m13cMut.Replace($PLACEHOLDER, $ts)) $h
+} finally {
+  Clear-DenyEnumerate $m13cLocked $denyRule
+}
+Check '[M13c] 回滾仍中止' (-not $r.Ok) "竟然成功：$($r.Out)"
+# 這兩條要一起看才有意義：前者證明**缺口真實存在**（只看 skills 會放行違規），
+# 後者證明**加寬確實抓得到**。少了前者，讀者無從判斷加寬有沒有買到東西。
+Check '[M13c] 窄 oracle（只看 skills）看不到這個違規' ((Get-Snapshot "$h\.claude\skills") -eq $beforeSkills) 'skills 也變了，本案已無法示範窄 oracle 的盲點'
+Check '[M13c] 寬 oracle（整個假家目錄）抓到預掃前的 mutation' ((Get-Snapshot $h) -ne $beforeHome) '寬 oracle 也沒抓到 —— 注入沒生效或 M13 的加寬無效'
 
 "`n[C3] 對照組（確認上面的斷言不是永遠為真）"
 $h = New-FakeHome 'c3'; Add-ExistingInstall $h
@@ -449,5 +533,11 @@ Check '正確 ts 的回滾必須成功（否則上面全是假通過）' $r.Ok $
 }
 
 "`n========================================"
-"$exe  PASS=$script:pass  FAIL=$script:fail"
+# 摘要行沿用 host **名稱**（不是解析後的絕對路徑）：交接文件與反向驗證都在比對這一行。
+"$exeName  PASS=$script:pass  FAIL=$script:fail"
+$ranChecks = $script:pass + $script:fail
+if ($ranChecks -ne $EXPECTED_CHECKS) {
+  "  STOP 案數不符：實跑 $ranChecks、預期 $EXPECTED_CHECKS —— 有案被刪除或跳過，或新增後忘了更新 EXPECTED_CHECKS"
+  exit 1
+}
 if ($script:fail -gt 0) { exit 1 } else { exit 0 }

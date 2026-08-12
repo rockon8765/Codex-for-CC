@@ -117,14 +117,25 @@
 > 先前只有 `$ErrorActionPreference = 'Stop'` 的**靜態推論**，現在有動態測試：
 > 注入手法是**對自己下 Deny ACE**（POSIX 側是 `chmod 000`）——目錄擁有者即使沒有
 > 管理員權限也隱含保有 `WRITE_DAC`，所以不需要提權。`[M13]` 兩變體（備份子樹／live 子樹）
-> ＋ `[M13b]`（把 `Stop` 改成 `Continue`，證明**保護就是來自那一行**）共 **+16 案**。
+> ＋ `[M13b]`（把 `Stop` 改成 `Continue`，證明**保護就是來自那一行**）
+> ＋ `[M13c]`（把一個 mutation 搬到預掃之前，證明 **oracle 夠寬**）共 **+26 案**（86 → **112**）。
 > **不照抄 POSIX 的 root 前置守衛**：Deny ACE 優先於 Allow，提權不會讓注入失效，
-> 真正會失效的情況無法可靠前置偵測 → 改由「注入自我檢查」當唯一權威，沒生效就直接 FAIL。
+> 真正會失效的情況無法可靠前置偵測 → 改由「注入自我檢查」當唯一權威，沒生效就直接 FAIL；
+> 而且自檢是送進**受測 host 的 child 行程**跑的，不是 parent。
 >
-> 實測：`pwsh` 7.6.3 與 Windows PowerShell 5.1.26100 **各 102／0 exit 0**；
-> 反向驗證對 `4a96698`（B1 之前）**各 96／6 exit 1**，失敗的恰好是 M11 四條
-> ＋ `[M13][備份子樹]／[live 子樹] 中止後 live 未變` 兩條，兩個 host 逐條相同。
+> 實測：`pwsh` 7.6.3 與 Windows PowerShell 5.1.26100 **各 112／0 exit 0**；
+> 反向驗證對 `4a96698`（B1 之前）**各 101／11 exit 1**，兩個 host 逐條相同
+> （M11 四條 ＋ M13 四條快照 ＋ M13c 三條）。清單見
+> [`tests/ai-install/README.md`](tests/ai-install/README.md)。
 > 與 POSIX 一樣，`列舉失敗 → 回滾中止` 只看退出碼、**不具區辨力**（舊版照樣 PASS）。
+>
+> ⚠️ **合併前 Codex 審查回 BLOCK，擋下一個真的 surviving mutant**：第一版的 oracle
+> 只快照 `.claude\skills`，但契約說的是「**任何** mutation 之前中止」，而產品在預掃**之後**
+> 才改 hook 與 settings ——把 hook mutation 搬到預掃前，第一版會全綠放行。已加寬成
+> 「整個假家目錄」並補上 `[M13c]` 當牙齒測試。同一輪還修掉：`[M13b]` 改鎖備份子樹
+> （不再耦合 `Remove-Item` 對部分不可存取樹的刪除語義）、注入自檢移進 child host、
+> 新增 `EXPECTED_CHECKS` 案數硬斷言（先前刪掉任一案仍會印 `PASS=111 FAIL=0` 並 exit 0）、
+> `Invoke-Block` 補上 host 解析與 `$LASTEXITCODE` 重設／型別檢查。
 >
 > ⚠️ **順帶修掉一個先前沒人發現的覆蓋缺口**：`run-windows.ps1 -Shell powershell`（5.1）
 > 一直**跑不完**——5.1 把 native command 的 stderr 包成 `NativeCommandError` ErrorRecord，
@@ -133,8 +144,12 @@
 > hook 執行環境。已在 `Invoke-Block` 內以函式作用域降級為 `Continue` 修掉。
 >
 > ⚠️ **仍未做**（據實列，不含糊）：
-> - Windows 與 macOS 皆**無 CI**，仍靠人工原生驗證；`run-windows.ps1` 的 102 案
+> - Windows 與 macOS 皆**無 CI**，仍靠人工原生驗證；`run-windows.ps1` 的 112 案
 >   （含新增的 M13）遠端沒有任何 gate 會攔，改壞了不會有人被擋下來。
+> - **1b 有同型的靜態依賴未測**（Codex 指出）：1b 的 link 掃描與 `Get-TreeFingerprint`
+>   同樣依賴區塊開頭的 `Stop`，若列舉 fail-open 可能留下部分備份卻仍印 `backup ts=`。
+>   那是**另一條契約**（不是回滾），本批未處理，已記進 backlog。
+> - **`run-posix.sh` 沒有案數硬斷言**，Windows 側現在有；POSIX 側刪掉一案不會被抓到。
 >
 > ✅ **訂正一個我自己寫錯的範圍宣稱**：先前這裡寫「`tests/ai-install/` 的完整測試臺仍不在 CI 內，
 > 只有參數解析進去了」——**不準確**。[`run-posix-args.test.sh`](tests/ai-install/run-posix-args.test.sh)
