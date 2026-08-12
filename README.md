@@ -164,14 +164,17 @@
 >   根因是被鎖目錄是空的（GNU 能 `rmdir`、BSD 不能），放進檔案後兩平台**完全一致**。
 >   驗收單與完整結果見
 >   [`docs/HANDOFF-macos-posix-m13-2026-08-12.md`](docs/HANDOFF-macos-posix-m13-2026-08-12.md)。
-> - 🔴 **`run-posix.sh` 的 harness 自身有四個已知缺陷（2026-08-13 合併前審查抓到，未修）**：
->   (1) **`unlock_tree` 會抹掉 mode 型的違規** —— 它在後置快照前正規化整個假 HOME，
->   而 `snap` 不記 mode，所以中止前的 `chmod 000 "$setf"` 仍會 125/0；
->   (2) **`die_snap` 只接了 3 處，其餘 13 處 `$(snap …)` 的 rc 被吃掉**
->   （讓 `readlink` 一律失敗即可讓 M11 前後快照都變空字串而 `"" = ""` 通過）；
->   (3) **`cksum` 的錯誤沒往外傳**（內層 `sh -c` 沒有 pipefail，只看到 `cut` 的狀態）；
->   (4) **`run()` 仍以名稱呼叫 `bash`**，父層的 `bash()` 函式攔得到 —— 隔離只做了一半。
->   ⚠️ **(1) 是 2026-08-12 那批引入的回歸**，其餘三項是既有弱點被部分修正後留下的。
+> - ✅ **`run-posix.sh` harness 自身的四個缺陷已於 2026-08-13 修完**（合併前審查抓到，
+>   其中 `unlock_tree` 是 2026-08-12 那批引入的回歸）：快照改為**記錄 mode**、
+>   「讀不到」記成 `UNREADABLE`／`UNREADABLE-DIR` 而非錯誤、刪掉 `unlock_tree`
+>   （權限正規化移到 `cleanup`，在所有斷言之後）、`die_snap` 接滿 **16 個**呼叫點、
+>   `cksum` 先取整行再切欄、`run()` 改用 `command bash`。
+>   **四項都做了 A／B 對照**（修正前分別為 `125/0` 存活、`125/0` 假綠、`125/0` 假綠、
+>   `82/43` 被攔截 29 次；修正後 `123/2`、rc 2、rc 2、`125/0` 攔截 0 次）。
+>   ⚠️ **`run-posix.sh` 因此再次改版（blob `5d8ad453…`），macOS 需重驗**——
+>   2026-08-13 的那次驗證涵蓋的是舊 blob `90ddbd10…`。
+> - 🔴 **平台不對稱（已知，未做）**：POSIX 的快照記 mode，Windows 的 `Get-Snapshot`
+>   不記 ACL —— 純 ACL 型的違規在 Windows 側看不到。
 > - 🔴 **`.absent`（刪除）分支從未在「列舉失敗」情境跑過**：M13 家族的 fixture 全是「既有安裝」，
 >   在首掃前**新增**一個 `.absent`-guarded 的提前刪除，mutant 會存活為 125/0。
 >   先前就存在的覆蓋缺口，詳情與可復現腳本見 [`docs/backlog.md`](docs/backlog.md)。

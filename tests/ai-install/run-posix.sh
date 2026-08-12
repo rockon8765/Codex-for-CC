@@ -76,7 +76,12 @@ WORK=$(mktemp -d "${TMPDIR:-/tmp}/ai-install-harness.XXXXXX") || {
   echo "無法建立暫存工作目錄，中止" >&2; exit 2; }
 cleanup() {
   case "$WORK" in
-    */ai-install-harness.??????) [ -d "$WORK" ] && rm -rf "$WORK" ;;
+    */ai-install-harness.??????)
+      # ⚠️ 權限正規化**只能在這裡**（所有斷言都跑完之後）。
+      # M13 家族會 `chmod 000` 子目錄，`rm -rf` 進不去；但**絕不可以在快照之前**做這件事
+      # —— 那會把 mode 型的違規抹掉（見 snap 的註解）。
+      [ -d "$WORK" ] && chmod -R u+rwX "$WORK" 2>/dev/null
+      [ -d "$WORK" ] && rm -rf "$WORK" ;;
     *) echo "WORK 路徑不符預期前綴，不清理：$WORK" >&2 ;;
   esac
 }
@@ -131,7 +136,10 @@ LAST_OUT=""
 #（後者更糟：看起來抓到了違規，其實抓到的是雜訊）。
 # `HISTFILE` 一併釘掉——非互動 bash 通常不寫 history，但不值得賭。
 # 用「設成空值」而不是 `env -u`：空的 `BASH_ENV` 不會被 source，且不依賴 `env -u` 的可攜性。
-run() { LAST_OUT=$(cd "$REPO" && BASH_ENV= ENV= HISTFILE=/dev/null HOME="$2" bash "$1" 2>&1); return $?; }
+# ⚠️ 一定要用 `command bash`，不能只清環境變數就以名稱呼叫 `bash`：
+# 父 shell 若已經（例如經由自己的 `BASH_ENV`）載入了一個 `bash()` 函式，函式解析優先於 PATH，
+# 清空 `BASH_ENV` 也攔不住它 —— 探針實測 `run_rc=23`。清環境是給 child 用的，`command` 才是給這一行用的。
+run() { LAST_OUT=$(cd "$REPO" && BASH_ENV= ENV= HISTFILE=/dev/null HOME="$2" command bash "$1" 2>&1); return $?; }
 run_rollback() {
   local f="$WORK/rb.sh"
   awk -v ph="$PLACEHOLDER" -v v="$1" '{ i=index($0,ph); if(i){ $0=substr($0,1,i-1) v substr($0,i+length(ph)) } print }' "$BRB" > "$f"
@@ -165,26 +173,51 @@ seed() { local h="$1"
 #   v3（現行）：**回非 0 退出碼，由呼叫點 `|| die_snap` 硬中止。**
 # ⚠️ 命令替換 `$(snap …)` 裡的 `exit` 只會結束 subshell，所以**每個呼叫點都必須自己檢查 rc**
 # ——這不是可以靠 helper 內部解決的事。
+#
+# ⚠️ **快照要記 mode，而且「讀不到」必須是一種觀測值，不是錯誤。**（2026-08-13 第三輪修）
+# 中間版本做錯兩件事，兩件都被合併前審查抓到：
+#   ・不記 mode ＋ 事後 `chmod -R` 正規化整個假 HOME（`unlock_tree`）＝**主動銷毀證據**。
+#     產品若在中止前 `chmod 000 "$setf"`（已違反契約），正規化後快照相同 → 125/0 假綠。
+#     我當時的論證是「snap 不記 mode，所以正規化不影響比對內容」——**正好講反了**：
+#     正因為不記 mode，正規化才會把違規抹掉。
+#   ・掃不動一律 `return 1`，於是「產品自己造成的不可讀子樹」（fail-open 時 `cp -R` 會把
+#     mode-000 子樹複製進 live）也變成整批中止，只好再用正規化去繞——繞回上一個問題。
+# 現在：mode 進快照；不可讀的檔／目錄各自記成 `UNREADABLE`／`UNREADABLE-DIR`。
+# 資訊不再遺失，比較在兩個方向都成立，也不需要在快照前動任何權限。
 snap() {
   [ -e "$1" ] || { echo '<none>'; return 0; }
-  local raw
-  # 內層的錯誤也要往外傳：`$(cksum …)` 失敗時替換結果是空字串而 printf 仍成功，
-  # 於是一筆殘缺紀錄會混進正常輸出。改成先取值、驗非空，失敗就讓 sh -c 非 0（find 跟著非 0）。
-  if ! raw=$(find "$1" \( -type f -o -type d -o -type l \) -exec sh -c '
+  local raw rc
+  raw=$(find "$1" \( -type f -o -type d -o -type l \) -exec sh -c '
     root="$1"; shift
     for p in "$@"; do
       rel=${p#"$root"}; rel=${rel#/}
+      # 只取前 10 個字元＝型別＋權限；避開 macOS 的 `@`／`+`（xattr／ACL 標記）。
+      m=$(ls -ld "$p" | cut -c1-10) || exit 1
+      [ -n "$m" ] || exit 1
       if [ -L "$p" ]; then
         tgt=$(readlink "$p") || exit 1
-        printf "l|%s|%s\n" "$rel" "$tgt"
+        printf "l|%s|%s|%s\n" "$rel" "$m" "$tgt"
       elif [ -f "$p" ]; then
-        ck=$(cksum < "$p" | cut -d" " -f1) || exit 1
-        [ -n "$ck" ] || exit 1
-        printf "f|%s|%s\n" "$rel" "$ck"
-      else printf "d|%s|-\n" "$rel"
+        if [ -r "$p" ]; then
+          # ⚠️ 先取整行再切欄。`ck=$(cksum < f | cut …) || exit 1` 只看得到 `cut` 的狀態
+          #（內層 sh 沒有 pipefail），cksum 自己失敗會被完全吞掉。
+          line=$(cksum < "$p") || exit 1
+          [ -n "$line" ] || exit 1
+          printf "f|%s|%s|%s\n" "$rel" "$m" "${line%% *}"
+        else
+          printf "f|%s|%s|UNREADABLE\n" "$rel" "$m"
+        fi
+      else
+        if [ -r "$p" ] && [ -x "$p" ]; then printf "d|%s|%s|-\n" "$rel" "$m"
+        else printf "d|%s|%s|UNREADABLE-DIR\n" "$rel" "$m"
+        fi
       fi
-    done' _ "$1" {} + 2>/dev/null); then
-    return 1
+    done' _ "$1" {} + 2>/dev/null)
+  rc=$?
+  if [ "$rc" -ne 0 ]; then
+    # find 掃不動的**唯一**可接受理由，是樹裡有我們已經明確記錄成 `UNREADABLE-DIR` 的目錄
+    #（那筆紀錄本身就是證據，不會遺失）。沒有這種紀錄就是別的失敗 → 呼叫點必須中止。
+    printf '%s\n' "$raw" | grep -q '|UNREADABLE-DIR$' || return 1
   fi
   printf '%s\n' "$raw" | sort
 }
@@ -194,11 +227,12 @@ get_ts() { echo "$1" | sed -n 's/.*backup ts=\([0-9]\{8\}-[0-9]\{6\}\).*/\1/p' |
 
 echo; echo "[C1] 既有安裝 -> 安裝 -> 回滾（含冪等）"
 H=$(new_home c1); seed "$H"
-SNAP0=$(snap "$H/.claude/skills/超級模式")
+SNAP0=$(snap "$H/.claude/skills/超級模式") || die_snap "$H/.claude/skills/超級模式"
 run "$B1B" "$H"; rc=$?; TS=$(get_ts "$LAST_OUT")
 if [ $rc -eq 0 ] && [ ${#TS} -eq 15 ]; then check '1b 成功並印出 ts' 0; else check '1b 成功並印出 ts' 1 "$LAST_OUT"; fi
 run "$B1C" "$H"; check '1c 安裝成功' $? "$LAST_OUT"
-[ "$(snap "$H/.claude/skills/超級模式")" != "$SNAP0" ]; check '安裝後 live 已換成新版' $? '安裝沒有改變 live'
+CUR=$(snap "$H/.claude/skills/超級模式") || die_snap "$H/.claude/skills/超級模式"
+[ "$CUR" != "$SNAP0" ]; check '安裝後 live 已換成新版' $? '安裝沒有改變 live'
 # 模擬步驟 2 把 hook 條目合併進 settings。**沒有這一步，下面的「settings 還原」斷言恆真**
 # ——settings 從頭到尾都是 OLD，就算把回滾的 settings 還原程式碼整段刪掉也照樣綠。
 printf '{"new":true,"hooks":{"PreToolUse":[]}}' > "$H/.claude/settings.json"
@@ -206,7 +240,8 @@ printf '{"new":true,"hooks":{"PreToolUse":[]}}' > "$H/.claude/settings.json"
 check '前置：settings 已被步驟 2 改動（否則還原斷言恆真）' $? '注入失敗，本案的 settings 斷言無效'
 for i in 1 2 3; do
   run_rollback "$TS" "$H"; check "第 $i 次回滾成功" $? "$LAST_OUT"
-  [ "$(snap "$H/.claude/skills/超級模式")" = "$SNAP0" ]; check "第 $i 次回滾後 skill 等於安裝前" $? '還原內容不符'
+  CUR=$(snap "$H/.claude/skills/超級模式") || die_snap "$H/.claude/skills/超級模式"
+  [ "$CUR" = "$SNAP0" ]; check "第 $i 次回滾後 skill 等於安裝前" $? '還原內容不符'
   [ "$(cat "$H/.claude/hooks/super-mode-consult-gate.js")" = 'OLD-HOOK' ]; check "第 $i 次回滾後 hook 還原" $? 'hook 未還原'
   [ "$(cat "$H/.claude/settings.json")" = '{"old":true}' ]; check "第 $i 次回滾後 settings 還原" $? 'settings 未還原'
 done
@@ -235,11 +270,12 @@ echo; echo "[M1] 變異注入：ts 形狀不合"
 H=$(new_home m1); seed "$H"
 run "$B1B" "$H"; TS=$(get_ts "$LAST_OUT")
 run "$B1C" "$H"
-AFTER=$(snap "$H/.claude")
+AFTER=$(snap "$H/.claude") || die_snap "$H/.claude"
 for bad in "${TS%?}?" "20260727-*" "abc" "../../etc/passwd" "20260727-15440" "20260727_154409"; do
   run_rollback "$bad" "$H"; rc=$?
   [ $rc -ne 0 ]; check "ts='$bad' 被拒" $? "竟然成功：$LAST_OUT"
-  [ "$(snap "$H/.claude")" = "$AFTER" ]; check "ts='$bad' 後 live 完全未變" $? 'live 被動過'
+  CUR=$(snap "$H/.claude") || die_snap "$H/.claude"
+  [ "$CUR" = "$AFTER" ]; check "ts='$bad' 後 live 完全未變" $? 'live 被動過'
 done
 
 echo; echo "[M2] 變異注入：skill 備份被換成 symlink（指向別處）"
@@ -255,10 +291,11 @@ ln -s "$WORK/m2-elsewhere" "$H/.claude/skills-backup/超級模式.bak-$TS"; ln_r
 # rc 擋「建立失敗但原地剛好有殘留 link」——後者只驗型別會漏。
 [ "$ln_rc" -eq 0 ] && [ -L "$H/.claude/skills-backup/超級模式.bak-$TS" ]
 check '前置：symlink 備份確實建立' $? "ln rc=$ln_rc 或不是 symlink，本案等於沒測"
-AFTER=$(snap "$H/.claude/skills")
+AFTER=$(snap "$H/.claude/skills") || die_snap "$H/.claude/skills"
 run_rollback "$TS" "$H"; rc=$?
 [ $rc -ne 0 ]; check 'symlink 備份被拒' $? "竟然成功：$LAST_OUT"
-[ "$(snap "$H/.claude/skills")" = "$AFTER" ]; check 'symlink 備份被拒後 live 未變' $? 'live 被動過'
+CUR=$(snap "$H/.claude/skills") || die_snap "$H/.claude/skills"
+[ "$CUR" = "$AFTER" ]; check 'symlink 備份被拒後 live 未變' $? 'live 被動過'
 
 echo; echo "[M3] 變異注入：live skill 是有效 symlink"
 H=$(new_home m3)
@@ -294,20 +331,22 @@ rm -rf "$H/.claude/skills-backup/超級模式.bak-$TS"; printf 'not-a-dir' > "$H
 BK5="$H/.claude/skills-backup/超級模式.bak-$TS"
 [ "$wr_rc" -eq 0 ] && [ -f "$BK5" ] && [ ! -L "$BK5" ]
 check '前置：一般檔案備份確實建立' $? "寫檔 rc=$wr_rc 或不是一般檔案，本案等於沒測"
-AFTER=$(snap "$H/.claude/skills")
+AFTER=$(snap "$H/.claude/skills") || die_snap "$H/.claude/skills"
 run_rollback "$TS" "$H"; rc=$?
 [ $rc -ne 0 ]; check '型別錯的備份被拒' $? "竟然成功：$LAST_OUT"
-[ "$(snap "$H/.claude/skills")" = "$AFTER" ]; check '型別錯被拒後 live 未變' $? 'live 被動過'
+CUR=$(snap "$H/.claude/skills") || die_snap "$H/.claude/skills"
+[ "$CUR" = "$AFTER" ]; check '型別錯被拒後 live 未變' $? 'live 被動過'
 
 echo; echo "[M6] 變異注入：備份與 .absent 同時存在"
 H=$(new_home m6); seed "$H"
 run "$B1B" "$H"; TS=$(get_ts "$LAST_OUT")
 run "$B1C" "$H"
 : > "$H/.claude/skills-backup/超級模式.bak-$TS.absent"
-AFTER=$(snap "$H/.claude/skills")
+AFTER=$(snap "$H/.claude/skills") || die_snap "$H/.claude/skills"
 run_rollback "$TS" "$H"; rc=$?
 [ $rc -ne 0 ]; check '兩者並存被拒' $? "竟然成功：$LAST_OUT"
-[ "$(snap "$H/.claude/skills")" = "$AFTER" ]; check '兩者並存被拒後 live 未變' $? 'live 被動過'
+CUR=$(snap "$H/.claude/skills") || die_snap "$H/.claude/skills"
+[ "$CUR" = "$AFTER" ]; check '兩者並存被拒後 live 未變' $? 'live 被動過'
 
 echo; echo "[M7] 變異注入：安裝後 live 與來源不符"
 H=$(new_home m7)
@@ -389,11 +428,12 @@ for where in bak live; do
   [ "$ln_rc" -eq 0 ] && [ -L "$ROOT/references/shared" ]
   check "[$where] 前置：內嵌 symlink 確實建立" $? "ln rc=$ln_rc"
 
-  AFTER=$(snap "$H/.claude/skills")
+  AFTER=$(snap "$H/.claude/skills") || die_snap "$H/.claude/skills"
   run_rollback "$TS" "$H"; rc=$?
   [ $rc -ne 0 ]; check "[$where] 回滾中止" $? "竟然成功：$LAST_OUT"
   # 這條才是 B1 的重點：舊版是「先刪 live、還原時才炸」，所以 live 必須原封不動。
-  [ "$(snap "$H/.claude/skills")" = "$AFTER" ]; check "[$where] 被拒後 live 未變" $? 'live 被動過'
+  CUR=$(snap "$H/.claude/skills") || die_snap "$H/.claude/skills"
+  [ "$CUR" = "$AFTER" ]; check "[$where] 被拒後 live 未變" $? 'live 被動過'
   [ -f "$TGT/payload.txt" ]; check "[$where] symlink 外部目標未被刪" $? '外部真實資料被刪'
 done
 
@@ -458,15 +498,11 @@ lock_and_verify() { # root locked-dir label
   [ "$pre" -eq 0 ] && [ "$post" -ne 0 ]
   check "$3 前置：chmod 前掃得動、chmod 後掃不動（注入生效）" $? "pre=$pre post=$post（pre 非 0＝路徑就錯了，post 為 0＝chmod 沒咬到）"
 }
-# ⚠️ 事後要解的**不只是我們鎖的那一個目錄**。
-# 回滾若真的走到 mutation（M13b 的 fail-open、或反向驗證時的舊版文件），
-# `cp -R` 會把 mode-000 的子樹**一起複製進 live** —— 於是事後快照掃不動。
-# 那不是 oracle 失效，是測試自己造出來的殘留；但在 snap 改成 fail-closed 之後它會讓整批中止。
-#（第一版只解鎖自己建的那個目錄，`bash run-posix.sh` 立刻 `exit 2` 停在 M13b —— 這個問題
-#  是新的 fail-closed snap **真的抓到**的，舊版只是靜默給了一份殘缺快照。）
-# snap 不記 mode，所以把權限拉回可讀不影響比對內容。
-# 不可以 `|| true`：拉不回來就代表後面的快照不可信，該明確中止。
-unlock_tree() { chmod -R u+rwX "$1" || { echo "unlock_tree 失敗（後續快照會不完整）：$1" >&2; exit 2; }; }
+# ⚠️ **這裡刻意沒有「事後把權限拉回可讀」的 helper。**
+# 曾經有一個 `unlock_tree`（`chmod -R u+rwX` 整個假 HOME）用來讓後置快照掃得動，
+# 那是**假綠來源**：快照不記 mode 時它會把 mode 型的違規抹掉（見 snap 的註解）。
+# 現在改由 snap 把「不可讀」記成觀測值，所以**快照前不需要動任何權限**。
+# 清理時才需要（mode-000 目錄 `rm -rf` 刪不掉），那已在 `cleanup` trap 裡處理 —— 在所有斷言之後。
 
 # 模擬安裝步驟 2 把 hook 條目合併進 settings。
 # ⚠️ **沒有這一步，settings 型的違規在 M13 是看不見的。**
@@ -495,13 +531,15 @@ else
     else                       ROOT="$H/.claude/skills/超級模式"; fi
     # `$(…)` 裡的 exit 只結束 subshell，所以 make_locked 的 exit 2 必須在這裡接住
     LOCKED=$(make_locked "$ROOT") || exit 2
-    # 兩份快照都要在 chmod **之前**取（snap 自己也會掃不動）
+    lock_and_verify "$ROOT" "$LOCKED" "[M13][$where]"
+    # ⚠️ 兩份快照要在 chmod **之後**取。我們自己的注入會改 mode，而 mode 現在**進快照**了
+    # ——在 chmod 前取會把「我們自己造成的 mode 變化」算成違規（實測 3 條假紅）。
+    # chmod 後取則兩邊都看到同一個 UNREADABLE-DIR 紀錄，而**產品**的 mode 違規仍然看得見。
     BEFORE_SKILLS=$(snap "$H/.claude/skills") || die_snap "$H/.claude/skills"
     BEFORE_HOME=$(snap "$H") || die_snap "$H"
-    lock_and_verify "$ROOT" "$LOCKED" "[M13][$where]"
 
     run_rollback "$TS" "$H"; rc=$?
-    unlock_tree "$H"   # 先把整個假 HOME 的權限拉回可讀，後面的 snap 與 cleanup 才掃得動
+    # 不再動權限：snap 會把不可讀記成觀測值（見 snap 註解）
     [ $rc -ne 0 ]; check "[M13][$where] 列舉失敗 → 回滾中止" $? "竟然成功：$LAST_OUT"
     # 這條才是 B1 的重點。修正前也會非零（cp／rm 自己撞權限），但**那時 live 已經被刪了**，
     # 所以區辨力全在快照那兩條，不在退出碼。
@@ -540,10 +578,11 @@ else
   # live，訊號穩定；鎖 live 的話就得依賴「rm 對部分不可讀的樹刪掉一些才失敗」這種實作語義。
   M13B_ROOT="$H/.claude/skills-backup/超級模式.bak-$TS"
   M13B_LOCKED=$(make_locked "$M13B_ROOT") || exit 2
-  BEFORE_SKILLS=$(snap "$H/.claude/skills") || die_snap "$H/.claude/skills"
   lock_and_verify "$M13B_ROOT" "$M13B_LOCKED" '[M13b]'
+  # 快照在 chmod 之後取（理由同 M13）
+  BEFORE_SKILLS=$(snap "$H/.claude/skills") || die_snap "$H/.claude/skills"
   run_rollback_file "$WORK/rb-m13b.sh" "$TS" "$H"; rc=$?
-  unlock_tree "$H"
+  # 不再動權限（見 snap 註解）
   # 只釘「live 被動過」：那正是 M13 主斷言的否命題。不額外釘退出碼——
   # 錯誤是否終止會隨 userland 而異，釘了只會製造平台雜訊。
   # ⚠️ 這是 `!=` oracle：**後置快照失敗會讓它自然 PASS**，所以 rc 一定要先接住（見 snap 註解）。
@@ -621,11 +660,12 @@ else
     simulate_step2 "$H" "$TS" "[M13c][$target]"
     M13C_ROOT="$H/.claude/skills-backup/超級模式.bak-$TS"
     M13C_LOCKED=$(make_locked "$M13C_ROOT") || exit 2
+    lock_and_verify "$M13C_ROOT" "$M13C_LOCKED" "[M13c][$target]"
+    # 快照在 chmod 之後取（理由同 M13）
     BEFORE_SKILLS=$(snap "$H/.claude/skills") || die_snap "$H/.claude/skills"
     BEFORE_HOME=$(snap "$H") || die_snap "$H"
-    lock_and_verify "$M13C_ROOT" "$M13C_LOCKED" "[M13c][$target]"
     run_rollback_file "$MUT" "$TS" "$H"; rc=$?
-    unlock_tree "$H"
+    # 不再動權限（見 snap 註解）
     # 非零還不夠，要確認非零**來自 locked scan**：語法錯誤、佔位符沒替換等都會非零。
     # 這裡釘的是**產品自己的**訊息（不是 OS／host 的訊息），所以與 Windows 側「不釘訊息」
     # 的取捨並不衝突 —— 產品訊息改了本來就該讓測試紅。

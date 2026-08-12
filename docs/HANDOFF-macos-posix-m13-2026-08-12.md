@@ -1,6 +1,16 @@
 # macOS 交接：POSIX 側 `[M13]` 窄 oracle 修正（2026-08-12）
 
-> ## ✅ 狀態：**macOS 原生驗證已完成（2026-08-13），B-0…B-7 全綠。**
+> ## 🔴 狀態：**macOS 需要再驗一次（`run-posix.sh` 於 2026-08-13 又改了）**
+>
+> 2026-08-13 的 macOS 驗證涵蓋的是 blob **`90ddbd10…`**，**全綠**（紀錄保留在下方）。
+> 但同日合併前審查在那個版本裡抓到**四個 harness 自身的缺陷**（其中一個是我引進的回歸），
+> 修完之後 `run-posix.sh` 變成 blob **`5d8ad453…`** ——
+> **依「改到受測檔就把舊驗證標回 pending」的規矩，上一輪的 macOS 結果不再涵蓋現行版本。**
+>
+> 要重驗的是 §1 的新 blob ＋ §2 的 B-0…**B-8**（新增 B-8：mode 型 mutant）。
+> 期望值 `125/0`／`107/18` **沒有變**，改的是 harness 的觀測方式，不是案數。
+>
+> ### 上一輪（blob `90ddbd10…`）的結果，保留存證
 >
 > macOS 26.6.1 (25G76) arm64／**系統 `/bin/bash` 3.2.57(1)-release**（`which -a bash` 只有 `/bin/bash`，
 > 確認不是 Homebrew 5.x）／`id -u`＝501／git 2.55.0／HEAD `eb5cdd7`／`git status --porcelain` 為空／
@@ -93,6 +103,28 @@ surviving mutant**：`run-posix.sh` 的 `[M13]` 只 `snap "$H/.claude/skills"`�
 14. M13c 自我檢查再加兩條條件：**來源本來就在 anchor 之後**（否則產品若已經有缺陷，
     「搬移」會變成不搬而照樣綠）、**產出確實與原檔不同**（位置條件可能在什麼都沒搬時碰巧成立）。
 
+### 2026-08-13 第四輪（合併前審查抓到四項，其中一項是我引進的回歸）
+
+15. **`snap` 現在記錄 mode，並把「讀不到」記成觀測值**（`UNREADABLE`／`UNREADABLE-DIR`），
+    而不是當成錯誤。**刪掉了 `unlock_tree`** —— 那個 helper 在後置快照前
+    `chmod -R u+rwX` 整個假 HOME，在「快照不記 mode」的前提下等於**主動銷毀證據**。
+    ⚠️ 我當時的論證是「snap 不記 mode，所以正規化不影響比對內容」，**正好講反了**。
+    A／B 實測：舊版對 mode mutant 是 `125/0`（存活），新版 `123/2`（抓到）。
+    權限正規化改到 `cleanup` trap 裡（所有斷言之後）。
+    ⚠️ 連帶：**BEFORE 快照改到 `chmod 000` 之後取**（我們自己的注入也會改 mode，
+    在 chmod 前取會把它算成違規 —— 實測 3 條假紅）。
+16. **`die_snap` 接到全部 16 個呼叫點**（原本只有 M13 家族 3 處）。
+    界線寫成「那些樹從不 chmod」不成立：snap 也會因 `readlink`／`cksum`／IO 失敗。
+    A／B：讓 `readlink` 一律 exit 9 → 舊版 `125/0`（M11 前後快照都變空字串、`""=""` 通過），
+    新版 rc 2 並印 `snap 失敗`。
+17. **`cksum` 的錯誤真的往外傳了**：改成先 `line=$(cksum < "$p") || exit 1` 再切欄。
+    舊寫法 `ck=$(cksum < f | cut …) || exit 1` 在內層 `sh -c` 只看得到 `cut` 的狀態。
+    A／B：讓 `cksum` 一律 exit 9 → 舊版 `125/0`，新版 rc 2。
+18. **`run()` 改用 `command bash`**：只清 `BASH_ENV`／`ENV` 而仍以**名稱**呼叫 `bash`，
+    父 shell 已載入的 `bash()` 函式照樣攔得到（函式解析優先於 PATH）。
+    A／B（父層定義攔截所有 `bash` 的函式）：舊版 **`82/43`、被攔截 29 次**；
+    新版 `125/0`、攔截 **0 次**。
+
 ### ⚠️ 第 6 點會改變你熟悉的反向驗證數字（這是刻意的）
 
 2026-08-10 你回報過「Linux 88/7、macOS 89/6，差的那條是 `[M13][live] 列舉失敗 → 回滾中止`」，
@@ -106,7 +138,7 @@ surviving mutant**：`run-posix.sh` 的 `[M13]` 只 `snap "$H/.claude/skills"`�
 
 | 檔案 | `git hash-object` | 備註 |
 |---|---|---|
-| `tests/ai-install/run-posix.sh` | `90ddbd109df6f8ca52f00b4c962e295b820251a6` | 🔴 **你要驗的就是這個**（`637a9935…`／`a1041030…`／`0ca6fa03…` 皆作廢）|
+| `tests/ai-install/run-posix.sh` | `5d8ad453e1ba24d8761a8d38111089515acad56a` | 🔴 **你要驗的就是這個**（`637a9935…`／`a1041030…`／`0ca6fa03…`／**`90ddbd10…`** 皆作廢）|
 | `tests/ai-install/run-windows.ps1` | `bfec1fafaf48e7108c81a50d2ed73fb0ff6b9227` | 🔴 本批同步修，但**不需要你驗**（Windows 兩 host 已驗）|
 | `tests/ai-install/run-posix-args.test.sh` | `ee8da03c7f29d16061026622220843a95523cfeb` | 未改動 |
 | `docs/AI-INSTALL.md` | `a2b3d69f676112f138e2d48deb459c80afadafc8` | **未改動** |
@@ -132,6 +164,26 @@ surviving mutant**：`run-posix.sh` 的 `[M13]` 只 `snap "$H/.claude/skills"`�
 | B-5 | root 分支的案數（見下）| `PASS=85 FAIL=1`（合計 86）、**沒有** `STOP 案數不符`、exit 1 |
 | B-6 | `BASH_ENV` 隔離（見下）| 仍為 `PASS=125 FAIL=0`、exit 0 |
 | B-7 | `bash -n` 不被劫持（見下）| 仍為 `PASS=125 FAIL=0`、exit 0 |
+| B-8 | **mode 型 mutant 必須被抓到**（見下）| `PASS=123 FAIL=2`、exit 1，紅的**恰好**是 `[M13][bak]` 與 `[M13][live] 中止後整個假 HOME 未變（hook／settings 也在內）` |
+
+### B-8 mode 型 mutant（2026-08-13 新增）
+
+這是本輪最重要的一項：**快照現在會記錄 mode**，所以「產品在中止前偷改權限」抓得到。
+在舊版（blob `90ddbd10…`）這個 mutant 會**存活為 `125/0`** —— 因為當時有個 `unlock_tree`
+在後置快照前把整個假 HOME 的權限正規化，等於主動銷毀證據。
+
+```bash
+D=$(mktemp -d "${TMPDIR:-/tmp}/m13-mode.XXXXXX") || exit 1
+trap 'chmod -R u+rwX "$D" 2>/dev/null; rm -rf "$D"' EXIT
+A='    echo "掃描 $1（$2）失敗，狀態不明，中止（live 未變更）"; exit 1'
+[ "$(grep -cxF "$A" docs/AI-INSTALL.md)" -eq 1 ] || { echo "錨點過期，本項等於沒測"; exit 1; }
+awk -v a="$A" '$0 == a { print "    chmod 000 \"$setf\" # MODE-MUTATION-BEFORE-ABORT" } { print }' \
+  docs/AI-INSTALL.md > "$D/mutant.md"
+bash tests/ai-install/run-posix.sh --doc "$D/mutant.md"; echo "rc=$?"
+```
+
+⚠️ **B-2/B-6/B-7 的「綠」也要用同樣的懷疑態度看**：綠有可能是「注入根本沒觸發」。
+上一輪你就是這樣排除的，這一輪的 B-8 是把同一個懷疑做成常設案。
 
 ### B-2 反向驗證
 
