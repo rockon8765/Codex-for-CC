@@ -1,6 +1,35 @@
 # macOS 交接：POSIX 側 `[M13]` 窄 oracle 修正（2026-08-12）
 
-> ## ✅ 狀態：**macOS 原生驗證已完成（2026-08-13，第二次），§2 全部項目符合期望。**
+> # ⛔ 這個分支已停擺，**不得合併進 `main`**（2026-08-13 維護者裁示）
+>
+> **原因：`snap` 在 2026-08-13 的重寫又留下兩個可復現的假綠**，合併前審查以唯讀探針對
+> **現行 blob `5d8ad453…`** 直接跑出來的：
+>
+> 1. **`find` 的任意錯誤會被 `UNREADABLE-DIR` marker 吞掉。** `snap` 只要在殘缺輸出裡看到
+>    任何一行結尾是 `|UNREADABLE-DIR` 就接受整個 `find` 的非零 —— 而 M13 本來就**一定**
+>    產生該 marker，所以同一次遍歷裡的 `cksum`／`readlink`／`ls`／IO 錯誤全部被吞。
+>    實測：`find` 回 9 但同時吐出 marker → `snap` 回 **0**，兩次這樣的快照還會**相等**。
+>    ⚠️ 這是**「從輸出內容反推失敗原因」**——與本 repo 反覆踩過的
+>    「拿值當 sentinel」是同一形狀。
+> 2. **`m=$(ls -ld "$p" | cut -c1-10) || exit 1` 的 pipeline rc 被遮蔽。**
+>    與同一次編輯裡才剛修掉的 `cksum | cut` **完全同型**，隔兩行又寫了一次。
+>    實測：讓 `ls` 印出合法資料後 exit 9 → 整個 harness 仍印 `125/0`。
+>
+> **另外，下方記載的 B-8 並沒有驗到它宣稱的東西。** B-8 用 `chmod 000 "$setf"`，
+> 那會讓檔案不可讀、ck 欄變成 `UNREADABLE` —— 靠 ck 欄就抓到了，跟 mode 欄無關。
+> 本機實測：把 mode 欄釘成常數（等於完全不記 mode），B-8 **照樣 `123/2`**。
+> **真正的 mode-only 牙齒是 `chmod u+x "$setf"`**（內容與 CRC 不變，只有 mode 變）：
+> 現行 harness `123/2`、mode 欄被釘死的 harness `125/0`。
+> ⇒ **下方 macOS 的 B-8 綠燈，不構成「mode 記錄在 macOS 有效」的證據。**
+>
+> 其餘已確認但未修的缺口見 [`backlog.md`](backlog.md)：`.absent` 刪除分支、
+> FIFO／socket／device 不進快照、`cksum` 32-bit 碰撞、`lock_and_verify` 沒檢查 `chmod` rc、
+> Windows 不記 ACL。
+>
+> **下一步不是繼續打補丁，而是重新設計 `snap`**（維護者裁示）。
+> 本文件其餘內容保留存證：驗收流程、B-0…B-7 的結果與正向對照方法都仍有參考價值。
+
+> ## ✅（存證）macOS 原生驗證已完成（2026-08-13，第二次），§2 全部項目符合期望。
 >
 > **涵蓋 blob `5d8ad453e1ba24d8761a8d38111089515acad56a`**（現行版本）。
 > macOS 26.6.1 (25G76) arm64／系統 `/bin/bash` **3.2.57(1)-release**（`which -a bash` 只有這一個）／
@@ -137,7 +166,7 @@ surviving mutant**：`run-posix.sh` 的 `[M13]` 只 `snap "$H/.claude/skills"`�
     權限正規化改到 `cleanup` trap 裡（所有斷言之後）。
     ⚠️ 連帶：**BEFORE 快照改到 `chmod 000` 之後取**（我們自己的注入也會改 mode，
     在 chmod 前取會把它算成違規 —— 實測 3 條假紅）。
-16. **`die_snap` 接到全部 16 個呼叫點**（原本只有 M13 家族 3 處）。
+16. **`die_snap` 接到全部呼叫點**。⚠️ 本文件原寫「3 處 → 16 個呼叫點」，**兩個數字都錯**：以實際 `$(snap …)` 語法計，舊 blob `90ddbd10…` 是 **23 個呼叫點、10 個已 guard、13 個未 guard**，新版 **23 個全 guard**（合併前審查逐一數過）。
     界線寫成「那些樹從不 chmod」不成立：snap 也會因 `readlink`／`cksum`／IO 失敗。
     A／B：讓 `readlink` 一律 exit 9 → 舊版 `125/0`（M11 前後快照都變空字串、`""=""` 通過），
     新版 rc 2 並印 `snap 失敗`。

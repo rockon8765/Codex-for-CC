@@ -76,7 +76,7 @@
 > 續用成立，不需重跑。
 >
 > ⚠️ **這段的 `run-posix.sh` 結果（blob `637a9935…`、`PASS=95 FAIL=0`）已被 2026-08-12 取代。**
-> 該檔現在是 blob `90ddbd10…`、**125 案**，**macOS 已於 2026-08-13 重驗完成**——
+> 該檔現在是 blob `5d8ad453…`、**125 案**。⛔ **該分支已停擺、不得合併**（見下方「仍未做」）。
 > 驗收單見 [`docs/HANDOFF-macos-posix-m13-2026-08-12.md`](docs/HANDOFF-macos-posix-m13-2026-08-12.md)。
 > 本段其餘項目（`run-posix-args` 13/13、兩個 `exit 2` 案）不受影響：
 > `run-posix-args.test.sh` 的 blob `ee8da03c…` 未改動。
@@ -164,15 +164,23 @@
 >   根因是被鎖目錄是空的（GNU 能 `rmdir`、BSD 不能），放進檔案後兩平台**完全一致**。
 >   驗收單與完整結果見
 >   [`docs/HANDOFF-macos-posix-m13-2026-08-12.md`](docs/HANDOFF-macos-posix-m13-2026-08-12.md)。
-> - ✅ **`run-posix.sh` harness 自身的四個缺陷已於 2026-08-13 修完（macOS 已重驗）**（合併前審查抓到，
+> - ⛔ **`test/posix-m13-wide-oracle-…` 分支已停擺、不得合併（2026-08-13 維護者裁示）**：
+>   修掉四個缺陷之後，下一輪審查又在同一份 `snap` 裡找到**兩個新的可復現假綠**——
+>   `find` 的任意錯誤會被 `UNREADABLE-DIR` marker 吞掉（**從輸出內容反推失敗原因**，
+>   與「拿值當 sentinel」同形狀）、以及 `ls -ld | cut` 的 pipeline rc 被遮蔽
+>   （**與同一次編輯裡才剛修掉的 `cksum | cut` 完全同型**）。
+>   另外 **B-8 並沒有驗到 mode 欄**（它靠 ck 欄變 `UNREADABLE` 才抓到；把 mode 欄釘死仍 `123/2`），
+>   所以 macOS 的 B-8 綠燈**不構成**「mode 記錄在 macOS 有效」的證據。
+>   **不再打補丁，`snap` 另批重新設計**，完整清單見 [`docs/backlog.md`](docs/backlog.md)。
+> - ✅（存證）**`run-posix.sh` harness 四個缺陷的修正（2026-08-13）**（合併前審查抓到，
 >   其中 `unlock_tree` 是 2026-08-12 那批引入的回歸）：快照改為**記錄 mode**、
 >   「讀不到」記成 `UNREADABLE`／`UNREADABLE-DIR` 而非錯誤、刪掉 `unlock_tree`
 >   （權限正規化移到 `cleanup`，在所有斷言之後）、`die_snap` 接滿 **16 個**呼叫點、
->   `cksum` 先取整行再切欄、`run()` 改用 `command bash`。
+>   `cksum` 先取整行再切欄、`run()` 改用 `command bash`。（原寫「`die_snap` 接滿 16 個呼叫點」，實際是 **23 個**：舊版 23 個中有 13 個未 guard。）
 >   **四項都做了 A／B 對照**（修正前分別為 `125/0` 存活、`125/0` 假綠、`125/0` 假綠、
 >   `82/43` 被攔截 29 次；修正後 `123/2`、rc 2、rc 2、`125/0` 攔截 0 次）。
->   ✅ **macOS 已於 2026-08-13 對新 blob `5d8ad453…` 完成第二次原生驗證**（§2 全部項目符合），
->   並獨立重現了 mode mutant 在舊 blob 上 `125/0` 存活、新 blob 上 `123/2` 被抓到。
+>   （macOS 曾於 2026-08-13 對 blob `5d8ad453…` 完成第二次原生驗證且全綠，但見上一列：
+>   那次驗證沒有涵蓋後來才發現的兩個假綠，B-8 也沒驗到它宣稱的 mode 欄。）
 > - 🔴 **平台不對稱（已知，未做）**：POSIX 的快照記 mode，Windows 的 `Get-Snapshot`
 >   不記 ACL —— 純 ACL 型的違規在 Windows 側看不到。
 > - 🔴 **`.absent`（刪除）分支從未在「列舉失敗」情境跑過**：M13 家族的 fixture 全是「既有安裝」，
