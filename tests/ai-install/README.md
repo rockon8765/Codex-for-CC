@@ -324,6 +324,7 @@ BSD 則拒絕進入（exit 1）。現在 `make_locked()` 會在裡面放一個 `
 |---|---|---|
 | Linux（WSL2 ext4、bash 5.x、非 root）| **125 PASS／0 FAIL** exit 0 | **107／18** exit 1 |
 | macOS 26.6.1 arm64（系統 bash **3.2.57**、非 root）| **125 PASS／0 FAIL** exit 0 | **107／18** exit 1 |
+| macOS 同上（第二次，blob `5d8ad453…`）| **125／0** exit 0；B-8 mode mutant **123／2** exit 1 | **107／18** exit 1 |
 
 ✅ **macOS 已於 2026-08-13 原生驗證，兩平台逐條相同。**
 其中最值得記的是：**2026-08-10 那個「同一條退出碼斷言在兩平台結論相反」的差異確實消失了**

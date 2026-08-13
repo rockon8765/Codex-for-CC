@@ -164,15 +164,15 @@
 >   根因是被鎖目錄是空的（GNU 能 `rmdir`、BSD 不能），放進檔案後兩平台**完全一致**。
 >   驗收單與完整結果見
 >   [`docs/HANDOFF-macos-posix-m13-2026-08-12.md`](docs/HANDOFF-macos-posix-m13-2026-08-12.md)。
-> - ✅ **`run-posix.sh` harness 自身的四個缺陷已於 2026-08-13 修完**（合併前審查抓到，
+> - ✅ **`run-posix.sh` harness 自身的四個缺陷已於 2026-08-13 修完（macOS 已重驗）**（合併前審查抓到，
 >   其中 `unlock_tree` 是 2026-08-12 那批引入的回歸）：快照改為**記錄 mode**、
 >   「讀不到」記成 `UNREADABLE`／`UNREADABLE-DIR` 而非錯誤、刪掉 `unlock_tree`
 >   （權限正規化移到 `cleanup`，在所有斷言之後）、`die_snap` 接滿 **16 個**呼叫點、
 >   `cksum` 先取整行再切欄、`run()` 改用 `command bash`。
 >   **四項都做了 A／B 對照**（修正前分別為 `125/0` 存活、`125/0` 假綠、`125/0` 假綠、
 >   `82/43` 被攔截 29 次；修正後 `123/2`、rc 2、rc 2、`125/0` 攔截 0 次）。
->   ⚠️ **`run-posix.sh` 因此再次改版（blob `5d8ad453…`），macOS 需重驗**——
->   2026-08-13 的那次驗證涵蓋的是舊 blob `90ddbd10…`。
+>   ✅ **macOS 已於 2026-08-13 對新 blob `5d8ad453…` 完成第二次原生驗證**（§2 全部項目符合），
+>   並獨立重現了 mode mutant 在舊 blob 上 `125/0` 存活、新 blob 上 `123/2` 被抓到。
 > - 🔴 **平台不對稱（已知，未做）**：POSIX 的快照記 mode，Windows 的 `Get-Snapshot`
 >   不記 ACL —— 純 ACL 型的違規在 Windows 側看不到。
 > - 🔴 **`.absent`（刪除）分支從未在「列舉失敗」情境跑過**：M13 家族的 fixture 全是「既有安裝」，
