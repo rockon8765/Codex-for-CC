@@ -24,6 +24,23 @@ $1"
   return 1
 }
 
+# 🔴 取檔案 mtime（epoch 秒）。**刻意不用 pipeline**。
+#    舊寫法是 `ls -l --time-style=+%s "$f" | awk '{print $6}' || stat -f %m "$f"`：
+#    在 BSD 上 `ls` 不認 `--time-style` 而失敗，`awk` 卻回 0 並印空字串 ——
+#    有 `pipefail` 時 fallback 才會觸發，**沒有 pipefail 就靜默變成「空 = 空」恆真**，
+#    §3d／§8 那些「mtime 未變」的檢查會全部退化成假綠而總數不變。
+#    2026-08-18 macOS 原生驗證用變異測試證實：目前只靠第 17 行的 pipefail 撐著。
+#    ⇒ 改成無 pipeline、逐個嘗試、且**取不到就非 0 退出**，不讓它有機會回空字串。
+mtime_of() {
+  local f="$1" m=""
+  m="$(stat -f %m "$f" 2>/dev/null)" || m=""          # BSD / macOS
+  [ -n "$m" ] || m="$(stat -c %Y "$f" 2>/dev/null)" || m=""   # GNU / Linux
+  case "$m" in
+    ''|*[!0-9]*) return 1 ;;                           # 空或非純數字一律當失敗
+    *) printf '%s' "$m" ;;
+  esac
+}
+
 here="$(cd "$(dirname "$0")" && pwd)"
 sut="$here/../scripts/codex-consult.sh"
 # ⚠️ setup 必須 fail-fast：若 mktemp 失敗而沒有檢查，$root 會是空字串，
@@ -31,11 +48,19 @@ sut="$here/../scripts/codex-consult.sh"
 #    `rm -rf ""`；以 root 或在 container 內跑就可能碰到真實根目錄。
 #    （2026-08-18 設計審查指出，屬 A 類必修。）
 root="$(mktemp -d "${TMPDIR:-/tmp}/consult-cred-XXXXXX")" || { echo "mktemp -d 失敗，中止" >&2; exit 2; }
+# 形狀守衛先跑在**未正規化**的原值上（正規化會把 /var 變成 /private/var，白名單反而對不上）。
 case "$root" in
-  /tmp/consult-cred-*|/var/folders/*|"${TMPDIR%/}"/consult-cred-*) : ;;
+  /tmp/consult-cred-*|/var/folders/*|/private/var/folders/*|"${TMPDIR%/}"/consult-cred-*) : ;;
   *) echo "mktemp 回了非預期路徑，拒絕以免 trap 刪到不該刪的地方: '$root'" >&2; exit 2 ;;
 esac
 [ -d "$root" ] || { echo "mktemp 回的路徑不是目錄: '$root'" >&2; exit 2; }
+# 🔴 正規化：macOS 的 TMPDIR **尾端帶斜線**，`mktemp -d "$TMPDIR/x-XXXX"` 會產出 `…/T//x-ab12`
+#    這種雙斜線路徑；而受測產品是用 `cd "$dir" && pwd` 取 repo（單斜線、且 /var→/private/var）。
+#    測試若用字串串接組期望值，`grep -F` 就永遠比不中——**產品是對的，錯的是測試**。
+#    2026-08-18 macOS 原生驗證實測到這個假紅（`1c 憑證綁 repo`，去掉尾斜線後 19/19）。
+#    修法＝**用與產品同一套正規化**取值，而不是在斷言那邊做字串修補。
+root="$(cd "$root" && pwd)" || { echo "無法正規化 root" >&2; exit 2; }
+[ -d "$root" ] || { echo "正規化後不是目錄: '$root'" >&2; exit 2; }
 trap 'rm -rf "$root"' EXIT
 fake_home="$root/home"; mkdir -p "$fake_home/.claude"
 repo="$root/repo"; mkdir -p "$repo"
@@ -88,13 +113,13 @@ echo ""
 echo "§3 不合格回覆 → 43 且不鑄造，且**不動既有憑證**"
 printf '{"repo":"OLD","ts":"old"}' > "$token"
 before_sum="$(cksum < "$token")"
-before_mt="$(ls -l --time-style=+%s "$token" 2>/dev/null | awk '{print $6}' || stat -f %m "$token")"
+before_mt="$(mtime_of "$token")" || { echo "取不到 mtime，中止（不容許這條檢查靜默退化成恆真）" >&2; exit 2; }
 sleep 1.1
 run_consult "hi" 0
 check "3a 過短 → exit 43" "$([ "$RC" -eq 43 ] && echo 0 || echo 1)" "rc=$RC err=$ERR"
 check "3b 過短 → stderr 有 UNUSABLE" "$(printf '%s' "$ERR" | grep -q 'CONSULT_UNUSABLE_ANSWER' && echo 0 || echo 1)" "err=$ERR"
 check "3c 既有憑證內容未變" "$([ "$(cksum < "$token")" = "$before_sum" ] && echo 0 || echo 1)" "憑證內容被動過"
-after_mt="$(ls -l --time-style=+%s "$token" 2>/dev/null | awk '{print $6}' || stat -f %m "$token")"
+after_mt="$(mtime_of "$token")" || { echo "取不到 mtime，中止" >&2; exit 2; }
 check "3d 既有憑證 mtime 未變" "$([ "$after_mt" = "$before_mt" ] && echo 0 || echo 1)" \
   "mtime $before_mt -> $after_mt（gate 只看 mtime，這等於偷偷續期）"
 
