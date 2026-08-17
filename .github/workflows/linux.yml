@@ -156,6 +156,20 @@ jobs:
       - name: consult-schema
         run: bash "linux/skills/超級模式/tests/consult-schema.tests.sh"
 
+      # ── 憑證鑄造判準（2026-08-18）────────────────────────────────────────
+      # 三支缺一不可，分工不同，別以為跑一支就夠：
+      #   fixtures  = 判準本體的行為對不對
+      #   teeth     = 那些 fixtures 真的殺得死 mutant（案數不變的假綠是本 repo 實測過的）
+      #   caller    = 接線對不對（stdout 有沒有餵錯、43 有沒有真的不鑄造、舊憑證有沒有被動）
+      - name: consult-answer 判準 fixtures
+        run: node "tests/consult-answer.test.js"
+
+      - name: consult-answer 牙齒（變異對照，比對具名失敗集合）
+        run: node "tests/consult-answer-teeth.test.js"
+
+      - name: consult 憑證鑄造整合測試（假 codex）
+        run: bash "linux/skills/超級模式/tests/consult-credential.tests.sh"
+
       # 非空驗證：把 linux 的 case-preserving helper 換成 mac 版的 toLowerCase()，
       # gate-cases 必須變紅。若這步「變異後仍全綠」，代表回歸網對這條平台語義失效了。
       - name: 變異測試（守住 case-preserving 的區辨性）

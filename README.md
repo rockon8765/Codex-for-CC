@@ -345,8 +345,10 @@ windows/                         # PowerShell 版（已稽核、已部署）
   hooks/super-mode-consult-gate.js
   skills/超級模式/
     SKILL.md  references/orchestration.md  references/review-output.schema.json
+    lib/      gate-registration.js  consult-answer.js      # 三平台**逐位元相同**，由 tests/gate-registration.test.js §C 守住
     scripts/  super-mode.ps1  codex-consult.ps1  codex-exec.ps1  codex-check.ps1
     tests/    run-gate-tests.js  run-gate-tests.ps1  matcher-contract.test.js  gate-cases.json
+              consult-schema.tests.ps1  consult-credential.tests.ps1  codex-check.tests.ps1
 
 macos/                           # bash 版（平台移植版；本次 delta 的驗證狀態見上方狀態矩陣）
   settings.snippet.json
@@ -354,8 +356,10 @@ macos/                           # bash 版（平台移植版；本次 delta 的
   hooks/super-mode-consult-gate.js
   skills/超級模式/
     SKILL.md  references/orchestration.md  references/review-output.schema.json
+    lib/      gate-registration.js  consult-answer.js      # 三平台**逐位元相同**，由 tests/gate-registration.test.js §C 守住
     scripts/  super-mode.sh  codex-consult.sh  codex-exec.sh  codex-check.sh
     tests/    run-gate-tests.js  run-e2e.sh  matcher-contract.test.js  gate-cases.json
+              consult-schema.tests.sh  consult-credential.tests.sh  codex-check.tests.sh
 
 linux/                           # bash 版（GNU userland；每次 push 由 ubuntu-latest CI 原生回歸）
   settings.snippet.json
@@ -363,8 +367,10 @@ linux/                           # bash 版（GNU userland；每次 push 由 ubu
   hooks/super-mode-consult-gate.js
   skills/超級模式/
     SKILL.md  references/orchestration.md  references/review-output.schema.json
+    lib/      gate-registration.js  consult-answer.js      # 三平台**逐位元相同**，由 tests/gate-registration.test.js §C 守住
     scripts/  super-mode.sh  codex-consult.sh  codex-exec.sh  codex-check.sh
     tests/    run-gate-tests.js  run-e2e.sh  matcher-contract.test.js  gate-cases.json
+              consult-schema.tests.sh  consult-credential.tests.sh  codex-check.tests.sh
 ```
 
 ## 運作方式（一個里程碑）
