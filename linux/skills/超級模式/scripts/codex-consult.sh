@@ -121,8 +121,12 @@ logdir="$HOME/.claude/super-mode-logs"; mkdir -p "$logdir"
 # 去重後綴防同秒碰撞。⚠️ 2026-08-18：原本硬吃 uuidgen，缺它就整支 rc=127 掛掉
 # （macOS 一定有，但精簡的 Linux／WSL 映像不一定裝 util-linux；新的整合測試在 WSL 實際踩到）。
 # 改成三段 fallback，任何一段成立即可。
-rand6="$(uuidgen 2>/dev/null | tr 'A-Z' 'a-z' | tr -d '-' | cut -c1-6)"
-[ -n "$rand6" ] || rand6="$(od -An -tx1 -N3 /dev/urandom 2>/dev/null | tr -d ' \n')"
+# ⚠️ 每一段都要 `|| true`：本檔開頭是 `set -euo pipefail`，缺 uuidgen 時 pipeline 回 127，
+#    pipefail + set -e 會讓整支**靜默** exit 127（stderr 還被 2>/dev/null 吃掉，什麼都看不到）。
+#    2026-08-18 我第一版寫成沒有 `|| true`，結果修 uuidgen 反而製造出更難查的失敗——
+#    整合測試 6/19、rc=127、零輸出，追了三輪才定位。
+rand6="$( { uuidgen 2>/dev/null || true; } | tr 'A-Z' 'a-z' | tr -d '-' | cut -c1-6 || true)"
+[ -n "$rand6" ] || rand6="$( { od -An -tx1 -N3 /dev/urandom 2>/dev/null || true; } | tr -d ' \n' || true)"
 [ -n "$rand6" ] || rand6="$$"
 stamp="$(date +%Y%m%d_%H%M%S)_${rand6}"
 log="$logdir/codex_consult_${stamp}.txt"
