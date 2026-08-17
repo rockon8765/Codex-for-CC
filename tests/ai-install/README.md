@@ -102,9 +102,19 @@ hook 與 settings，所以把 hook mutation 搬到預掃前，窄 oracle 會全�
 現在每個變體都比兩份快照：`中止後 live 未變`（skills，訊息清楚）
 ＋ `中止後整個假家目錄未變（hook／settings 也在內）`（真正對應契約的那條）。
 
-`[M13c]` 是這條加寬的**牙齒測試**：注入一個預掃前的 hook mutation，然後同時斷言
+`[M13c]` 是這條加寬的**牙齒測試**：製造一個預掃前的 mutation，然後同時斷言
 **窄 oracle 看不到**（證明缺口真實存在）與**寬 oracle 抓得到**（證明加寬有效）。
 兩條要一起看才有意義——少了前者，讀者無從判斷加寬到底買到了什麼。
+
+⚠️ **現行實作是「搬移」而非「注入一行」，而且跑 hook／settings 兩個目標**
+（2026-08-17 `F2` 批；在那之前只有 hook 一個目標、且是注入式）。
+搬移＝把產品自己的相鄰兩行原樣移到 anchor 之前，產物就是產品的程式碼、只是順序錯了，
+是比注入更強的證據形式。代價是自我檢查要更嚴，見下面「同一個坑」那節。
+
+⚠️ **settings 目標依賴 `Set-Step2Settings` 這個 fixture。** `Add-ExistingInstall` 寫的
+`settings.json` 與 1b 的備份完全相同、1c 不碰 settings，所以少了模擬安裝步驟 2 的那一步，
+「把 settings 還原搬到預掃前」只是 OLD → OLD，**連寬 oracle 都看不到**。
+這是 fixture 的盲點不是 oracle 的——`F2` 修的就是這個。
 
 ⚠️ **這是狀態 oracle，不是事件 oracle。** 快照相等只能證明「最終內容相同」，
 **不能**證明「途中從未刪除又還原」。產品目前沒有任何失敗後還原的邏輯，所以狀態比對足以當證據，
@@ -120,6 +130,28 @@ hook 與 settings，所以把 hook mutation 搬到預掃前，窄 oracle 會全�
 `Remove-Item -Recurse` 對一棵**部分不可存取**的樹「刪掉一些才失敗」——那是 provider 語義，
 日後若改成更早、更原子地拒絕就會誤紅。鎖備份則是：預掃 fail-open → 第一個 mutation
 刪除一棵**完全可存取**的 live → 訊號穩定。
+
+#### mutation control runner（`run-mutation-controls.ps1`）
+
+`run-windows.ps1` 全綠只證明「**沒少跑案**」，不證明每個案子真的做了它宣稱的動作。
+所以另有一支 runner 專門證明測試臺**有牙齒**：
+
+```powershell
+pwsh -NoProfile -File tests\ai-install\run-mutation-controls.ps1
+```
+
+四個 control，預期數字**釘死**、對不上就 exit 1：
+
+| control | 注入 | 預期 |
+|---|---|---|
+| 1 | `Set-Step2Settings` 寫入行改 no-op（保留 `Check`） | `PASS=121 FAIL=5` |
+| 2 | 產品文件的 **hook** 還原兩行搬到首掃前（**緊貼** anchor） | `PASS=122 FAIL=4` |
+| 3 | 刪掉 `[C3]` 一條無副作用的 `Check` | `STOP 案數不符` |
+| 4 | 產品文件的 **settings** 還原兩行搬到首掃前（**緊貼** anchor） | `PASS=122 FAIL=4` |
+
+⚠️ **「緊貼」不是廢話**：搬到更早、但仍在首掃前的位置，預期紅的條數**不一樣**
+（「產出與原檔確實不同」那條會變成 PASS）。2026-08-15 的驗收只記了數字沒記放法，
+結果 `123/3` 與後來的 `122/4` 到現在無法判定誰對。**這支 runner 就是為了根除這個病。**
 
 #### 案數硬斷言（`EXPECTED_CHECKS`）
 
@@ -160,14 +192,25 @@ hook 與 settings，所以把 hook mutation 搬到預掃前，窄 oracle 會全�
 
 1. 上一批：產品**散文**裡的 `RESULT_CODE=` 字面被未錨定 oracle 抓成假標記。
 2. `[M13b]`：回滾區塊的**註解**含 `$ErrorActionPreference = 'Stop'` 字面 → `String.Replace` 會連註解一起改。
-3. `[M13c]`：注入行 `if (Get-Entry $hook) { Remove-Item -LiteralPath $hook -Force }`
+3. `[M13c]`：**當時的**注入行 `if (Get-Entry $hook) { Remove-Item -LiteralPath $hook -Force }`
    是產品既有的 `elseif (Get-Entry $hook) { … }` 的**子字串** → 直接數會得到 2 次。
-   修法是讓注入行帶一個唯一標記（`# M13C-PRE-SCAN-MUTATION`）再數標記。
+   當時的修法是讓注入行帶一個唯一標記（`# M13C-PRE-SCAN-MUTATION`）再數標記。
+   ⚠️ **那個標記式實作已經不存在**：`[M13c]` 後來改成**搬移**既有兩行，
+   自我檢查也改成「三串各唯一（`-ceq` 整行精確比對）、兩行相鄰、anchor 是第一個
+   `Assert-NoReparseUnder`、來源在 anchor 之後」＋「產出行數不變、各恰一份、
+   緊貼 anchor、且**與原檔確實不同**」＋「產出仍可 `[scriptblock]::Create`」。
+   本節保留這段是因為**坑的形狀**（未錨定／子字串比對）仍然有效，不是因為實作還長那樣。
+
+4. **2026-08-17 `F2` 收尾時同一個坑又出現一次**（第四次）：control 1 要把
+   `Set-Step2Settings` 的寫入行改成 no-op，但那行字面在檔案裡有**兩份**——
+   `[C1]` 的行內版（未縮排）與函式內（縮排兩格）。錨點沒帶縮排就會同時改掉兩處，
+   自我檢查以「命中 2 次」擋下。修法＝錨點帶上換行與縮排。
 
 錨點失效時**刻意不跳過**後面的案，改用未變異的區塊讓它們自然變紅。
 **這一點是實測過的，不是推論**：把受測文件的回滾區塊第一行縮排一格
 （縮排不改變 PowerShell 語義，產品仍 fail-closed，只讓 `(?m)^` 失去命中），
-harness 印 **109 PASS／3 FAIL**、**總案數仍為 112**，紅的恰好是那三條 `[M13b]`。
+harness 印 **109 PASS／3 FAIL**、**總案數仍為 112**（**2026-08-12 的量測，當時案數是 112**；
+現行案數見 `run-windows.ps1` 的 `$EXPECTED_CHECKS`），紅的恰好是那三條 `[M13b]`。
 ⚠️ 注意這只證明「錨點失效不會**少**案」，**不等於**「案數已釘死」——後者要靠上面的
 `EXPECTED_CHECKS`（這個區別是合併前 Codex 審查指出的，我原本把兩件事混為一談）。
 
@@ -215,7 +258,25 @@ M11 四條（`[bak]`／`[live]` 各「回滾中止」＋「被拒後 live 未變
 ＋ M13 的「中止後 live 未變」（`[bak]`／`[live]`）必須 FAIL；
 `[live] 列舉失敗 → 回滾中止` 是否 FAIL **依平台而定，不列入判準**。
 
-### Windows 側對 `4a96698`（B1 之前）的反向驗證實測（2026-08-12）
+### Windows 側對 `4a96698`（B1 之前）的反向驗證實測
+
+⚠️ **下面兩段各是一次帶日期的量測，不是現況總表。** 案數與失敗集合會隨每批加案變動；
+現行案數的唯一權威是 `run-windows.ps1` 的 `$EXPECTED_CHECKS`。
+
+#### 最新：2026-08-17（`F2` 批，`[M13c]` 已含 hook／settings 兩目標）
+
+| host | 現行文件 | `4a96698` |
+|---|---|---|
+| `pwsh` 7.6.3 | **126 PASS／0 FAIL** exit 0 | **112／14** exit 1 |
+| Windows PowerShell 5.1.26100 | **126 PASS／0 FAIL** exit 0 | **112／14** exit 1 |
+
+失敗的**恰好**是十四條＝下面 2026-08-12 那份的 M11 四條、M13 四條，
+再加 `[M13c]` **六條**（hook／settings 各三：「來源錨點…」「產出…」「窄 oracle…」）。
+⚠️ 兩 host 的**逐位置 PASS／FAIL 判定完全相同**；但**斷言字串不是逐行相同**
+（字串裡嵌了 `ts`，且 `[M8]` 有一條「同秒／不同秒重跑」是時鐘競態分支）。
+不要把它寫成「逐行 `diff` 無差異」。
+
+#### 2026-08-12（`[M13c]` 當時只有 hook 一個目標、且是注入式）
 
 | host | 現行文件 | `4a96698` |
 |---|---|---|
@@ -232,7 +293,8 @@ M13（4 條）
 - `[M13][備份子樹] 中止後 live 未變`、`[M13][備份子樹] 中止後整個假家目錄未變（hook／settings 也在內）`
 - `[M13][live 子樹] 中止後 live 未變`、`[M13][live 子樹] 中止後整個假家目錄未變（hook／settings 也在內）`
 
-M13c（3 條）
+M13c（3 條；⚠️ **這是 2026-08-12 標記式實作時的斷言名稱，現行已不同**——
+現行是 `[M13c][hook]`／`[M13c][settings]` 各三條，名稱見上一節）
 - `[M13c] 變異錨點唯一（否則本案等於沒測）`、`[M13c] 變異確實注入且只多一行`
 - `[M13c] 窄 oracle（只看 skills）看不到這個違規`
 

@@ -114,6 +114,10 @@
 > 測試補到 13 案（含「兩來源同值必須放行」的正向案）。
 >
 > ✅ **Windows 側的 M13 已補（2026-08-12，單獨一批）。**
+> ⚠️ **以下整段是 2026-08-12 當時的紀錄，數字不是現況**：`[M13c]` 當時只涵蓋 **hook** 一個目標、
+> 案數 112。2026-08-17 的 `F2` 那批補上 settings 目標，案數變 **126**
+> （見 [`docs/backlog.md`](docs/backlog.md) 的 `F2` 列與
+> [`docs/ACCEPTANCE-windows-m13c-settings-2026-08-15.md`](docs/ACCEPTANCE-windows-m13c-settings-2026-08-15.md)）。
 > 先前只有 `$ErrorActionPreference = 'Stop'` 的**靜態推論**，現在有動態測試：
 > 注入手法是**對自己下 Deny ACE**（POSIX 側是 `chmod 000`）——目錄擁有者即使沒有
 > 管理員權限也隱含保有 `WRITE_DAC`，所以不需要提權。`[M13]` 兩變體（備份子樹／live 子樹）
@@ -144,8 +148,10 @@
 > hook 執行環境。已在 `Invoke-Block` 內以函式作用域降級為 `Continue` 修掉。
 >
 > ⚠️ **仍未做**（據實列，不含糊）：
-> - Windows 與 macOS 皆**無 CI**，仍靠人工原生驗證；`run-windows.ps1` 的 112 案
->   （含新增的 M13）遠端沒有任何 gate 會攔，改壞了不會有人被擋下來。
+> - Windows 與 macOS 皆**無 CI**，仍靠人工原生驗證；`run-windows.ps1` 的案子
+>   （含 M13／M13c）遠端沒有任何 gate 會攔，改壞了不會有人被擋下來。
+>   ⚠️ 這裡**刻意不寫案數**——案數會隨每批加案變動，唯一權威是
+>   `run-windows.ps1` 的 `$EXPECTED_CHECKS`（本行原寫 `112`，F2 那批改成 126 時漏同步）。
 > - 🔴 **POSIX 側的 `[M13]` 有與 Windows 完全同型的窄 oracle**（第二輪 Codex 審查抓到）：
 >   `run-posix.sh` 只 `snap "$H/.claude/skills"`，沒有寬 oracle 也沒有 `M13c`，
 >   所以「把 hook mutation 搬到 `scan_no_link` 之前」在 POSIX 側仍會全綠。**下一批 P0。**

@@ -59,15 +59,25 @@
 
 本檔原本這樣寫。**實測不對**，而且不可能對：
 
-- 斷言字串裡嵌了 `ts`（時間戳記），兩次執行本來就不同 → 正向 10 處、反向 8 處字面差異。
-- 其中 **`[C2]` 有一條是時鐘競態分支**：同一位置在 `pwsh` 印 `不同秒重跑允許`、在 5.1 印 `同秒重跑被拒`。
-  這**不是** host 差異，是「第二次執行有沒有落在同一秒」的隨機結果，同一 host 重跑也會變。
+- 斷言字串裡嵌了 `ts`（時間戳記），兩次執行本來就不同。
+  即使把 `\d{8}-\d{6}` 正規化掉，**正向仍有 10 處、反向仍有 8 處字面差異**——
+  因為 `[M1]` 那幾條的 ts 是 `…HHMM?`／`…HHMM[0-9]` 這種萬用字元形式，**根本不匹配該 regex**。
+- 其中 **`[M8]`（1b 重跑）有一條是時鐘競態分支**：同一位置在 `pwsh` 印 `不同秒重跑允許`、
+  在 5.1 印 `同秒重跑被拒`。這**不是** host 差異，是「第二次執行有沒有落在同一秒」的隨機結果，
+  同一 host 重跑也會變。兩條都是設計上允許的 timing outcome，所以不該紅。
+  （⚠️ 本檔原寫成 `[C2]`，是錯的；實際在 `run-windows.ps1` 的 `[M8]` 區段。）
 
-**成立的不變量改成這個**（本輪實測）：把 `\d{8}-\d{6}` 正規化後，兩 host
-**逐位置的 PASS／FAIL 判定完全相同**（正向 126/126、反向 126/126，`逐位置判定完全相同=True`）。
-引用時請用這句，不要用「逐行 diff 無差異」。
+**成立的不變量只有這一句**（本輪實測）：
 
-## Mutation control（**四個**，2026-08-17 全數對最終 SUT 重跑，host＝`pwsh` 7.6.3）
+> **兩次執行的逐位置 PASS／FAIL verdict vector 相同**（正向 126/126、反向 126/126）。
+
+⚠️ **它不宣稱**兩 host 走了相同分支，也不宣稱 host 語義相同——`[M8]` 那條就是反例。
+引用時請用這句，不要用「逐行 `diff` 無差異」，也不要引申成 host 行為等價。
+
+## Mutation control（**四個**，2026-08-17 全數對最終 SUT 重跑，**兩 host 各 4/4 符合預期**）
+
+透過收進 repo 的 [`tests/ai-install/run-mutation-controls.ps1`](../tests/ai-install/run-mutation-controls.ps1)
+執行（blob `a8b0a94eff542e19cc79bd9f7ee6ec25504058aa`），預期數字由該檔釘死。
 
 | # | 注入 | 結果 | 證明了什麼 |
 |---|---|---|---|
@@ -76,13 +86,27 @@
 | 3 | 刪掉 `[C3]` 一條無副作用的 `Check` | 實跑 125、**`STOP 案數不符`**、rc=1 | 案數守衛擋得住「少一案」 |
 | **4** | **改產品文件**：把 **settings** 還原的相鄰兩行搬到第一個 `Assert-NoReparseUnder` **之前**（行數不變） | `PASS=122 FAIL=4`、rc=1 | **本批新增，08-15 驗收缺的就是這一個。** 與 control 2 完全對稱：`[M13c][settings]` 兩道守衛都變紅＋`[M13]` 兩條。⇒ settings 目標**不是**靠 hook 目標順帶通過，它自己的守衛獨立有牙齒。**同一注入在 WinPS 5.1 也是 `PASS=122 FAIL=4`、rc=1，失敗集合逐條相同** |
 
-### ⚠️ 訂正：08-15 的 control 2 數字是錯的
+### ⚠️ 08-15 的 control 2 記 `123/3`，08-17 重跑得 `122/4` —— **無法判定哪個對**
 
-本檔原記 control 2 ＝ `PASS=123 FAIL=3`。**2026-08-17 重跑實測為 `122/4`。**
-多出來的那一條是 `[M13c][hook] 產出：…且確實與原檔不同`。這條**必然**會紅：
-把兩行搬到 anchor 正前方之後，harness 自己的 `Move-TwoLinesBefore` 變成 no-op
-⇒ `$m13cMut -cne $Brb` 為 false。control 4 對 settings 得到同樣的 4 條，兩者對稱。
-⇒ 判定**原本的 3 是漏記**，不是行為變了（SUT 這兩輪只差註解）。
+**08-17 的量測**：把兩行搬到 anchor **正前方**（緊貼），穩定得到 `122/4`，
+第四條紅的是 `[M13c][hook] 產出：…且確實與原檔不同`。這在該放置方式下是結構必然：
+harness 自己的 `Move-TwoLinesBefore` 會產生同樣的排列 ⇒ `$m13cMut -cne $Brb` 為 false。
+control 4 對 settings 完全對稱，也是 `122/4`。
+
+⚠️ **但不能因此斷言「08-15 的 3 是漏記」**（2026-08-17 第二輪 Codex 反方指出，我採納）。
+08-15 原文只寫「搬到第一個 `Assert-NoReparseUnder` **之前**」，**沒有寫緊貼**。
+若當時搬到**更早、但仍在首掃前**的位置，harness 再跑 `Move-TwoLinesBefore` 會把它重新
+排到 anchor 前 ⇒ 產出**與原檔不同** ⇒ 「產出」那條 **PASS**，只有「來源在 anchor 之後」
+FAIL ＋ 兩條 `[M13]` ＝ **恰好就是 `123/3`**。
+
+08-15 的 mutant 產物**沒有保存**（不在任何可達 commit，unreachable blob 也找不到），
+所以兩種解釋都無法排除。**本檔的結論就寫到這裡為止**：
+
+> 08-17 的「緊貼 anchor」mutant 穩定得到 `122/4`；08-15 的 artifact 未保存，
+> `123/3` 可能是漏記，**也可能是放置位置不同**。
+
+⇒ 教訓：**mutation control 必須連「產生 mutant 的精確方式」一起保存**，只記數字不夠。
+本批因此把四個 control 的產生腳本收進 repo（見下方「怎麼重跑」）。
 
 ### 注入紀律
 
@@ -152,4 +176,18 @@ pwsh -NoProfile -File tests\ai-install\run-windows.ps1 -Shell pwsh
 反向驗證：把 `4a96698:docs/AI-INSTALL.md` 抽到暫存檔（`git hash-object` 應為
 `46c3cb010182b7ad7911e2b6d842254f8a860635`），用 `-Doc <該檔>` 再跑一次，
 **核對 log 首行印出的實際路徑**。`-Shell powershell` 換 5.1。
-四個 mutation control 的注入規則見上表，每個都要先過自我檢查。
+
+四個 mutation control **不要照散文重建**，直接跑收進 repo 的 runner：
+
+```powershell
+pwsh -NoProfile -File tests\ai-install\run-mutation-controls.ps1
+```
+
+（`-Shell powershell` 換 5.1。blob `a8b0a94eff542e19cc79bd9f7ee6ec25504058aa`。）
+它把每個 control 的**預期數字釘死**（`121/5`、`122/4`、`STOP`、`122/4`），
+對不上就 exit 1；每個注入都先過自我檢查（錨點恰 1、兩行相鄰、行數不變、hash 確實改變），
+不成立就中止且不產出檔案。**2026-08-17 實測兩 host 各 4/4 符合預期、rc=0。**
+
+⚠️ **這支 runner 就是為了修「只記數字、沒記怎麼產生 mutant」這個病而存在的**——
+08-15 的 control 2 記 `123/3`、08-17 重跑得 `122/4`，因為 mutant 產物沒保存，
+到現在都無法判定誰對。runner 把「緊貼 anchor」這個放法釘死，任何人重跑都會得到同一組數字。
