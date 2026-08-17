@@ -25,15 +25,24 @@ for f in \
 ; do printf '%s  %s\n' "$(git hash-object "$f")" "$f"; done
 ```
 
-預期（2026-08-18 於 Windows 端產生）：
+⚠️ **本文刻意不列預期 blob 值。** 先前版本只填了一筆、其餘六筆寫「請交接者補上」——
+那等於要求對照一份不存在的表，六筆根本無從判斷「相符」。改成**自我一致的檢查**：
 
-```
-bf538b6e6cda0b5af9b1d6dbd06684937271a25d  macos/skills/超級模式/lib/consult-answer.js
+```bash
+# 1) 你在正確的分支上
+git rev-parse --abbrev-ref HEAD     # 應為 feat/consult-answer-validity-2026-08-18-pending-native-macos
+git log --oneline -1
+
+# 2) 三平台的 validator 必須逐位元相同（這是本批最重要的不變量）
+for p in windows macos linux; do git hash-object "$p/skills/超級模式/lib/consult-answer.js"; done | sort -u | wc -l
+#    → 必須輸出 1
+
+# 3) 工作樹乾淨（沒有人手改過受測檔）
+git status --porcelain
+#    → 必須沒有輸出
 ```
 
-> 其餘六筆請在跑之前，由交接者從同一個 commit 補上；
-> **本文刻意不預先填入會隨後續 commit 變動的值**（填了就是又製造一份要人工同步的可變主張）。
-> 最低要求是 `consult-answer.js` 這一筆相符 —— 它是三平台逐位元鏡像的那份。
+三項都成立就可以往下跑。**不成立就停下來回報**，不要硬跑。
 
 ---
 
@@ -112,8 +121,15 @@ bash macos/skills/超級模式/tests/run-e2e.sh
 bash tests/ai-install/run-posix.sh
 ```
 
-四支的預期數字請以**你這台上一次的紀錄**為準（`docs/` 內既有 handoff 有歷史值）；
-本批**沒有動**這四支涵蓋的檔，數字應該不變。**若有變動，那才是要回報的訊號。**
+⚠️ **這五支不是同一類，別一句話帶過**（先前版本寫「四支」卻列了五支，還宣稱本批沒動
+它們涵蓋的檔——那是錯的）：
+
+- `consult-schema.tests.sh` **直接涵蓋本批改過的 `codex-consult.sh`**（schema 參數處理那段
+  我改了：JSON 檢查從 `node -e` 內嵌腳本換成 validator 的 `--check-json`）。
+  ⇒ **它的數字有可能合理變動**，請把實際輸出貼回來，不要當成「應該不變」。
+- 其餘四支（`run-gate-tests.js`、`matcher-contract.test.js`、`run-e2e.sh`、
+  `tests/ai-install/run-posix.sh`）本批**沒有動**它們涵蓋的檔，數字應該與你這台上一次的
+  紀錄相同（`docs/` 內既有 handoff 有歷史值）。**若有變動，那才是要回報的訊號。**
 
 ---
 

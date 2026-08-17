@@ -180,6 +180,18 @@ check "10a 假哨兵 → 45（不是 0）" "$([ "$RC" -eq 45 ] && echo 0 || echo
 check "10b 假哨兵 → 不鑄造" "$([ ! -f "$token" ] && echo 0 || echo 1)" "假判準竟然鑄了憑證"
 
 echo ""
+echo "§11 家目錄含空白（macOS 的 /Users/First Last 很常見）"
+space_home="$root/home with space"; mkdir -p "$space_home/.claude"
+space_token="$space_home/.claude/.super-mode-consult-ok"
+ans_file="$(mktemp "$root/ans-XXXXXX")"; printf 'ALLOW: 可以\n%s\n' "$long" > "$ans_file"
+OUT="$(HOME="$space_home" PATH="$stub_dir:$PATH" STDOUT_FILE="$ans_file" EXIT_CODE=0 \
+      bash "$sut" -d "$repo" -f "$brief" 2> "$root/err.txt")"
+RC=$?
+ERR="$(cat "$root/err.txt")"
+check "11a 家目錄含空白時仍能鑄造" "$([ "$RC" -eq 0 ] && echo 0 || echo 1)" "rc=$RC err=$ERR"
+check "11b 憑證寫在含空白的路徑下" "$([ -f "$space_token" ] && echo 0 || echo 1)" "憑證沒寫出來"
+
+echo ""
 echo "CONSULT-CREDENTIAL $pass/$((pass+fail))"
 if [ "$fail" -gt 0 ]; then
   # ⚠️ 不用 tr '\n' '、'：tr 是逐 byte 換，把 1 byte 的 \n 換成 3 byte 的「、」會產生亂碼
