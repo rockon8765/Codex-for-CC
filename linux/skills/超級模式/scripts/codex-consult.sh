@@ -118,7 +118,13 @@ if [ -n "$schema" ]; then
 fi
 
 logdir="$HOME/.claude/super-mode-logs"; mkdir -p "$logdir"
-stamp="$(date +%Y%m%d_%H%M%S)_$(uuidgen | tr 'A-Z' 'a-z' | tr -d '-' | cut -c1-6)"
+# 去重後綴防同秒碰撞。⚠️ 2026-08-18：原本硬吃 uuidgen，缺它就整支 rc=127 掛掉
+# （macOS 一定有，但精簡的 Linux／WSL 映像不一定裝 util-linux；新的整合測試在 WSL 實際踩到）。
+# 改成三段 fallback，任何一段成立即可。
+rand6="$(uuidgen 2>/dev/null | tr 'A-Z' 'a-z' | tr -d '-' | cut -c1-6)"
+[ -n "$rand6" ] || rand6="$(od -An -tx1 -N3 /dev/urandom 2>/dev/null | tr -d ' \n')"
+[ -n "$rand6" ] || rand6="$$"
+stamp="$(date +%Y%m%d_%H%M%S)_${rand6}"
 log="$logdir/codex_consult_${stamp}.txt"
 brief_tmp="$(mktemp "${TMPDIR:-/tmp}/codex_brief_XXXXXX")"
 err_tmp="$(mktemp "${TMPDIR:-/tmp}/codex_err_XXXXXX")"

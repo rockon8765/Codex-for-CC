@@ -125,7 +125,9 @@ check "7b 不鑄造" "$([ ! -f "$token" ] && echo 0 || echo 1)" "判準不可用
 echo ""
 echo "CONSULT-CREDENTIAL $pass/$((pass+fail))"
 if [ "$fail" -gt 0 ]; then
-  printf '失敗清單：%s\n' "$(printf '%s' "$failed" | tr '\n' '、')"
+  # ⚠️ 不用 tr '\n' '、'：tr 是逐 byte 換，把 1 byte 的 \n 換成 3 byte 的「、」會產生亂碼
+  #    （2026-08-18 實際踩到）。人類版用 sed 逐行接，機器版一律看下面的 FAILED-CASE 行。
+  printf '失敗清單：%s\n' "$(printf '%s' "$failed" | sed '/^$/d' | paste -sd'、' -)"
   printf '%s\n' "$failed" | while IFS= read -r n; do [ -n "$n" ] && printf 'FAILED-CASE: %s\n' "$n"; done
   exit 1
 fi
