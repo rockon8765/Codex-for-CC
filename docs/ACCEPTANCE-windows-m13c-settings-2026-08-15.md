@@ -77,7 +77,7 @@
 ## Mutation control（**四個**，2026-08-17 全數對最終 SUT 重跑，**兩 host 各 4/4 符合預期**）
 
 透過收進 repo 的 [`tests/ai-install/run-mutation-controls.ps1`](../tests/ai-install/run-mutation-controls.ps1)
-執行（blob `a8b0a94eff542e19cc79bd9f7ee6ec25504058aa`），預期數字由該檔釘死。
+執行（blob `46419e5a1991b398444c390f46a2f0cbe3b2445e`），預期數字由該檔釘死。
 
 | # | 注入 | 結果 | 證明了什麼 |
 |---|---|---|---|
@@ -113,7 +113,8 @@ FAIL ＋ 兩條 `[M13]` ＝ **恰好就是 `123/3`**。
 每個注入都先做自我檢查才執行：錨點命中數必須為 1、兩行相鄰、行數變化符合預期、檔案 hash 確實改變；
 任何一條不成立就中止且**不產出檔案**。變異 SUT 用完即刪，跑完 `git status --porcelain` 複驗工作區。
 
-⚠️ **本輪自我檢查真的擋下兩次錯誤，兩次都是我引進的**：
+⚠️ **本輪自我檢查真的擋下四次錯誤，四次都是我引進的**（前兩次在跑 control 時、
+後兩次在把 control 收進 repo 時）：
 
 1. **control 1 的錨點命中 2 次**——那行 `Set-Content …settings.json … {"new":true…}` 在檔案裡有兩份：
    `[C1]` 的行內版（未縮排）與 `Set-Step2Settings` 內（縮排兩格）。未錨定就會同時改掉兩處。
@@ -122,6 +123,17 @@ FAIL ＋ 兩條 `[M13]` ＝ **恰好就是 `123/3`**。
    會解析到不相干的目錄，1c 抄不到 payload ⇒ 得到 `108/18`、`125/13` 兩組**看起來殺很大、實際無效**的數字。
    修法＝mutant 一律寫回 `tests/ai-install/` 再跑。⚠️ 這組無效數字**沒有**被寫進上表，
    記在這裡是因為「mutant 殺很多」正是最容易被當成好消息收下的假訊號。
+3. **`$a = $acc.ToArray()` 把錨點變數 `$A` 蓋掉**——PowerShell 變數名**不分大小寫**，
+   錨點於是變成陣列、索引一律回 −1，自我檢查以「產出未緊貼 anchor」失敗。
+   修法＝錨點改名 `$anchor`、產出改名 `$outArr`。
+4. **函式用裸字串印進度**——那會**進到 pipeline**，於是 `New-MutantDoc` 回傳
+   「訊息 ＋ 路徑」的陣列，呼叫端拿訊息當路徑用（`Cannot find path '  自我檢查 OK…'`）。
+   修法＝進度訊息一律 `Write-Host`。
+
+⚠️ 另有一個**不是**自我檢查抓到的（是我照 repo 慣例回頭核對才發現）：
+新增的 `.ps1` 建檔時**沒有 UTF-8 BOM**。`.gitattributes` 明載 `.ps1` 需要 BOM，
+否則 5.1 讀含中文的 .ps1 會亂碼。補上後另外用 `powershell -NoProfile -File` 直接跑過本檔
+（先前都是拿 `pwsh` 當 launcher、5.1 只當受測 host，**這支檔本身從沒被 5.1 解析過**）。
 
 ⚠️ **案數守衛只是最後一道結構保險，不能替代上面三類證據。**
 2026-08-14 實測：刪掉某案的 stimulus、保留 assertion，變數沿用上一次的成功結果 →
@@ -183,7 +195,7 @@ pwsh -NoProfile -File tests\ai-install\run-windows.ps1 -Shell pwsh
 pwsh -NoProfile -File tests\ai-install\run-mutation-controls.ps1
 ```
 
-（`-Shell powershell` 換 5.1。blob `a8b0a94eff542e19cc79bd9f7ee6ec25504058aa`。）
+（`-Shell powershell` 換 5.1。blob `46419e5a1991b398444c390f46a2f0cbe3b2445e`。）
 它把每個 control 的**預期數字釘死**（`121/5`、`122/4`、`STOP`、`122/4`），
 對不上就 exit 1；每個注入都先過自我檢查（錨點恰 1、兩行相鄰、行數不變、hash 確實改變），
 不成立就中止且不產出檔案。**2026-08-17 實測兩 host 各 4/4 符合預期、rc=0。**

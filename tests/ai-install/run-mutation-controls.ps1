@@ -1,4 +1,4 @@
-# `run-windows.ps1` 的 mutation control runner —— 證明測試臺**有牙齒**。
+﻿# `run-windows.ps1` 的 mutation control runner —— 證明測試臺**有牙齒**。
 #
 # 為什麼要有這支：`run-windows.ps1` 全綠只證明「沒少跑案」，不證明案子做了它宣稱的動作。
 # 2026-08-14 實測過，刪掉某案的 stimulus、保留 assertion，變數沿用上一次的成功結果 →
@@ -13,6 +13,10 @@
 # 用法（在 repo 根目錄）：
 #   pwsh -NoProfile -File tests\ai-install\run-mutation-controls.ps1
 #   pwsh -NoProfile -File tests\ai-install\run-mutation-controls.ps1 -Shell powershell
+#
+# ⚠️ 本檔必須是 **UTF-8 with BOM**（.gitattributes 另外釘 CRLF）。5.1 讀無 BOM 的
+# 含中文 .ps1 會亂碼；第一版建檔時 BOM 被剝掉，實測補上後 5.1 才解析得正確。
+# 兩個 host 直接跑本檔都驗過（`powershell -NoProfile -File …` 亦 4/4 rc=0）。
 #
 # 每個 control 都先做**注入自我檢查**，任何一條不成立就中止且不產出檔案：
 # 錨點命中數必須恰為 1、兩行必須相鄰、行數變化必須符合預期、產出的 hash 必須真的改變。
