@@ -33,6 +33,16 @@ param(
 )
 
 $codexCmd = "C:\npm\codex.cmd"
+# 測試接縫：讓整合測試能換掉 codex 本體。POSIX 兩支呼叫的是裸 `codex`(吃 PATH)，
+# 本來就能用 stub 目錄攔截；Windows 這支寫死絕對路徑，沒有這個 override 就完全測不到
+# 「codex 回了什麼 → 判準怎麼判 → 憑證寫不寫」這條新邏輯。
+# ⚠️ 只換「執行哪支程式」，不改任何判準或鑄造規則；正式使用不需要設它。
+if ($env:SUPER_MODE_CODEX_CMD) {
+  if (-not (Test-Path -LiteralPath $env:SUPER_MODE_CODEX_CMD)) {
+    throw "SUPER_MODE_CODEX_CMD 指向不存在的檔案: $($env:SUPER_MODE_CODEX_CMD)"
+  }
+  $codexCmd = (Resolve-Path -LiteralPath $env:SUPER_MODE_CODEX_CMD).Path
+}
 
 # $Dir / $SchemaFile 會拼進 cmd /c 字串執行 → 進 cmd 前必須擋注入面(fail-closed)。
 # cmd 即使在雙引號內也會展開 %VAR%(! 可能延遲展開；& | < > ^ 為運算子)；合法 repo/schema 路徑不含這些字元。
@@ -49,6 +59,85 @@ function Read-TextSmart([string]$path) {
   if ($b.Length -ge 2 -and $b[0] -eq 0xFF -and $b[1] -eq 0xFE) { return [System.Text.Encoding]::Unicode.GetString($b, 2, $b.Length - 2) }
   if ($b.Length -ge 3 -and $b[0] -eq 0xEF -and $b[1] -eq 0xBB -and $b[2] -eq 0xBF) { return [System.Text.Encoding]::UTF8.GetString($b, 3, $b.Length - 3) }
   return [System.Text.Encoding]::UTF8.GetString($b)
+}
+
+# ── validator（憑證鑄造判準）─────────────────────────────────────────────────
+# 判準是三平台共用的單一 node 模組 lib/consult-answer.js。這裡只負責「找到 node、
+# 找到模組、確認它真的活著」——任何判準邏輯都不在這支裡（那正是要消除的副本）。
+$validatorPath = Join-Path $PSScriptRoot "..\lib\consult-answer.js"
+
+function Resolve-NodeExe {
+  # 1) SUPER_MODE_NODE 若有設就必須有效——**不靜默退回 PATH**。設了卻壞掉是設定錯誤，
+  #    默默改用別的 node 會讓使用者以為自己指定的那支在跑。
+  if ($env:SUPER_MODE_NODE) {
+    if (-not (Test-Path -LiteralPath $env:SUPER_MODE_NODE)) {
+      throw "SUPER_MODE_NODE 指向不存在的檔案: $($env:SUPER_MODE_NODE)"
+    }
+    return (Resolve-Path -LiteralPath $env:SUPER_MODE_NODE).Path
+  }
+  # 2) PATH 上的 node。⚠️ gate hook 走的是 settings.json 裡的**絕對路徑**，所以
+  #    「hook 正常但 caller 找不到 node」是真的會發生的組合 → 訊息要講清楚怎麼修。
+  $cmd = Get-Command node -ErrorAction SilentlyContinue
+  if ($cmd) { return $cmd.Source }
+  return $null
+}
+
+function Invoke-Validator([string]$nodeExe, [string]$answerFile, [string[]]$extraArgs) {
+  # 一律以 argv 呼叫（不拼字串、不過 cmd）——這裡沒有 cmd 注入面。
+  $argv = @($validatorPath, "--answer-file", $answerFile) + $extraArgs
+  $outFile = Join-Path $env:TEMP ("consult_v_out_{0}.txt" -f ([guid]::NewGuid().ToString('N')))
+  $errFile2 = Join-Path $env:TEMP ("consult_v_err_{0}.txt" -f ([guid]::NewGuid().ToString('N')))
+  try {
+    $proc = Start-Process -FilePath $nodeExe -ArgumentList $argv -NoNewWindow -Wait -PassThru `
+      -RedirectStandardOutput $outFile -RedirectStandardError $errFile2
+    $so = if (Test-Path $outFile) { [System.IO.File]::ReadAllText($outFile) } else { "" }
+    $se = if (Test-Path $errFile2) { [System.IO.File]::ReadAllText($errFile2) } else { "" }
+    return @{ Code = $proc.ExitCode; Out = $so; Err = $se }
+  } finally {
+    Remove-Item -LiteralPath $outFile, $errFile2 -Force -ErrorAction SilentlyContinue
+  }
+}
+
+function Test-ValidatorSentinel($r) {
+  # ⚠️ 不可只看 exit 0：空模組、被截斷的檔、被 shim 掉的 node 都會自然 exit 0。
+  #    成功的定義是「stdout 恰好一行且以 CONSULT-ANSWER-OK 開頭」。
+  $lines = @($r.Out -split "`r?`n" | Where-Object { $_ -ne "" })
+  return ($lines.Count -eq 1 -and $lines[0].StartsWith("CONSULT-ANSWER-OK"))
+}
+
+function Assert-ValidatorUsable([string]$nodeExe) {
+  # preflight：在燒掉一次諮詢**之前**就確認判準跑得動，而且不是「永遠放行」或「永遠拒絕」。
+  # 兩個探針缺一不可——只驗好樣本會放過 always-OK 的空模組，只驗壞樣本會放過 always-43。
+  $good = Join-Path $env:TEMP ("consult_pf_g_{0}.txt" -f ([guid]::NewGuid().ToString('N')))
+  $bad = Join-Path $env:TEMP ("consult_pf_b_{0}.txt" -f ([guid]::NewGuid().ToString('N')))
+  try {
+    [System.IO.File]::WriteAllText($good, ("ALLOW: preflight" + "`n" + ("x" * 60)), (New-Object System.Text.UTF8Encoding $false))
+    [System.IO.File]::WriteAllText($bad, "hi", (New-Object System.Text.UTF8Encoding $false))
+    $rg = Invoke-Validator $nodeExe $good @()
+    $rb = Invoke-Validator $nodeExe $bad @()
+    if ($rg.Code -ne 0 -or -not (Test-ValidatorSentinel $rg)) {
+      throw "好樣本沒通過（exit=$($rg.Code) stdout=$($rg.Out.Trim())）"
+    }
+    if ($rb.Code -ne 43) { throw "壞樣本沒被擋（exit=$($rb.Code)）—— 判準可能是空的或被替換" }
+  } finally {
+    Remove-Item -LiteralPath $good, $bad -Force -ErrorAction SilentlyContinue
+  }
+}
+
+$nodeExe = Resolve-NodeExe
+if (-not $nodeExe -or -not (Test-Path -LiteralPath $validatorPath)) {
+  [Console]::Error.WriteLine("CONSULT_VALIDATOR_UNAVAILABLE: " +
+    $(if (-not $nodeExe) { "找不到 node（PATH 上沒有，且未設 SUPER_MODE_NODE）。" }
+      else { "找不到判準模組: $validatorPath。" }) +
+    "未鑄造憑證，**既有憑證未變**。修法：把 node 加進 PATH，或設 SUPER_MODE_NODE 指向 node 執行檔" +
+    "（gate hook 用的是 settings.json 裡的絕對路徑，所以 hook 正常不代表 caller 找得到 node）。")
+  exit 45
+}
+try { Assert-ValidatorUsable $nodeExe }
+catch {
+  [Console]::Error.WriteLine("CONSULT_VALIDATOR_UNAVAILABLE: 判準模組 preflight 失敗 -- $_ 。" +
+    "未鑄造憑證，**既有憑證未變**。")
+  exit 45
 }
 
 # C5 stage 1：介面收斂取代散文規則。舊行為是兩個都給就靜默採用 -PromptFile(呼叫端無從
@@ -73,8 +162,12 @@ if ($SchemaFile) {
   if (-not (Test-Path -LiteralPath $SchemaFile)) { throw "SchemaFile not found: $SchemaFile" }
   $SchemaFile = (Resolve-Path -LiteralPath $SchemaFile).Path   # consult 有 -C 換工作根，必須絕對路徑
   Assert-CmdSafePath $SchemaFile 'SchemaFile'                  # 進 cmd /c 前擋注入字元
-  try { [System.IO.File]::ReadAllText($SchemaFile, (New-Object System.Text.UTF8Encoding $false)) | ConvertFrom-Json | Out-Null }
-  catch { throw "SchemaFile is not valid JSON: $SchemaFile -- $_" }
+  # ⚠️ 2026-08-18：這裡原本用 ConvertFrom-Json，而 POSIX 兩支用的是 node 的 JSON.parse。
+  #    那不是同一個 JSON 方言（pwsh 7.x 接受註解與 trailing comma、WinPS 5.1 拒；兩者都接受
+  #    NaN 與 01，node 全拒）⇒ 同一份 schema 檔會在不同平台一邊過一邊不過。改成三平台
+  #    都走 node，JSON 的判準才只有一個。
+  $schemaCheck = & $nodeExe -e 'JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"))' $SchemaFile 2>&1
+  if ($LASTEXITCODE -ne 0) { throw "SchemaFile is not valid JSON (strict, node): $SchemaFile -- $schemaCheck" }
   $schemaArg = '--output-schema "{4}" '   # 併入 $inner 最高編號 {4}(不動 codex{0}/dir{1}/brief{2}/stderr{3})
 }
 
@@ -89,6 +182,9 @@ Assert-CmdSafePath $Dir 'Dir'   # $Dir 也進 cmd /c 字串(既有注入面)，�
 # 正規化落地 UTF-8(無 BOM)暫存簡報，cmd `<` 重導向 → 位元組直達 codex
 $brief = Join-Path $env:TEMP ("codex_brief_{0}.txt" -f ([guid]::NewGuid().ToString('N')))
 $errFile = Join-Path $env:TEMP ("codex_err_{0}.txt" -f ([guid]::NewGuid().ToString('N')))
+# codex 的 **stdout 專用**副本，餵給判準用。⚠️ 不能拿 $log 代替：log 事後會被接上
+# "===== STDERR =====" 區段，把 stderr 一起送進判準會改變裁決（例如 schema 模式的 JSON 解析）。
+$answerFile = Join-Path $env:TEMP ("codex_answer_{0}.txt" -f ([guid]::NewGuid().ToString('N')))
 [System.IO.File]::WriteAllText($brief, $p, (New-Object System.Text.UTF8Encoding $false))
 try {
   # stderr 導到獨立檔(編號佔位符 {3})；不可用 2>&1(會回灌 stdout)。$LASTEXITCODE 仍是 codex 退出碼。
@@ -98,8 +194,10 @@ try {
   # generate_memories=false 斷寫出(否則簡報進全域 memories，下次 consult 又讀到，形成自我強化閉環)。
   # 0.144.1 實測：加這兩個 -c 後 MEMORIES: NO_MEMORIES_VISIBLE、exit 0、MCP 工具面/沙箱邊界皆不受影響。
   $inner = ('"{0}" exec --sandbox read-only --ephemeral --skip-git-repo-check -c memories.use_memories=false -c memories.generate_memories=false -C "{1}" ' + $schemaArg + '< "{2}" 2> "{3}"') -f $codexCmd, $Dir, $brief, $errFile, $SchemaFile
-  & cmd.exe /d /s /c $inner | ForEach-Object { $_; Add-Content -LiteralPath $log -Value $_ -Encoding utf8 }
+  $answerLines = New-Object System.Collections.Generic.List[string]
+  & cmd.exe /d /s /c $inner | ForEach-Object { $_; $answerLines.Add([string]$_); Add-Content -LiteralPath $log -Value $_ -Encoding utf8 }
   $code = $LASTEXITCODE
+  [System.IO.File]::WriteAllText($answerFile, ($answerLines -join "`n"), (New-Object System.Text.UTF8Encoding $false))
   if (Test-Path $errFile) {
     Add-Content -LiteralPath $log -Value "===== STDERR =====" -Encoding utf8
     [System.IO.File]::ReadAllText($errFile, (New-Object System.Text.UTF8Encoding $false)) | Add-Content -LiteralPath $log -Encoding utf8
@@ -111,6 +209,27 @@ finally {
 }
 
 if ($code -eq 0) {
+  # ⚠️ 2026-08-18：codex exit 0 **不再等於**可以鑄證。舊行為讓 codex 回空字串或幾個字
+  #    也照樣解鎖 gate 20 分鐘，而那種情況通常正代表諮詢其實沒送到。
+  #    判準本體在三平台共用的 lib/consult-answer.js，這裡只負責叫它並看結果。
+  $vArgs = @()
+  if ($NoCredential) { $vArgs += "--no-credential" }
+  if ($SchemaFile) { $vArgs += "--schema" }
+  $v = Invoke-Validator $nodeExe $answerFile $vArgs
+  Remove-Item -LiteralPath $answerFile -Force -ErrorAction SilentlyContinue
+
+  if ($v.Code -ne 0 -or -not (Test-ValidatorSentinel $v)) {
+    if ($v.Code -eq 43) {
+      [Console]::Error.WriteLine($v.Err.Trim() + " transcript: $log")
+      [Console]::Error.WriteLine("（未鑄造新憑證；**既有憑證（若有）未被移除**，其原本的有效期不受本次影響。）")
+      exit 43
+    }
+    # exit 0 但沒有哨兵 = 判準沒真的跑（空模組／被截斷／被 shim 掉的 node 都會自然 exit 0）。
+    [Console]::Error.WriteLine("CONSULT_VALIDATOR_UNAVAILABLE: 判準回了 exit $($v.Code) 但沒有預期的成功哨兵" +
+      "（stdout='$($v.Out.Trim())'）。未鑄造憑證，**既有憑證未變**。transcript: $log")
+    exit 45
+  }
+
   if ($NoCredential) {
     # Discussion-partner mode: no credential, so a casual consult can never
     # unlock super-mode gated actions in a concurrent session on this repo.
@@ -119,10 +238,39 @@ if ($code -eq 0) {
     $token = Join-Path $env:USERPROFILE ".claude\.super-mode-consult-ok"
     # 憑證決策範圍：綁定本次諮詢的 repo(-Dir)。hook 會比對後續動作路徑是否在此 repo 下。
     $cred = @{ repo = $Dir; ts = (Get-Date -Format o) } | ConvertTo-Json -Compress
-    Set-Content -LiteralPath $token -Value $cred -Encoding utf8
-    Write-Output "consult OK -- credential written; transcript: $log"
+    # 原子寫入：同目錄暫存檔 → 寫入 → 讀回驗證 → rename 才是 commit point。
+    # ⚠️ 封存版(380462f)是「直接寫目標檔、寫完才讀回」，讀回失敗時 exit 44 但**舊憑證原封不動**，
+    #    訊息卻說「未取得憑證」——它自己的註解點名了這個風險卻沒處理。這裡改掉。
+    # ⚠️ 失敗時**刻意不刪除舊憑證**：那是另一個 session 可能還在用的合法收據，
+    #    刪它等於引進撤銷語義（那是「動作授權」那批的事）。改成訊息誠實交代。
+    $tokenTmp = $token + ".tmp-" + ([guid]::NewGuid().ToString('N').Substring(0, 8))
+    try {
+      [System.IO.File]::WriteAllText($tokenTmp, $cred, (New-Object System.Text.UTF8Encoding $false))
+      $readBack = [System.IO.File]::ReadAllText($tokenTmp)
+      if ($readBack -ne $cred) { throw "暫存檔讀回內容與寫入不符" }
+      # 同目錄單一 rename 取代（MoveFileEx + REPLACE_EXISTING）。內容在成為目標檔之前就已寫完
+      # 並讀回驗證過，所以不會有「半寫的憑證被 gate 讀到」。
+      # ⚠️ 不用 [System.IO.File]::Replace()：目標不存在時它在 .NET Framework／.NET 兩邊
+      #    丟的例外型別不一致（2026-08-18 實測 WinPS 走到 ArgumentException 而非
+      #    FileNotFoundException，害我為後者寫的 catch 完全沒接到）。Move-Item -Force
+      #    兩種情況（目標存在／不存在）都走同一條路，少一個分歧面。
+      # ⚠️ 措辭克制：這是「單一 rename」不是「跨系統的原子性保證」。
+      Move-Item -LiteralPath $tokenTmp -Destination $token -Force -ErrorAction Stop
+    } catch {
+      Remove-Item -LiteralPath $tokenTmp -Force -ErrorAction SilentlyContinue
+      [Console]::Error.WriteLine("CONSULT_TOKEN_WRITE_FAILED: 諮詢完成且回覆合格，但憑證寫入失敗: $_ 。" +
+        "**既有憑證（若有）未被移除**。請檢查 $token 的權限後重跑。transcript: $log")
+      exit 44
+    }
+    $verdictNote = ($v.Out.Trim() -split '\s+')[-1]
+    if ($verdictNote -ceq 'BLOCK') {
+      Write-Output "consult OK -- credential written, but Codex 裁決為 BLOCK：依 §3.5 不得執行原動作，先向使用者回報。transcript: $log"
+    } else {
+      Write-Output "consult OK -- credential written; transcript: $log"
+    }
   }
 } else {
+  Remove-Item -LiteralPath $answerFile -Force -ErrorAction SilentlyContinue
   # 配額/認證類失敗 → 明確標記 + 專屬 exit 42，讓上層 fail-fast、別在額度最稀缺時空轉重試
   $tail = ""
   try { $tail = (Get-Content -LiteralPath $log -Raw -ErrorAction SilentlyContinue) } catch {}
