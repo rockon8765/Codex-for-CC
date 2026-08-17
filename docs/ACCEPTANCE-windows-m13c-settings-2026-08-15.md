@@ -77,7 +77,10 @@
 ## Mutation control（**四個**，2026-08-17 全數對最終 SUT 重跑，**兩 host 各 4/4 符合預期**）
 
 透過收進 repo 的 [`tests/ai-install/run-mutation-controls.ps1`](../tests/ai-install/run-mutation-controls.ps1)
-執行（blob `46419e5a1991b398444c390f46a2f0cbe3b2445e`），預期數字由該檔釘死。
+執行（blob `498ceecc50a92190ca376e072b6f665b5a7163e1`）。該檔釘死的是
+**每個 control 的具名失敗集合（逐條精確相等、多一條少一條都算 FAIL）＋ 精確 rc**，
+案數守衛型另釘 STOP 那行的完整字面（含「實跑 125、預期 126」兩個數字）。
+⚠️ **不是**只比 PASS／FAIL 總數——理由與實測見下方「runner 自己的牙齒測試」。
 
 | # | 注入 | 結果 | 證明了什麼 |
 |---|---|---|---|
@@ -195,7 +198,7 @@ pwsh -NoProfile -File tests\ai-install\run-windows.ps1 -Shell pwsh
 pwsh -NoProfile -File tests\ai-install\run-mutation-controls.ps1
 ```
 
-（`-Shell powershell` 換 5.1。blob `46419e5a1991b398444c390f46a2f0cbe3b2445e`。）
+（`-Shell powershell` 換 5.1。blob `498ceecc50a92190ca376e072b6f665b5a7163e1`。）
 它把每個 control 的**預期數字釘死**（`121/5`、`122/4`、`STOP`、`122/4`），
 對不上就 exit 1；每個注入都先過自我檢查（錨點恰 1、兩行相鄰、行數不變、hash 確實改變），
 不成立就中止且不產出檔案。**2026-08-17 實測兩 host 各 4/4 符合預期、rc=0。**
@@ -203,3 +206,27 @@ pwsh -NoProfile -File tests\ai-install\run-mutation-controls.ps1
 ⚠️ **這支 runner 就是為了修「只記數字、沒記怎麼產生 mutant」這個病而存在的**——
 08-15 的 control 2 記 `123/3`、08-17 重跑得 `122/4`，因為 mutant 產物沒保存，
 到現在都無法判定誰對。runner 把「緊貼 anchor」這個放法釘死，任何人重跑都會得到同一組數字。
+
+### runner 自己的牙齒測試（meta-mutation，2026-08-17 實測）
+
+第三輪 Codex 審查指出 runner 的**第一版只比 PASS／FAIL 總數**，於是
+「該紅的牙齒變綠 ＋ 不相關的斷言變紅」這種**等量交換**會假綠。屬實，已改成
+**逐條比對具名失敗集合 ＋ 精確 rc**（案數守衛型另釘 STOP 那行的完整字面含兩個數字）。
+
+改完之後**實際製造了那個等量交換來驗**：讓 `[M13c][…] 寬 oracle` 恆真（該紅變綠）
+＋ 讓 `[C3] 正確 ts 的回滾必須成功` 恆假（不相關變紅），案數不變。結果：
+
+```
+FAIL  [c1-step2-noop] rc=1  具名失敗 5 條（預期 5）
+     ❌ 該紅卻沒紅：[M13c][settings] 寬 oracle（整個假家目錄）抓到預掃前的 mutation
+     ❌ 不該紅卻紅了：正確 ts 的回滾必須成功（否則上面全是假通過）
+```
+
+🔴 **注意「5 條（預期 5）」——總數完全相同，仍然 FAIL。** 這就是舊版會放行、
+新版擋得住的那個缺口。runner rc=1。
+
+⚠️ **據實補充**：這次 meta-mutation 只跑到 control 2 就中止，因為它動到的
+`[C3]` 那一行**正是 control 3 的注入錨點**，`Assert-One` 找不到原字串就直接 throw
+（這本身是自我檢查在做該做的事，但也代表 **control 3／4 沒有在這次 meta-test 裡被涵蓋**）。
+本節只宣稱：**control 1 與 2 的具名集合比對確實擋得住等量交換**。
+測完 SUT 已還原，blob 仍為 `aeee60bc…`。

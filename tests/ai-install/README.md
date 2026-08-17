@@ -140,14 +140,20 @@ hook 與 settings，所以把 hook mutation 搬到預掃前，窄 oracle 會全�
 pwsh -NoProfile -File tests\ai-install\run-mutation-controls.ps1
 ```
 
-四個 control，預期數字**釘死**、對不上就 exit 1：
+四個 control，**具名失敗集合 ＋ 精確 rc 釘死**、對不上就 exit 1：
 
-| control | 注入 | 預期 |
+| control | 注入 | 預期紅的（逐條釘死） |
 |---|---|---|
-| 1 | `Set-Step2Settings` 寫入行改 no-op（保留 `Check`） | `PASS=121 FAIL=5` |
-| 2 | 產品文件的 **hook** 還原兩行搬到首掃前（**緊貼** anchor） | `PASS=122 FAIL=4` |
-| 3 | 刪掉 `[C3]` 一條無副作用的 `Check` | `STOP 案數不符` |
-| 4 | 產品文件的 **settings** 還原兩行搬到首掃前（**緊貼** anchor） | `PASS=122 FAIL=4` |
+| 1 | `Set-Step2Settings` 寫入行改 no-op（保留 `Check`） | 四條「前置：settings 已與備份不同」＋ **`[M13c][settings]` 的寬 oracle**；`[M13c][hook]` 的寬 oracle **必須保持綠** |
+| 2 | 產品文件的 **hook** 還原兩行搬到首掃前（**緊貼** anchor） | `[M13]` 兩條寬 oracle ＋ `[M13c][hook]` 的兩道守衛；`[M13c][settings]` **必須保持綠** |
+| 3 | 刪掉 `[C3]` 一條無副作用的 `Check` | **零條具名失敗** ＋ 案數守衛那行的完整字面（含「實跑 125、預期 126」） |
+| 4 | 產品文件的 **settings** 還原兩行搬到首掃前（**緊貼** anchor） | 與 2 對稱；`[M13c][hook]` **必須保持綠** |
+
+⚠️ **不要退回「只比 PASS／FAIL 總數」**。那樣的話「該紅的牙齒變綠 ＋ 不相關的斷言變紅」
+是等量交換、總數不變 ⇒ 假綠。這與 repo 早就記載的「案數不變、全綠、mutant 存活」
+是同一個病，只是搬到 control 層。**實測過**：讓寬 oracle 恆真、`[C3]` 恆假之後，
+control 1 仍是「具名失敗 5 條（預期 5）」——**總數一模一樣**，靠具名集合才抓得到。
+（那次 meta-test 只涵蓋 control 1／2，因為它動到的 `[C3]` 正是 control 3 的注入錨點。）
 
 ⚠️ **「緊貼」不是廢話**：搬到更早、但仍在首掃前的位置，預期紅的條數**不一樣**
 （「產出與原檔確實不同」那條會變成 PASS）。2026-08-15 的驗收只記了數字沒記放法，
