@@ -47,6 +47,14 @@ const MIRRORED = [
     rel: "skills/超級模式/tests/matcher-contract.test.js",
     why: "同一支測試在三平台 payload 各一份；安裝時只有對應平台那一份會進 live。",
   },
+  {
+    rel: "skills/超級模式/lib/consult-answer.js",
+    why: "憑證鑄造判準的單一邏輯版本。鎖 byte 的理由是**裁決規則必須三平台完全一致**——" +
+      "同一份 codex 回覆若在不同平台得到不同裁決，超級模式的閘門就是不可預測的。" +
+      "任何平台差異（node 怎麼找、stdout 怎麼收、憑證怎麼寫）一律留在 shell adapter，" +
+      "不得進 validator。⚠️ byte 相同只能防三份 node 副本彼此漂移，" +
+      "**不能證明對 380462f 的移植忠實**——那要靠 tests/consult-answer.test.js 的行為 fixtures。",
+  },
 ];
 // ⚠️ **刻意不鎖** `skills/超級模式/tests/run-gate-tests.js` 與
 // `skills/超級模式/references/review-output.schema.json`：它們今天剛好三平台同 blob，
