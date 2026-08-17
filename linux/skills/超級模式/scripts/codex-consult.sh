@@ -70,10 +70,11 @@ run_validator() {
 }
 
 # ⚠️ 不可只看 exit 0：空模組、被截斷的檔、被 shim 掉的 node 都會自然 exit 0。
-# 成功的定義是「stdout 恰好一行且以 CONSULT-ANSWER-OK 開頭」。
+# ⚠️ 也**不可只比前綴**：`CONSULT-ANSWER-OK-FAKE verdict ALLOW` 會通過前綴檢查
+#    （2026-08-18 設計審查實測）。成功的定義是「stdout 恰好一行、且完全符合哨兵文法」。
 validator_sentinel_ok() {
-  [ "$(printf '%s' "$VOUT" | grep -c .)" -eq 1 ] || return 1
-  case "$VOUT" in CONSULT-ANSWER-OK*) return 0 ;; *) return 1 ;; esac
+  [ "$(printf '%s' "$VOUT" | grep -c '[^[:space:]]')" -eq 1 ] || return 1
+  printf '%s' "$VOUT" | grep -qE '^CONSULT-ANSWER-OK (discussion|json|verdict (ALLOW|BLOCK))$'
 }
 
 node_exe="$(resolve_node)" || {
@@ -110,9 +111,10 @@ schema_args=()
 if [ -n "$schema" ]; then
   [ -f "$schema" ] || { echo "schema not found: $schema" >&2; exit 2; }
   schema="$(cd "$(dirname "$schema")" && pwd)/$(basename "$schema")"
-  # 用**同一支** node（resolve_node 找到的那支），不是裸 `node`——否則 SUPER_MODE_NODE
-  # 指定的與這裡用的可能是兩支不同的 node，JSON 方言就又分歧了。
-  "$node_exe" -e 'JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"))' "$schema" \
+  # 走 validator 的 --check-json：用**同一支** node（resolve_node 找到的那支）、
+  # 而且讓「哪個 JSON parser 說了算」只有一個入口。
+  # （Windows 那邊還多一個理由：WinPS 5.1 會弄壞 `-e` 的內嵌腳本引號。三平台統一用同一條路。）
+  "$node_exe" "$validator" --check-json "$schema" \
     || { echo "schema is not valid JSON (strict, node): $schema" >&2; exit 2; }
   schema_args=(--output-schema "$schema")
 fi

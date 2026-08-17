@@ -53,10 +53,27 @@ const MUTANTS = [
   },
   {
     id: "m3-firstline-no-control-strip",
-    why: "firstLine 不剝控制字元 → node 的 trim() 語義洩漏成規格，合法回覆被誤判 BLOCK",
-    from: "    const c = stripInvisible(l, false).trim();",
+    why: "firstLine 改用裸 trim() → node 的 trim() 語義洩漏成規格，合法回覆被誤判 BLOCK",
+    from: "    const c = trimEdgeInvisible(l);",
     to: "    const c = String(l).trim();",
+    // ⚠️ D1e（尾端控制字元）**不在**預期內，這不是漏寫：裁決 regex 是 `^(ALLOW|BLOCK)\s*:`，
+    //    只比前綴，所以行尾有什麼都不影響判定 ⇒ D1e 對「兩端 trim 怎麼寫」本來就不敏感。
+    //    它的價值是文件性的（記錄尾端控制字元可接受），不是這個 mutant 的牙齒。
+    //    （2026-08-18 我第一版把它列進來，被本 harness 抓出「該紅卻沒紅」。）
     expect: ["D1 控制字元開頭的裁決仍接受（維持封存版行為）"],
+  },
+  {
+    // 2026-08-18 設計審查抓到的真缺陷：整行剝除會把 AL<TAB>LOW: 洗成 ALLOW: 而放行。
+    // 這個 mutant 就是把它還原回去，確認 fixtures 抓得到。
+    id: "m3b-firstline-strips-whole-line",
+    why: "firstLine 改回「整行剝除」→ 行中間的控制字元被洗掉，AL<TAB>LOW: 會被當成合法裁決",
+    from: '    .replace(/^[\\p{Cc}\\p{Cf}\\s]+/u, "")\n    .replace(/[\\p{Cc}\\p{Cf}\\s]+$/u, "");',
+    to: '    .replace(/[\\p{Cc}\\p{Cf}]/gu, "").trim();',
+    expect: [
+      "D1b 行中間的 TAB 不得被洗掉",
+      "D1c 行中間的 NUL 不得被洗掉",
+      "D1d 行中間的 U+0085 不得被洗掉",
+    ],
   },
   {
     id: "m4-length-before-nocredential",

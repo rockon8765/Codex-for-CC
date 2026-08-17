@@ -83,26 +83,35 @@ function Resolve-NodeExe {
 }
 
 function Invoke-Validator([string]$nodeExe, [string]$answerFile, [string[]]$extraArgs) {
-  # 一律以 argv 呼叫（不拼字串、不過 cmd）——這裡沒有 cmd 注入面。
-  $argv = @($validatorPath, "--answer-file", $answerFile) + $extraArgs
   $outFile = Join-Path $env:TEMP ("consult_v_out_{0}.txt" -f ([guid]::NewGuid().ToString('N')))
   $errFile2 = Join-Path $env:TEMP ("consult_v_err_{0}.txt" -f ([guid]::NewGuid().ToString('N')))
+  $prevEap = $ErrorActionPreference
   try {
-    $proc = Start-Process -FilePath $nodeExe -ArgumentList $argv -NoNewWindow -Wait -PassThru `
-      -RedirectStandardOutput $outFile -RedirectStandardError $errFile2
+    # ⚠️ 2026-08-18：原本用 `Start-Process -ArgumentList $argv`。那個 API **不保留 argv 邊界**
+    #    ——它把陣列用空白串成單一 command line，含空白的路徑會被拆開。實測 `%TEMP%` 或使用者名稱
+    #    含空白時，validator 收到 `未知參數: space\answer.txt` → exit 2 → preflight 判 45
+    #    ⇒ **那台機器上每一次諮詢都會失敗**。改用呼叫運算子 `&`，它會正確逐一引用參數。
+    # ⚠️ 5.1 會把 native command 的 stderr 包成 NativeCommandError 的 ErrorRecord；
+    #    若外層是 $ErrorActionPreference='Stop' 就會變成終止性例外。這裡本地降成 Continue。
+    $ErrorActionPreference = 'Continue'
+    & $nodeExe $validatorPath --answer-file $answerFile @extraArgs 1> $outFile 2> $errFile2
+    $code = $LASTEXITCODE
     $so = if (Test-Path $outFile) { [System.IO.File]::ReadAllText($outFile) } else { "" }
     $se = if (Test-Path $errFile2) { [System.IO.File]::ReadAllText($errFile2) } else { "" }
-    return @{ Code = $proc.ExitCode; Out = $so; Err = $se }
+    return @{ Code = $code; Out = $so; Err = $se }
   } finally {
+    $ErrorActionPreference = $prevEap
     Remove-Item -LiteralPath $outFile, $errFile2 -Force -ErrorAction SilentlyContinue
   }
 }
 
 function Test-ValidatorSentinel($r) {
   # ⚠️ 不可只看 exit 0：空模組、被截斷的檔、被 shim 掉的 node 都會自然 exit 0。
-  #    成功的定義是「stdout 恰好一行且以 CONSULT-ANSWER-OK 開頭」。
-  $lines = @($r.Out -split "`r?`n" | Where-Object { $_ -ne "" })
-  return ($lines.Count -eq 1 -and $lines[0].StartsWith("CONSULT-ANSWER-OK"))
+  # ⚠️ 也**不可只比前綴**：`CONSULT-ANSWER-OK-FAKE verdict ALLOW` 會通過前綴檢查
+  #    （2026-08-18 設計審查實測）。成功的定義是「stdout 恰好一行、且完全符合哨兵文法」。
+  $lines = @($r.Out -split "`r?`n" | Where-Object { $_.Trim() -ne "" })
+  if ($lines.Count -ne 1) { return $false }
+  return ($lines[0] -cmatch '^CONSULT-ANSWER-OK (?:discussion|json|verdict (?:ALLOW|BLOCK))$')
 }
 
 function Assert-ValidatorUsable([string]$nodeExe) {
@@ -124,7 +133,16 @@ function Assert-ValidatorUsable([string]$nodeExe) {
   }
 }
 
-$nodeExe = Resolve-NodeExe
+# ⚠️ Resolve-NodeExe 在 SUPER_MODE_NODE 無效時 `throw`。原本這行沒有 try/catch，
+#    於是那條路徑會以未捕捉例外結束、rc=1 且沒有 CONSULT_VALIDATOR_UNAVAILABLE 標記
+#    （2026-08-18 設計審查實測 pwsh 7.6.3 與 5.1 皆為 rc=1）。而我的整合測試當時只斷言
+#    「非 0」，所以那是**假綠**。契約是 45，就要真的回 45。
+$nodeExe = $null
+try { $nodeExe = Resolve-NodeExe }
+catch {
+  [Console]::Error.WriteLine("CONSULT_VALIDATOR_UNAVAILABLE: $_ 未鑄造憑證，**既有憑證未變**。")
+  exit 45
+}
 if (-not $nodeExe -or -not (Test-Path -LiteralPath $validatorPath)) {
   [Console]::Error.WriteLine("CONSULT_VALIDATOR_UNAVAILABLE: " +
     $(if (-not $nodeExe) { "找不到 node（PATH 上沒有，且未設 SUPER_MODE_NODE）。" }
@@ -166,8 +184,15 @@ if ($SchemaFile) {
   #    那不是同一個 JSON 方言（pwsh 7.x 接受註解與 trailing comma、WinPS 5.1 拒；兩者都接受
   #    NaN 與 01，node 全拒）⇒ 同一份 schema 檔會在不同平台一邊過一邊不過。改成三平台
   #    都走 node，JSON 的判準才只有一個。
-  $schemaCheck = & $nodeExe -e 'JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"))' $SchemaFile 2>&1
-  if ($LASTEXITCODE -ne 0) { throw "SchemaFile is not valid JSON (strict, node): $SchemaFile -- $schemaCheck" }
+  # ⚠️ 走 validator 的 --check-json，**不要**用 `& node -e '<inline script>'`：
+  #    WinPS 5.1 的原生參數傳遞會弄壞內嵌腳本的引號，實測 node 丟 ERR_INVALID_ARG_TYPE
+  #    （pwsh 7 沒事）——那會讓 5.1 使用者的每一次 -SchemaFile 諮詢都失敗。
+  $prevEap2 = $ErrorActionPreference
+  $ErrorActionPreference = 'Continue'
+  $schemaCheck = & $nodeExe $validatorPath --check-json $SchemaFile 2>&1
+  $schemaRc = $LASTEXITCODE
+  $ErrorActionPreference = $prevEap2
+  if ($schemaRc -ne 0) { throw "SchemaFile is not valid JSON (strict, node): $SchemaFile -- $schemaCheck" }
   $schemaArg = '--output-schema "{4}" '   # 併入 $inner 最高編號 {4}(不動 codex{0}/dir{1}/brief{2}/stderr{3})
 }
 
@@ -248,14 +273,19 @@ if ($code -eq 0) {
       [System.IO.File]::WriteAllText($tokenTmp, $cred, (New-Object System.Text.UTF8Encoding $false))
       $readBack = [System.IO.File]::ReadAllText($tokenTmp)
       if ($readBack -ne $cred) { throw "暫存檔讀回內容與寫入不符" }
-      # 同目錄單一 rename 取代（MoveFileEx + REPLACE_EXISTING）。內容在成為目標檔之前就已寫完
-      # 並讀回驗證過，所以不會有「半寫的憑證被 gate 讀到」。
-      # ⚠️ 不用 [System.IO.File]::Replace()：目標不存在時它在 .NET Framework／.NET 兩邊
-      #    丟的例外型別不一致（2026-08-18 實測 WinPS 走到 ArgumentException 而非
-      #    FileNotFoundException，害我為後者寫的 catch 完全沒接到）。Move-Item -Force
-      #    兩種情況（目標存在／不存在）都走同一條路，少一個分歧面。
-      # ⚠️ 措辭克制：這是「單一 rename」不是「跨系統的原子性保證」。
-      Move-Item -LiteralPath $tokenTmp -Destination $token -Force -ErrorAction Stop
+      # ⚠️ 2026-08-18 訂正：原本用 `Move-Item -Force`，並在註解宣稱那是
+      #    「MoveFileEx + REPLACE_EXISTING 單一 rename」。**那是錯的**——PowerShell 的
+      #    FileSystemProvider 實作是 `destination.Delete()` 後才 `source.MoveTo(destination)`，
+      #    中間有一段舊憑證不存在的視窗，而且第二步失敗時舊憑證**已經被刪掉了**
+      #    ⇒ 本檔到處寫的「失敗時既有憑證未被移除」根本不成立。
+      #    改用 .NET 的單次取代：目標存在 → File::Replace()；不存在 → File::Move()。
+      # ⚠️ Replace 的第三參數要用 [NullString]::Value 不能用 $null——PowerShell 會把 $null
+      #    轉成空字串，實測會丟 ArgumentException（我第一版就是被這個絆倒）。
+      if (Test-Path -LiteralPath $token) {
+        [System.IO.File]::Replace($tokenTmp, $token, [NullString]::Value)
+      } else {
+        [System.IO.File]::Move($tokenTmp, $token)
+      }
     } catch {
       Remove-Item -LiteralPath $tokenTmp -Force -ErrorAction SilentlyContinue
       [Console]::Error.WriteLine("CONSULT_TOKEN_WRITE_FAILED: 諮詢完成且回覆合格，但憑證寫入失敗: $_ 。" +

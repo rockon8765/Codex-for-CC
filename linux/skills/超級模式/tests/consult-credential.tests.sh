@@ -26,7 +26,16 @@ $1"
 
 here="$(cd "$(dirname "$0")" && pwd)"
 sut="$here/../scripts/codex-consult.sh"
-root="$(mktemp -d "${TMPDIR:-/tmp}/consult-cred-XXXXXX")"
+# ⚠️ setup 必須 fail-fast：若 mktemp 失敗而沒有檢查，$root 會是空字串，
+#    後面所有路徑退化成 /home、/repo、/stub…，而 `trap 'rm -rf "$root"'` 會變成
+#    `rm -rf ""`；以 root 或在 container 內跑就可能碰到真實根目錄。
+#    （2026-08-18 設計審查指出，屬 A 類必修。）
+root="$(mktemp -d "${TMPDIR:-/tmp}/consult-cred-XXXXXX")" || { echo "mktemp -d 失敗，中止" >&2; exit 2; }
+case "$root" in
+  /tmp/consult-cred-*|/var/folders/*|"${TMPDIR%/}"/consult-cred-*) : ;;
+  *) echo "mktemp 回了非預期路徑，拒絕以免 trap 刪到不該刪的地方: '$root'" >&2; exit 2 ;;
+esac
+[ -d "$root" ] || { echo "mktemp 回的路徑不是目錄: '$root'" >&2; exit 2; }
 trap 'rm -rf "$root"' EXIT
 fake_home="$root/home"; mkdir -p "$fake_home/.claude"
 repo="$root/repo"; mkdir -p "$repo"
@@ -70,7 +79,10 @@ run_consult "BLOCK: 不要做
 $long" 0
 check "2a BLOCK → exit 0" "$([ "$RC" -eq 0 ] && echo 0 || echo 1)" "rc=$RC err=$ERR"
 check "2b BLOCK → 憑證仍存在" "$([ -f "$token" ] && echo 0 || echo 1)" "BLOCK 應該仍鑄造"
-check "2c BLOCK → stdout 明說裁決為 BLOCK" "$(printf '%s' "$OUT" | grep -q 'BLOCK' && echo 0 || echo 1)" "out=$OUT"
+# ⚠️ 不可只 grep 'BLOCK'：假 codex 的 stdout 本身就含 "BLOCK: 不要做"，會被 tee 到終端，
+#    所以就算把 caller 的警告整段刪掉，這條也還是綠的（2026-08-18 設計審查指出＝假綠）。
+#    改成精確比對 caller 自己那句話。
+check "2c BLOCK → caller 明說「裁決為 BLOCK」" "$(printf '%s' "$OUT" | grep -q '裁決為 BLOCK' && echo 0 || echo 1)" "out=$OUT"
 
 echo ""
 echo "§3 不合格回覆 → 43 且不鑄造，且**不動既有憑證**"
@@ -112,6 +124,30 @@ check "6a codex exit 7 → 沿用退出碼" "$([ "$RC" -eq 7 ] && echo 0 || echo
 check "6b codex 失敗 → 不鑄造" "$([ ! -f "$token" ] && echo 0 || echo 1)" "codex 失敗卻鑄了憑證"
 
 echo ""
+echo "§8 覆蓋既有憑證（2026-08-18 補：先前每個成功案都先刪 token，這條路徑從沒被測到）"
+printf '{"repo":"OLD","ts":"old"}' > "$token"
+old_sum="$(cksum < "$token")"
+run_consult "ALLOW: 可以做
+$long" 0
+check "8a 有舊憑證時仍 exit 0" "$([ "$RC" -eq 0 ] && echo 0 || echo 1)" "rc=$RC err=$ERR"
+check "8b 憑證仍存在（沒有被刪掉又補不回來）" "$([ -f "$token" ] && echo 0 || echo 1)" "憑證不見了"
+check "8c 憑證內容真的被換成新的" "$([ "$(cksum < "$token")" != "$old_sum" ] && echo 0 || echo 1)" "內容還是舊的"
+check "8d 新憑證綁新 repo" "$(grep -qF "$repo" "$token" 2>/dev/null && echo 0 || echo 1)" "內容=$(cat "$token")"
+check "8e 沒有殘留 .tmp-* 垃圾" \
+  "$([ -z "$(find "$fake_home/.claude" -maxdepth 1 -name '.super-mode-consult-ok.tmp-*' 2>/dev/null)" ] && echo 0 || echo 1)" \
+  "殘留: $(find "$fake_home/.claude" -maxdepth 1 -name '.super-mode-consult-ok.tmp-*' 2>/dev/null)"
+
+echo ""
+echo "§9 schema 模式（2026-08-18 補：先前完全沒測到這條路徑）"
+schema_file="$root/s.json"; printf '{"type":"object"}' > "$schema_file"
+rm -f "$token"
+run_consult '{"ok":true}' 0 -s "$schema_file"
+check "9a 合法短 JSON → exit 0 並鑄造" "$([ "$RC" -eq 0 ] && [ -f "$token" ] && echo 0 || echo 1)" "rc=$RC err=$ERR"
+rm -f "$token"
+run_consult "這不是 JSON，只是一段夠長的散文說明文字，用來確認 schema 模式不是免驗金牌。" 0 -s "$schema_file"
+check "9b 非 JSON → 43 且不鑄造" "$([ "$RC" -eq 43 ] && [ ! -f "$token" ] && echo 0 || echo 1)" "rc=$RC err=$ERR"
+
+echo ""
 echo "§7 判準不可用 → 45（fail-closed，且不鑄造）"
 rm -f "$token"
 ans_file="$(mktemp "$root/ans-XXXXXX")"; printf 'ALLOW: 可以\n%s\n' "$long" > "$ans_file"
@@ -121,6 +157,27 @@ RC=$?
 ERR="$(cat "$root/err.txt")"
 check "7a SUPER_MODE_NODE 無效 → 45（不靜默退回 PATH）" "$([ "$RC" -eq 45 ] && echo 0 || echo 1)" "rc=$RC err=$ERR"
 check "7b 不鑄造" "$([ ! -f "$token" ] && echo 0 || echo 1)" "判準不可用卻鑄了憑證"
+check "7c 有 CONSULT_VALIDATOR_UNAVAILABLE 標記" \
+  "$(printf '%s' "$ERR" | grep -q 'CONSULT_VALIDATOR_UNAVAILABLE' && echo 0 || echo 1)" "err=$ERR"
+
+echo ""
+echo "§10 假哨兵不得被接受（2026-08-18 補：只比前綴會被 CONSULT-ANSWER-OK-FAKE 騙過）"
+fake_node="$root/fake-node"
+cat > "$fake_node" <<'FAKE'
+#!/usr/bin/env bash
+# 假的 node：不管給什麼都吐一個「像哨兵但不是」的行並 exit 0。
+echo "CONSULT-ANSWER-OK-FAKE verdict ALLOW"
+exit 0
+FAKE
+chmod +x "$fake_node"
+rm -f "$token"
+ans_file="$(mktemp "$root/ans-XXXXXX")"; printf 'ALLOW: 可以\n%s\n' "$long" > "$ans_file"
+OUT="$(HOME="$fake_home" PATH="$stub_dir:$PATH" STDOUT_FILE="$ans_file" EXIT_CODE=0 \
+      SUPER_MODE_NODE="$fake_node" bash "$sut" -d "$repo" -f "$brief" 2> "$root/err.txt")"
+RC=$?
+ERR="$(cat "$root/err.txt")"
+check "10a 假哨兵 → 45（不是 0）" "$([ "$RC" -eq 45 ] && echo 0 || echo 1)" "rc=$RC out=$OUT err=$ERR"
+check "10b 假哨兵 → 不鑄造" "$([ ! -f "$token" ] && echo 0 || echo 1)" "假判準竟然鑄了憑證"
 
 echo ""
 echo "CONSULT-CREDENTIAL $pass/$((pass+fail))"

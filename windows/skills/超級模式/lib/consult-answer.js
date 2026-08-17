@@ -42,8 +42,14 @@
 
 const MIN_CHARS = 40;
 
-/** 成功哨兵：caller 必須收到**恰好這一行**才算 validator 真的跑過。 */
+/**
+ * 成功哨兵：caller 必須收到**恰好一行、且完全符合下列文法**才算 validator 真的跑過。
+ * ⚠️ caller 不可只比前綴：`CONSULT-ANSWER-OK-FAKE verdict ALLOW` 會通過前綴檢查
+ *    （2026-08-18 設計審查實測）。三個 caller 都要用完整文法比對。
+ *   文法：`CONSULT-ANSWER-OK <mode>` 或 `CONSULT-ANSWER-OK verdict <ALLOW|BLOCK>`
+ */
 const OK_SENTINEL = "CONSULT-ANSWER-OK";
+const OK_SENTINEL_RE = /^CONSULT-ANSWER-OK (?:discussion|json|verdict (?:ALLOW|BLOCK))$/;
 
 /** mode：這次是用哪條規則放行的。verdict 只在 mode==="verdict" 時有值。 */
 const MODES = { VERDICT: "verdict", DISCUSSION: "discussion", JSON: "json" };
@@ -82,11 +88,23 @@ function meaningfulLength(text) {
   return m ? m.length : 0;
 }
 
-/** 首行 = 第一個非空行；剝除不可見字元（見 D1）後 trim。 */
+/**
+ * 只剝**兩端**的不可見字元與空白（見 D1）。
+ * ⚠️ 一定要是「兩端」不是「整行」：整行剝除會把 `AL<TAB>LOW:` 洗成 `ALLOW:` 而放行，
+ *    那遠超出 D1 宣稱的「控制字元**開頭**仍接受」，也與封存版 `380462f` 不同
+ *    （.NET 的 Trim() 也只清兩端）。2026-08-18 設計審查抓到我第一版寫成整行剝除。
+ */
+function trimEdgeInvisible(s) {
+  return String(s)
+    .replace(/^[\p{Cc}\p{Cf}\s]+/u, "")
+    .replace(/[\p{Cc}\p{Cf}\s]+$/u, "");
+}
+
+/** 首行 = 第一個非空行（只剝兩端的不可見字元，行中間的原樣保留）。 */
 function firstLine(lines) {
   if (!Array.isArray(lines)) return "";
   for (const l of lines) {
-    const c = stripInvisible(l, false).trim();
+    const c = trimEdgeInvisible(l);
     if (c) return c;
   }
   return "";
@@ -185,7 +203,7 @@ function asBool(v, name) {
 
 module.exports = {
   testConsultAnswer, meaningfulLength, firstLine, cleanedText, rawText, stripInvisible,
-  MIN_CHARS, OK_SENTINEL, MODES,
+  trimEdgeInvisible, MIN_CHARS, OK_SENTINEL, OK_SENTINEL_RE, MODES,
 };
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -209,14 +227,35 @@ if (require.main === module) {
   let schemaMode = false;
   let usageError = "";
 
+  let checkJsonFile = "";
+
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === "--answer-file") { answerFile = argv[++i] || ""; }
     else if (a === "--no-credential") { noCredential = true; }
     else if (a === "--schema") { schemaMode = true; }
+    else if (a === "--check-json") { checkJsonFile = argv[++i] || ""; }
     else { usageError = "未知參數: " + a; break; }
   }
-  if (!usageError && !answerFile) usageError = "需要 --answer-file <path>";
+  if (!usageError && !answerFile && !checkJsonFile) usageError = "需要 --answer-file <path> 或 --check-json <path>";
+
+  // ── --check-json：純粹「這個檔是不是 strict JSON」，給 caller 驗 -SchemaFile 用 ──
+  // ⚠️ 為什麼不讓 caller 自己跑 `node -e 'JSON.parse(...)'`：
+  //    (1) WinPS 5.1 的原生參數傳遞會把內嵌腳本裡的引號弄壞，實測 node 收到的 argv 不對、
+  //        丟 ERR_INVALID_ARG_TYPE（2026-08-18 在 5.1 host 實際踩到，pwsh 7 沒事）；
+  //    (2) 讓「哪個 JSON parser 說了算」只有一個入口，不會有人日後又寫一個 ConvertFrom-Json。
+  if (!usageError && checkJsonFile) {
+    const fs2 = require("fs");
+    try {
+      JSON.parse(fs2.readFileSync(checkJsonFile, "utf8"));
+      process.exitCode = 0;
+    } catch (e) {
+      process.stderr.write("consult-answer: 不是合法 JSON (strict): " + checkJsonFile +
+        " -- " + e.message + "\n");
+      process.exitCode = 2;
+    }
+    return;
+  }
 
   if (usageError) {
     process.stderr.write("consult-answer: " + usageError + "\n");
@@ -235,7 +274,20 @@ if (require.main === module) {
     if (!readFailed) {
       const lines = content.split(/\r?\n/);
       const r = testConsultAnswer({ lines, noCredential, schemaMode });
-      if (r.ok) process.stdout.write(OK_SENTINEL + " " + r.mode + " " + r.verdict + "\n");
+      // 文法見 OK_SENTINEL_RE：verdict 模式才附裁決，discussion/json 不附
+      // （舊版無條件補一個空白＋空字串，會產生尾隨空白而對不上嚴格文法）。
+      if (r.ok) {
+        const line = r.mode === MODES.VERDICT
+          ? OK_SENTINEL + " verdict " + r.verdict
+          : OK_SENTINEL + " " + r.mode;
+        if (!OK_SENTINEL_RE.test(line)) {
+          // 自我檢查：印出去的東西必須符合自己宣告的文法，否則 caller 一定判 45。
+          process.stderr.write("consult-answer: 內部錯誤，哨兵不符文法: '" + line + "'\n");
+          process.exitCode = 2;
+          return;
+        }
+        process.stdout.write(line + "\n");
+      }
       else process.stderr.write(r.reason + "\n");
       process.exitCode = r.code;
     }

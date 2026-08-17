@@ -98,6 +98,25 @@ t("D3b 討論模式：無裁決首行也放行", { lines: ["一段沒有裁決�
 t("D3c 討論模式：空的仍然拒（唯一保留的門檻）", { lines: ["   ", ""], noCredential: true },
   (r) => !r.ok && r.code === 43);
 
+// D1b：只剝**兩端**。整行剝除會把 AL<TAB>LOW: 洗成 ALLOW: 而放行——遠超 D1 宣稱的範圍，
+//      且與封存版（.NET Trim() 也只清兩端）不同。2026-08-18 設計審查抓到我第一版寫成整行剝除。
+t("D1b 行中間的 TAB 不得被洗掉", { lines: ["AL\tLOW: ok", LONG] }, (r) => !r.ok,
+  (r) => "AL<TAB>LOW: 被當成 ALLOW 了：" + JSON.stringify(r));
+t("D1c 行中間的 NUL 不得被洗掉", { lines: ["A\u0000LLOW: ok", LONG] }, (r) => !r.ok);
+t("D1d 行中間的 U+0085 不得被洗掉", { lines: ["AL" + NEL + "LOW: ok", LONG] }, (r) => !r.ok);
+t("D1e 尾端控制字元仍接受（兩端都剝）", { lines: ["ALLOW: 可以" + NEL, LONG] },
+  (r) => r.ok && r.verdict === "ALLOW");
+// 哨兵文法：caller 不可只比前綴（`CONSULT-ANSWER-OK-FAKE …` 會通過前綴檢查）。
+check("C0 假哨兵不符文法", !M.OK_SENTINEL_RE.test("CONSULT-ANSWER-OK-FAKE verdict ALLOW"),
+  "CONSULT-ANSWER-OK-FAKE 竟然符合文法");
+check("C0b 三種合法哨兵都符合文法",
+  M.OK_SENTINEL_RE.test("CONSULT-ANSWER-OK verdict ALLOW") &&
+  M.OK_SENTINEL_RE.test("CONSULT-ANSWER-OK verdict BLOCK") &&
+  M.OK_SENTINEL_RE.test("CONSULT-ANSWER-OK discussion") &&
+  M.OK_SENTINEL_RE.test("CONSULT-ANSWER-OK json"), "合法哨兵被文法拒絕");
+check("C0c 帶尾隨空白的哨兵不符文法", !M.OK_SENTINEL_RE.test("CONSULT-ANSWER-OK discussion "),
+  "尾隨空白被接受");
+
 console.log("\n§C 2026-08-18 設計審查新增");
 t("C1 schema 優先於 noCredential（求值順序）",
   { lines: ['{"ok":true}'], schemaMode: true, noCredential: true }, (r) => r.ok && r.mode === "json");

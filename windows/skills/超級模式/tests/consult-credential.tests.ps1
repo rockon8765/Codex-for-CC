@@ -21,6 +21,11 @@ $script:pass = 0
 $script:fail = 0
 $script:failed = @()
 
+function Read-Utf8([string]$path) {
+  if (-not (Test-Path -LiteralPath $path)) { return "" }
+  return [System.IO.File]::ReadAllText($path, (New-Object System.Text.UTF8Encoding $false))
+}
+
 function Check([string]$name, [bool]$cond, [string]$detail) {
   if ($cond) { $script:pass++; return }
   $script:fail++
@@ -63,8 +68,11 @@ function Run-Consult([string]$answer, [int]$exitCode, [string[]]$extra) {
       -RedirectStandardOutput $outF -RedirectStandardError $errF
     return @{
       Code = $pr.ExitCode
-      Out  = (Get-Content -LiteralPath $outF -Raw -ErrorAction SilentlyContinue)
-      Err  = (Get-Content -LiteralPath $errF -Raw -ErrorAction SilentlyContinue)
+      # ⚠️ 必須指定 UTF-8：受測腳本把中文寫到 stdout，而 WinPS 5.1 的 Get-Content 預設
+      #    用 ANSI 解碼，會讀成亂碼，害「訊息內容」類斷言假性失敗（2026-08-18 實際踩到：
+      #    5.1 下 out 是「BLOCK: 銝???」）。
+      Out  = (Read-Utf8 $outF)
+      Err  = (Read-Utf8 $errF)
     }
   } finally { $env:USERPROFILE = $oldHome }
 }
@@ -85,7 +93,9 @@ try {
   $r = Run-Consult ("BLOCK: 不要做`n" + $long) 0 @()
   Check "2a BLOCK → exit 0" ($r.Code -eq 0) ("exit=" + $r.Code)
   Check "2b BLOCK → 憑證仍存在" (Test-Path -LiteralPath $token) "BLOCK 應該仍鑄造"
-  Check "2c BLOCK → stdout 明說裁決為 BLOCK" ($r.Out -match 'BLOCK') ("out=" + $r.Out)
+  # ⚠️ 不可只 match 'BLOCK'：假 codex 的 stdout 本身就含 "BLOCK: 不要做" 並被 echo 出來，
+  #    就算把 caller 的警告整段刪掉這條也還是綠的（2026-08-18 設計審查指出＝假綠）。
+  Check "2c BLOCK → caller 明說「裁決為 BLOCK」" ($r.Out -match '裁決為 BLOCK') ("out=" + $r.Out)
 
   Write-Output "`n§3 不合格回覆 → 43 且不鑄造，且**不動既有憑證**"
   # 先放一個既有憑證，內容與 mtime 都記下來
@@ -122,15 +132,78 @@ try {
   Check "6a codex exit 7 → 沿用退出碼" ($r.Code -eq 7) ("exit=" + $r.Code)
   Check "6b codex 失敗 → 不鑄造" (-not (Test-Path -LiteralPath $token)) "codex 失敗卻鑄了憑證"
 
+  Write-Output "`n§8 覆蓋既有憑證（2026-08-18 補：先前每個成功案都先刪 token，這條路徑從沒被測到）"
+  Set-Content -LiteralPath $token -Value '{"repo":"OLD","ts":"old"}' -Encoding utf8
+  $oldBytes = [System.IO.File]::ReadAllBytes($token)
+  $r = Run-Consult ("ALLOW: 可以做`n" + $long) 0 @()
+  Check "8a 有舊憑證時仍 exit 0" ($r.Code -eq 0) ("exit=" + $r.Code + " err=" + $r.Err)
+  Check "8b 憑證仍存在（沒有被刪掉又補不回來）" (Test-Path -LiteralPath $token) "憑證不見了"
+  Check "8c 憑證內容真的被換成新的" `
+    (-not [System.Linq.Enumerable]::SequenceEqual([byte[]]$oldBytes, [byte[]][System.IO.File]::ReadAllBytes($token))) "內容還是舊的"
+  Check "8d 新憑證綁新 repo" ((Get-Content -LiteralPath $token -Raw) -match [regex]::Escape($repo.Replace('\', '\\'))) `
+    ("內容=" + (Get-Content -LiteralPath $token -Raw))
+  Check "8e 沒有殘留 .tmp-* 垃圾" `
+    (@(Get-ChildItem -LiteralPath (Split-Path $token) -Filter ".super-mode-consult-ok.tmp-*" -Force -ErrorAction SilentlyContinue).Count -eq 0) `
+    "殘留了暫存憑證檔"
+
+  Write-Output "`n§9 schema 模式（2026-08-18 補：先前完全沒測到這條路徑）"
+  $schemaFile = Join-Path $root "s.json"
+  [System.IO.File]::WriteAllText($schemaFile, '{"type":"object"}', (New-Object System.Text.UTF8Encoding $false))
+  Remove-Item -LiteralPath $token -Force -ErrorAction SilentlyContinue
+  $r = Run-Consult '{"ok":true}' 0 @("-SchemaFile", $schemaFile)
+  Check "9a 合法短 JSON → exit 0 並鑄造" (($r.Code -eq 0) -and (Test-Path -LiteralPath $token)) ("exit=" + $r.Code + " err=" + $r.Err)
+  Remove-Item -LiteralPath $token -Force -ErrorAction SilentlyContinue
+  $r = Run-Consult "這不是 JSON，只是一段夠長的散文說明文字，用來確認 schema 模式不是免驗金牌。" 0 @("-SchemaFile", $schemaFile)
+  Check "9b 非 JSON → 43 且不鑄造" (($r.Code -eq 43) -and (-not (Test-Path -LiteralPath $token))) ("exit=" + $r.Code + " err=" + $r.Err)
+
   Write-Output "`n§7 判準不可用 → 45（fail-closed，且不鑄造）"
   Remove-Item -LiteralPath $token -Force -ErrorAction SilentlyContinue
   $oldNode = $env:SUPER_MODE_NODE
   $env:SUPER_MODE_NODE = Join-Path $root "no-such-node.exe"
   try {
     $r = Run-Consult ("ALLOW: 可以`n" + $long) 0 @()
-    Check "7a SUPER_MODE_NODE 無效 → 非 0（不靜默退回 PATH）" ($r.Code -ne 0) ("exit=" + $r.Code)
+    # ⚠️ 原本斷言「非 0」＝假綠：實際 rc 是 1（未捕捉例外），契約卻是 45。
+    #    契約是幾就要釘幾（2026-08-18 設計審查指出）。
+    Check "7a SUPER_MODE_NODE 無效 → 精確 45" ($r.Code -eq 45) ("exit=" + $r.Code + " err=" + $r.Err)
     Check "7b 不鑄造" (-not (Test-Path -LiteralPath $token)) "判準不可用卻鑄了憑證"
+    Check "7c 有 CONSULT_VALIDATOR_UNAVAILABLE 標記" ($r.Err -match 'CONSULT_VALIDATOR_UNAVAILABLE') ("err=" + $r.Err)
   } finally { $env:SUPER_MODE_NODE = $oldNode }
+
+  Write-Output "`n§10 假哨兵不得被接受（2026-08-18 補：只比前綴會被 CONSULT-ANSWER-OK-FAKE 騙過）"
+  $fakeNode = Join-Path $root "fake-node.cmd"
+  @'
+@echo off
+echo CONSULT-ANSWER-OK-FAKE verdict ALLOW
+exit /b 0
+'@ | Set-Content -LiteralPath $fakeNode -Encoding ascii
+  Remove-Item -LiteralPath $token -Force -ErrorAction SilentlyContinue
+  $oldNode = $env:SUPER_MODE_NODE
+  $env:SUPER_MODE_NODE = $fakeNode
+  try {
+    $r = Run-Consult ("ALLOW: 可以`n" + $long) 0 @()
+    Check "10a 假哨兵 → 45（不是 0）" ($r.Code -eq 45) ("exit=" + $r.Code + " out=" + $r.Out + " err=" + $r.Err)
+    Check "10b 假哨兵 → 不鑄造" (-not (Test-Path -LiteralPath $token)) "假判準竟然鑄了憑證"
+  } finally { $env:SUPER_MODE_NODE = $oldNode }
+
+  Write-Output "`n§11 路徑含空白（2026-08-18 補：Start-Process -ArgumentList 會拆掉 argv 邊界）"
+  $spaceHome = Join-Path $root "home with space"
+  New-Item -ItemType Directory -Path (Join-Path $spaceHome ".claude") -Force | Out-Null
+  $spaceToken = Join-Path $spaceHome ".claude\.super-mode-consult-ok"
+  $ansFile = Join-Path $root "ans-space.txt"
+  [System.IO.File]::WriteAllText($ansFile, ("ALLOW: 可以`n" + $long), (New-Object System.Text.UTF8Encoding $false))
+  $outF = Join-Path $root "o2.txt"; $errF = Join-Path $root "e2.txt"
+  $env:SUPER_MODE_CODEX_CMD = $fakeCodex
+  $env:STDOUT_FILE = $ansFile
+  $env:EXIT_CODE = "0"
+  $oldHome2 = $env:USERPROFILE
+  $env:USERPROFILE = $spaceHome
+  try {
+    $pr = Start-Process -FilePath $Shell -ArgumentList @("-NoProfile", "-File", $script, "-Dir", $repo, "-PromptFile", $brief) `
+      -NoNewWindow -Wait -PassThru -RedirectStandardOutput $outF -RedirectStandardError $errF
+    Check "11a 家目錄含空白時仍能鑄造（不是 preflight 就 45）" ($pr.ExitCode -eq 0) `
+      ("exit=" + $pr.ExitCode + " err=" + (Read-Utf8 $errF))
+    Check "11b 憑證確實寫在含空白的路徑下" (Test-Path -LiteralPath $spaceToken) "憑證沒寫出來"
+  } finally { $env:USERPROFILE = $oldHome2 }
 } finally {
   Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue
   Remove-Item Env:SUPER_MODE_CODEX_CMD -ErrorAction SilentlyContinue
