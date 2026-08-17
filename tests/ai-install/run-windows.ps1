@@ -397,7 +397,10 @@ function Clear-DenyEnumerate($path, $rule) {
 # `Add-ExistingInstall` 寫的 settings 與 1b 的備份一模一樣（1c 不碰 settings），
 # 所以把回滾的「settings 還原」搬到預掃之前只是 OLD → OLD ——
 # 內容雜湊不變、快照相等、mutant 存活。C1／C2 早就有這個手法
-#（註解寫「否則還原斷言恆真」），**M13 當初漏了**。POSIX 側同型、同日一起修。
+#（註解寫「否則還原斷言恆真」），**M13 當初漏了**。
+# ⚠️ **POSIX 側有同型缺口，但尚未修。** `run-posix.sh` 的 `[M13]` 一樣沒有這個 fixture，
+# 修法只存在於已裁示 ⛔ 停擺的 `test/posix-m13-wide-oracle-…` 分支，**不在 main 上**。
+# 本批刻意只動 Windows；不要把這裡讀成「兩邊都補好了」。
 function Set-Step2Settings($h, $ts, $label) {
   Set-Content -LiteralPath "$h\.claude\settings.json" -Value '{"new":true,"hooks":{"PreToolUse":[]}}' -NoNewline
   $cur = Get-Content -LiteralPath "$h\.claude\settings.json" -Raw
@@ -584,7 +587,7 @@ foreach ($tgt in @(
   } finally {
     Clear-DenyEnumerate $m13cLocked $denyRule
   }
-  # ⚠️ 這裡**不**釘失敗訊息（POSIX 側有釘）：Windows 的中止是 `Get-ChildItem` 未攔截的
+  # ⚠️ 這裡**不**釘失敗訊息：Windows 的中止是 `Get-ChildItem` 未攔截的
   # .NET 例外，沒有產品自己的訊息可釘，釘 cmdlet 名稱等於綁死實作。
   # 「非零是不是來自語法錯誤」改由上面的解析檢查結構性排除。
   Check "[M13c][$($tgt.n)] 回滾仍中止" (-not $r.Ok) "竟然成功：$($r.Out)"
