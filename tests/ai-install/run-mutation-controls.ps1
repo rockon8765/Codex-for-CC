@@ -216,7 +216,18 @@ Invoke-Control 'c4-settings-premove' $SUT (New-MutantDoc 'settings') @{
 }
 
 } finally {
-  foreach ($f in $script:mutantFiles) { if (Test-Path -LiteralPath $f) { Remove-Item -LiteralPath $f -Force } }
+  # ⚠️ 逐檔各自 try/catch：若第一個 Remove-Item 拋例外，後面的 mutant 會殘留在
+  # tests\ai-install\ 底下，而且**清理的例外會遮蔽掉原本的失敗原因**（第四輪 Codex 指出，
+  # 非阻擋但便宜）。清理失敗只警告、不改變退出碼——這條路徑只會假紅或留殘檔，不會假綠。
+  $leftover = @()
+  foreach ($f in $script:mutantFiles) {
+    try { if (Test-Path -LiteralPath $f) { Remove-Item -LiteralPath $f -Force -ErrorAction Stop } }
+    catch { $leftover += $f }
+  }
+  if ($leftover) {
+    Write-Host "⚠️ 下列變異檔清理失敗，請手動刪除（它們在 repo 樹內，會污染 git status）："
+    $leftover | ForEach-Object { Write-Host "   $_" }
+  }
 }
 
 "`n========================================"

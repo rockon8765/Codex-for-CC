@@ -77,7 +77,7 @@
 ## Mutation control（**四個**，2026-08-17 全數對最終 SUT 重跑，**兩 host 各 4/4 符合預期**）
 
 透過收進 repo 的 [`tests/ai-install/run-mutation-controls.ps1`](../tests/ai-install/run-mutation-controls.ps1)
-執行（blob `498ceecc50a92190ca376e072b6f665b5a7163e1`）。該檔釘死的是
+執行（blob `c339fb02b857ad02520b706cc0be1337edf9ab02`）。該檔釘死的是
 **每個 control 的具名失敗集合（逐條精確相等、多一條少一條都算 FAIL）＋ 精確 rc**，
 案數守衛型另釘 STOP 那行的完整字面（含「實跑 125、預期 126」兩個數字）。
 ⚠️ **不是**只比 PASS／FAIL 總數——理由與實測見下方「runner 自己的牙齒測試」。
@@ -198,7 +198,7 @@ pwsh -NoProfile -File tests\ai-install\run-windows.ps1 -Shell pwsh
 pwsh -NoProfile -File tests\ai-install\run-mutation-controls.ps1
 ```
 
-（`-Shell powershell` 換 5.1。blob `498ceecc50a92190ca376e072b6f665b5a7163e1`。）
+（`-Shell powershell` 換 5.1。blob `c339fb02b857ad02520b706cc0be1337edf9ab02`。）
 它把每個 control 的**預期數字釘死**（`121/5`、`122/4`、`STOP`、`122/4`），
 對不上就 exit 1；每個注入都先過自我檢查（錨點恰 1、兩行相鄰、行數不變、hash 確實改變），
 不成立就中止且不產出檔案。**2026-08-17 實測兩 host 各 4/4 符合預期、rc=0。**
@@ -230,3 +230,14 @@ FAIL  [c1-step2-noop] rc=1  具名失敗 5 條（預期 5）
 （這本身是自我檢查在做該做的事，但也代表 **control 3／4 沒有在這次 meta-test 裡被涵蓋**）。
 本節只宣稱：**control 1 與 2 的具名集合比對確實擋得住等量交換**。
 測完 SUT 已還原，blob 仍為 `aeee60bc…`。
+
+### 具名比對本身的兩個前提（已實測，不是推論）
+
+1. **`Compare-Object` 是多重集合語意，不會把重複項吃掉。** 實測
+   `expect=A,B` vs `actual=A,B,B` 回 `=> B`；`expect=A,A,B` vs `actual=A,B` 回 `<= A`。
+   ⇒ 「同一條斷言紅兩次」不會被誤判成紅一次。
+2. **釘的 11 條期望項全部是唯一斷言名稱。** 126 條斷言裡確實有 2 組重名
+   （`1c 安裝成功` ×2、一條嵌了 `ts` 的 ×2），但**都不在期望集合裡**——
+   實測逐條比對過。⇒ 具名比對在本批不會因為重名而失去區辨。
+   ⚠️ 這是**當下的**性質，不是不變量：日後新增同名斷言、或把期望項改到重名的斷言上，
+   這個前提就會失效。改期望集合時要重驗一次。
