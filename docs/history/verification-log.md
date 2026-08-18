@@ -2,13 +2,29 @@
 
 > **這份檔案是「當時的觀測」，不是現況。**
 > 每一段都綁著它自己的日期與受驗 commit／blob，**不得**拿來推定目前 tip 的狀態。
-> 目前的平台支援狀態與已知限制，看 [`README.md`](../../README.md) 的「現況與已知限制」；
-> 仍未完成的工作看 [`backlog.md`](../backlog.md)。
+> 目前的平台支援狀態與已知限制，看 [`README.md`](../../README.md) 的
+> 「⚠️ 安裝前一定要知道的限制」與「功能差距（各平台實作狀態）」兩節；
+> 仍未完成的工作與各項**當前**狀態，一律以 [`backlog.md`](../backlog.md) 為準。
 >
 > 本檔於 2026-08-18 從 `README.md` 抽出（原第 41–274 行）。抽出時只做兩件機械性處理：
 > 剝掉每行開頭的 blockquote 標記 `> `、以及把 repo 根目錄相對連結改寫成從本檔出發的相對路徑
-> （`docs/X` → `../X`、其餘 → `../../X`）。**文字內容未改寫**——包括當時寫下的
-> 「仍未做」「下一批 P0」等語句，那些是當時的狀態，現況以 backlog 為準。
+> （`docs/X` → `../X`、其餘 → `../../X`）。**正文一字未改**——包括當時寫下的
+> 「仍未做」「下一批 P0」「最終驗收狀態」等語句。那些是**寫下當天的狀態**，
+> 不代表現在；要看現在，用上面兩個連結。
+
+## 索引（依本檔出現順序，大致由新到舊）
+
+| 日期 | 批次／主題 | 受驗基準 | 平台 | 這一筆之後發生了什麼 |
+|---|---|---|---|---|
+| 2026-08-09 發現 → 08-10 修畢 | 驗證資產假綠修正 ＋ macOS 原生驗收 | `a85e88a`／`4414ae7` | Win／Linux／mac | ⚠️ 段內的「最終驗收狀態（**tip**）」用了未釘 SHA 的 `<tip>`，且該段「共 7 個檔案」只對**當時**成立——`a85e88a` 到 2026-08-18 的 `HEAD` 已有 36 commits／26 檔案 |
+| 2026-08-12（內嵌於上段末尾） | Windows M13 回滾 fail-closed 動態測試 | 反向對 `4a96698` | Windows | ⚠️ 當時案數 **112**，已被 2026-08-17 的 `F2` 那批改為 **126**（見 [`ACCEPTANCE-windows-m13c-settings-2026-08-15.md`](../ACCEPTANCE-windows-m13c-settings-2026-08-15.md)）。案數的唯一權威是 `run-windows.ps1` 的 `$EXPECTED_CHECKS`，不要抄本檔的數字 |
+| 2026-08-09（`<details>` 摺疊） | 原始缺陷清單（存證用） | — | macOS | **已被上面那批修正取代**；保留只為留下「當時誠實的狀態」 |
+| 2026-08-09b | gate 辨識抽成三平台共用模組 | 基準 `5da2624`（釘 blob 非 SHA） | Win／Linux（mac 當時 pending） | 段內明載這是維護者的**風險裁示**，不是「已驗證」 |
+| 2026-08-09 | A2：MIGRATION probe 抽成 repo 腳本 | `5cc50e0..70f305d` | 三平台（mac 後補驗） | — |
+| 2026-08-04 | 測試臺注入點補 rc ＋ `consult-schema` 退出契約 | `67a7ae6..1aeb010` | 三平台 | — |
+| 2026-07-27 | context-engineering 整理 | 分支尖端 `6f7839b` | 三平台（mac 於 07-31 補驗） | — |
+| 2026-07-26 | Opus 5 對齊 ＋ gate 內建工具面補齊 | — | 三平台 | — |
+| 2026-07-16 | Linux `codex-check` 功能差距 | — | Linux | ⚠️ **現況已移到 README 的「功能差距（各平台實作狀態）」段**，本檔這一筆只是當時的描述 |
 
 ---
 
@@ -243,6 +259,6 @@ node tests/probe-verdict-cases.test.js --baseline 5da2624e5f3f103f80ecca520f8ad2
 
 Linux 版保留 case-sensitive／case-preserving 語義（`isRunnerTouchingSensitive()`，mac/Windows 走 `toLowerCase()`）。**這條語義的守護是實測過的**：把它誤植成 mac 的 `toLowerCase()` 後，在真 Linux 上 gate-cases 會變成 118/120 —— 且失敗的**只有**那兩筆專為此設計的案例。（值得記下的教訓：同一個誤植在 **Windows 主機**上會被另外 3 個案例擋下，但那 3 案的區辨性來自 Windows 的 `os.tmpdir()` 含大寫；真 Linux 的 `tmpdir` 是全小寫 `/tmp`，那 3 案會**假綠**。跨宿主跑測試 ≠ 原生驗證，這就是最好的例子。）該變異測試已寫進 CI，防止這層守護日後被悄悄拆掉。
 
-**仍未涵蓋的**：`run-gate-tests.js` 與 `matcher-contract` 是**直接呼叫／靜態讀取**；`run-e2e.sh` 確實會以 stdin 啟動**完整的 hook process**（所以 hook 的行程層行為有被驗到）。但**沒有任何一支**證明 Claude Code runtime 真的載入你的 settings 並據此叫起 hook——那條路只能在新 session 實際觸發一次（見安裝節的 `matcher-contract` 說明）。
+**仍未涵蓋的**：`run-gate-tests.js` 與 `matcher-contract` 是**直接呼叫／靜態讀取**；`run-e2e.sh` 確實會以 stdin 啟動**完整的 hook process**（所以 hook 的行程層行為有被驗到）。但**沒有任何一支**證明 Claude Code runtime 真的載入你的 settings 並據此叫起 hook——那條路只能在新 session 實際觸發一次（見 [`README.md`](../../README.md) 「安裝」節的 `matcher-contract` 說明）。
 
 **功能差距（2026-07-16）**：`codex-check` 的**能力面 baseline diff**（NO_BASELINE／`-UpdateBaseline`（bash 為 `--update-baseline`）／四態盤點／快取版本鍵／依賴旗標探測）**Windows 與 macOS 版已實作**（macOS 於其目標平台原生跑過合成測試臺 47 案＋gate 98 案），**linux 版尚未移植**（連 0.143 的能力面盤點段都未移植；`capability`/`baseline` 關鍵字在 Windows 版 25／52 處、macOS 版 25／58 處，Linux 版 **0 處**）——這是 Linux 版**目前進行中的開發項目**。⚠️ **移植來源是 [`macos/skills/超級模式/scripts/codex-check.sh`](../../macos/skills/超級模式/scripts/codex-check.sh) 的現行實作**（版本無關：泛解析 `codex {plugin,mcp,features} list` 的每一列，不寫死名單，新版新增的 feature 會自動納入）。兩份 handoff（[baseline](../handoff-capability-baseline-port.md)、[0.143 能力面](../handoff-0143-capability-surface-port.md)）只當「為什麼要做」的背景讀——**後者的可貼上片段已過時**：它寫死 8 個 feature，對照 0.145 實測的 37 項只涵蓋 6 項，且其中 2 項已不存在。

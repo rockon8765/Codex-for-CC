@@ -39,20 +39,27 @@
 > **不要**由「歷史上某次 PASS」推定目前 tip 已達成三平台等價驗證。
 > 逐批的受驗 commit／blob 與逐案數字（含反向驗證、變異注入、合併前審查往返）全部移到
 > [`docs/history/verification-log.md`](docs/history/verification-log.md)——那是**當時的觀測**，不是現況。
->
-> **已知功能落差**：Linux 版 `codex-check` 的**能力面盤點與 baseline diff 尚未移植**
-> （Windows／macOS 已有）。**不要**把 macOS 版的 `codex-check.sh` 直接當 Linux 版的等價物拿來抄。
+
+### 功能差距（各平台實作狀態）
+
+**本段是各平台實作狀態的唯一真相**——三平台的 `references/orchestration.md` 與 [`docs/backlog.md`](docs/backlog.md) 都指向這裡，請不要在別處另記一份。
+
+- **Linux 版 `codex-check` 的能力面盤點與 baseline diff 尚未移植**（Windows／macOS 已有）。**不要**把 macOS 版的 `codex-check.sh` 直接當 Linux 版的等價物拿來抄或替換。移植規格見 [`docs/handoff-capability-baseline-port.md`](docs/handoff-capability-baseline-port.md) 與 [`docs/handoff-0143-capability-surface-port.md`](docs/handoff-0143-capability-surface-port.md)（⚠️ 後者的可貼上片段已過時，只當背景讀）。
+- 其餘功能三平台目前一致；差在**驗證覆蓋**（見上表）與平台語義（見下方「已知的坑」）。
 
 ### ⚠️ 安裝前一定要知道的限制
 
 以下都是**目前仍存在**的限制（不是歷史紀錄）。完整清單與各項當前狀態見 [`docs/backlog.md`](docs/backlog.md)。
 
-1. **Codex 回 `BLOCK` 一樣會解鎖 gate。** 憑證是「**諮詢收據**」不是「動作授權」——hook 只檢查憑證存在、未過期、repo 相符，**完全不讀裁決欄位**。所以一次形式合格的 `BLOCK:` 回覆照樣把被攔的動作解鎖 20 分鐘。「BLOCK 就不做」目前**純靠 orchestrator 自律，工具面零強制**。
-2. **macOS／Linux：安裝回滾的 `rm -rf` 會刪掉掛載點裡的真實資料。** link 守衛用 `find -type l`，而**掛載點是目錄、抓不到**。skill 樹底下有 bind mount 的人，安裝前請先卸載、或改用手動安裝。
-3. **沒有任何自動測試證明 Claude Code runtime 真的載入了你的 settings 並叫起 hook。** `matcher-contract` 是靜態比對、`run-gate-tests` 是直接呼叫 `decide()`；兩者全綠時 hook 仍可能根本沒被註冊到會生效的位置。**端到端只能在新 session 實際觸發一次違規動作來確認。**
-4. **Windows／macOS 沒有 CI。** 這兩個平台的回歸測試改壞了，遠端不會有任何 gate 攔下——仍靠人工在本機跑。
-5. **回滾的 fail-closed 契約只有 Windows 側有動態測試。** POSIX 側的 `[M13]` oracle 同型偏窄、也沒有案數硬斷言，缺口仍在 `main` 上（優先級待裁，見 backlog 的 `POSIX-M13-GAP`）。
-6. **重裝不是冪等的。** `settings.json` 已有一筆 gate 時再跑一次安裝會變成兩筆——動手前先跑 `node tools/probe-gate-registration.js`（唯讀，三平台同一條指令）。
+1. **`BLOCK` 和 `ALLOW` 鑄造的是同一張收據。** 憑證是「**諮詢收據**」不是「動作授權」——它裡面沒有裁決欄位，hook 也不讀。所以對「憑時間 ＋ repo 綁定就能放行」的動作而言，一次形式合格的 `BLOCK:` 回覆照樣解鎖 20 分鐘，**hook 分不出 ALLOW 與 BLOCK**。「BLOCK 就不做」目前純靠 orchestrator 自律，工具面零強制。⚠️ 但**不是每個被攔動作都會因此放行**：拿不到 repo 路徑、又不在白名單的 MCP／外發工具，即使有憑證仍會被拒。
+2. **macOS／Linux：安裝回滾的 `rm -rf` 會跨進掛載點、刪掉裡面的真實資料。** link 守衛用 `find -type l`，而**掛載點是目錄、抓不到**。成立條件是「掛載點位於 live skill 子樹」且「實際執行到回滾」。skill 樹底下有 bind mount 的人，安裝前請先卸載、或改用手動安裝。⚠️ 這是**已知的機制風險，沒有掛載點的端到端實測**。
+3. **沒有任何自動測試證明 Claude Code runtime 真的載入了你的 settings 並叫起 hook。** `matcher-contract` 是靜態比對、`run-gate-tests` 是直接呼叫 `decide()`；`run-e2e.sh` 會以 stdin 啟動完整的 hook process，但那也只驗到 hook 自己的行程層行為。**端到端只能在新 session 實際觸發一次違規動作來確認。**
+4. **Windows／macOS 沒有 CI。** 這兩個平台的回歸測試改壞了，遠端不會有任何 gate 攔下——仍靠人工在本機跑。Linux 每次 push／PR 都有 CI。
+5. **安裝／回滾的驗證有明確邊界**（三件互相獨立的事）：
+   - 「列舉失敗必須在任何 mutation 之前中止」這條回滾契約，**Windows 與 POSIX 兩側都有動態測試**；但只有 Windows 側有較寬的 oracle ＋ mutation control，POSIX 側的 oracle 只快照 `skills`、也沒有案數硬斷言（backlog 的 `POSIX-M13-GAP`，優先級待裁）。**Windows 側也不等於「完整 M13」。**
+   - **1b 的備份完整性沒有測。** 列舉若 fail-open，可能只留下部分備份，卻仍印出代表「三個備份都完成」的 `backup ts=`。那是另一條契約，尚未處理。
+   - **回滾不是交易式的。** 預掃成功不代表後續一定刪得掉／寫得進（ACL 可以允許列舉、卻拒絕 Delete／DeleteChild）。
+6. **安裝步驟 2（把 hook 併進 `settings.json`）不是冪等的。** 照字面 append 會在陣列尾端再多一筆，三平台皆然。**文件流程本身有防護**：先跑 `node tools/probe-gate-registration.js`（唯讀，三平台同一條指令），已經裝好時它會明講「什麼都不要做」。**跳過這道 preflight 直接重做 append，才會變成兩筆。**
 
 ---
 
