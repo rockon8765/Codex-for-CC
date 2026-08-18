@@ -45,19 +45,20 @@
 **本段是各平台實作狀態的唯一真相**——三平台的 `references/orchestration.md` 與 [`docs/backlog.md`](docs/backlog.md) 都指向這裡，請不要在別處另記一份。
 
 - **Linux 版 `codex-check` 的能力面盤點與 baseline diff 尚未移植**（Windows／macOS 已有）。**不要**把 macOS 版的 `codex-check.sh` 直接當 Linux 版的等價物拿來抄或替換。移植規格見 [`docs/handoff-capability-baseline-port.md`](docs/handoff-capability-baseline-port.md) 與 [`docs/handoff-0143-capability-surface-port.md`](docs/handoff-0143-capability-surface-port.md)（⚠️ 後者的可貼上片段已過時，只當背景讀）。
+- **`codex-check` 的 `--disable remote_plugin` 只有 macOS 有**（Windows／Linux 沒有）。這不是 Linux 落後，是 macOS 端單方面硬化；維護者已明確**暫緩**收緊 `--disable`，要改請三平台一起改。
 - 其餘功能三平台目前一致；差在**驗證覆蓋**（見上表）與平台語義（見下方「已知的坑」）。
 
 ### ⚠️ 安裝前一定要知道的限制
 
 以下都是**目前仍存在**的限制（不是歷史紀錄）。完整清單與各項當前狀態見 [`docs/backlog.md`](docs/backlog.md)。
 
-1. **`BLOCK` 和 `ALLOW` 鑄造的是同一張收據。** 憑證是「**諮詢收據**」不是「動作授權」——它裡面沒有裁決欄位，hook 也不讀。所以對「憑時間 ＋ repo 綁定就能放行」的動作而言，一次形式合格的 `BLOCK:` 回覆照樣解鎖 20 分鐘，**hook 分不出 ALLOW 與 BLOCK**。「BLOCK 就不做」目前純靠 orchestrator 自律，工具面零強制。⚠️ 但**不是每個被攔動作都會因此放行**：拿不到 repo 路徑、又不在白名單的 MCP／外發工具，即使有憑證仍會被拒。
+1. **`BLOCK` 和 `ALLOW` 鑄造的是同一張收據。** 憑證是「**諮詢收據**」不是「動作授權」——它裡面沒有裁決欄位，hook 也不讀。所以對「憑時間 ＋ repo 綁定就能放行」的動作而言，一次形式合格的 `BLOCK:` 回覆照樣解鎖 20 分鐘，**hook 分不出 ALLOW 與 BLOCK**。「BLOCK 就不做」目前純靠 orchestrator 自律，工具面零強制。⚠️ 但**不是每個被攔動作都會因此放行**：拿不到 repo 路徑、又不在 `MCP_PATHLESS_ALLOW`／policy 白名單的 **MCP 工具**，即使有憑證仍會被硬拒。⚠️ 反過來，**外發型內建工具（`Artifact` 等）是刻意 pathless 的**——它們綁不到 repo，所以任何有效憑證都放得過去，**repo A 的憑證擋不住 repo B 的發佈動作**。
 2. **macOS／Linux：安裝回滾的 `rm -rf` 會跨進掛載點、刪掉裡面的真實資料。** link 守衛用 `find -type l`，而**掛載點是目錄、抓不到**。成立條件是「掛載點位於 live skill 子樹」且「實際執行到回滾」。skill 樹底下有 bind mount 的人，安裝前請先卸載、或改用手動安裝。⚠️ 這是**已知的機制風險，沒有掛載點的端到端實測**。
 3. **沒有任何自動測試證明 Claude Code runtime 真的載入了你的 settings 並叫起 hook。** `matcher-contract` 是靜態比對、`run-gate-tests` 是直接呼叫 `decide()`；`run-e2e.sh` 會以 stdin 啟動完整的 hook process，但那也只驗到 hook 自己的行程層行為。**端到端只能在新 session 實際觸發一次違規動作來確認。**
 4. **Windows／macOS 沒有 CI。** 這兩個平台的回歸測試改壞了，遠端不會有任何 gate 攔下——仍靠人工在本機跑。Linux 每次 push／PR 都有 CI。
 5. **安裝／回滾的驗證有明確邊界**（三件互相獨立的事）：
    - 「列舉失敗必須在任何 mutation 之前中止」這條回滾契約，**Windows 與 POSIX 兩側都有動態測試**；但只有 Windows 側有較寬的 oracle ＋ mutation control，POSIX 側的 oracle 只快照 `skills`、也沒有案數硬斷言（backlog 的 `POSIX-M13-GAP`，優先級待裁）。**Windows 側也不等於「完整 M13」。**
-   - **1b 的備份完整性沒有測。** 列舉若 fail-open，可能只留下部分備份，卻仍印出代表「三個備份都完成」的 `backup ts=`。那是另一條契約，尚未處理。
+   - **1b 備份完整性只測了正常路徑。** 「正常備份 → 還原」有動態案（`run-posix.sh` 的 `[C1]`／`[C2]`）；**沒測的是列舉 fail-open 那一條**——若列舉只回非終止錯誤，可能只留下部分備份，卻仍印出代表「三個備份都完成」的 `backup ts=`。那是另一條契約，尚未處理。
    - **回滾不是交易式的。** 預掃成功不代表後續一定刪得掉／寫得進（ACL 可以允許列舉、卻拒絕 Delete／DeleteChild）。
 6. **安裝步驟 2（把 hook 併進 `settings.json`）不是冪等的。** 照字面 append 會在陣列尾端再多一筆，三平台皆然。**文件流程本身有防護**：先跑 `node tools/probe-gate-registration.js`（唯讀，三平台同一條指令），已經裝好時它會明講「什麼都不要做」。**跳過這道 preflight 直接重做 append，才會變成兩筆。**
 
