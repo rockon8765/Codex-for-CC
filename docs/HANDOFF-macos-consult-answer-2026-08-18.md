@@ -45,7 +45,15 @@ git status --porcelain
 三項都成立就可以往下跑。**不成立就停下來回報**，不要硬跑。
 
 ⚠️ **這三項不是 blob 比對**：它們只驗分支名、三鏡像一致、工作樹乾淨——任何**已 commit** 的變更都會通過。要知道「驗的到底是哪一版」請一併記錄 `git rev-parse HEAD`。
-📌 **已完成的驗證紀錄**：原生 macOS 實測的是 `f601ac6`（26.6.1 arm64／`/bin/bash` 3.2.57／node 26.7.0），38/38、24/24、171/171、31/31 全綠，並以父 commit `cd2f848` 的 `29/31` 當對照組證明修法 load-bearing。之後的 commit 若只動文件／註解／新增 fixture，請在此續記，不要讓「驗過了」失去受詞。
+📌 **已完成的驗證紀錄**（**唯增不改**——新的續記在下面，不要覆蓋舊的，否則「驗過了」就失去受詞）：
+- **`f601ac6`**（原生 macOS 26.6.1 arm64／`/bin/bash` 3.2.57／node 26.7.0）：`38/38`、`24/24`、`171/171`、`31/31` 全綠；
+  並以父 commit `cd2f848` 的 `29/31`（`1c`／`8d` 紅）當**對照組**，證明雙斜線修法 load-bearing、31/31 不是空過。
+- **`e37458c`**（同機、Darwin 25.6.0 原生）：`42/42`、`27/27`、`31/31`，零 `FAILED-CASE`，追蹤檔零變更；
+  三平台 validator blob `sort -u` 為一行 `8e1c4f76…`、**與 `f601ac6` 逐位元相同** ⇒ 差異只在測試檔
+  （fixtures 38→42、mutant 7→8、teeth 24→27）。`gate-registration` 與五支既有回歸**未重跑**——
+  它們的 harness、被測模組與 validator 自 `f601ac6` 起皆未變，經審查判定可省略。
+⚠️ **新增 fixture／mutant 就要回寫上面第 2、3 節的預期數字。** 2026-08-18 我為了修別的問題加了
+  四條 fixture 與一個 mutant，卻忘了回寫——**正是本文先前被驗證者指出的同一個病，隔一輪又犯一次**。
 
 ---
 
@@ -71,12 +79,12 @@ echo "TMPDIR=${TMPDIR:-<unset>}"
 ```bash
 node tests/consult-answer.test.js
 ```
-預期尾行 `CONSULT-ANSWER 38/38`，`echo $?` = 0。
+預期尾行 `CONSULT-ANSWER 42/42`，`echo $?` = 0。
 
 ```bash
 node tests/consult-answer-teeth.test.js
 ```
-預期尾行 `CONSULT-ANSWER-TEETH 24/24`，`echo $?` = 0。
+預期尾行 `CONSULT-ANSWER-TEETH 27/27`，`echo $?` = 0。
 （這支會**暫時覆寫**
 `windows/skills/超級模式/lib/consult-answer.js` 再還原，最後一案就是「還原後仍全綠」。
 跑完請 `git status --short` 確認工作樹乾淨。）
