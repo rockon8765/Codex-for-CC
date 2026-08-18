@@ -38,6 +38,13 @@ const MUTANTS = [
     expect: ["A7 小寫 allow: 不算（大小寫敏感）", "A8 混合大小寫 Allow: 不算"],
   },
   {
+    id: "m7-verdict-no-optional-space",
+    why: "把裁決 regex 的 \s* 拿掉 → `ALLOW :` 這種合法回覆會被誤判成 BLOCK（cry-wolf）",
+    from: 'const VERDICT_RE = /^(ALLOW|BLOCK)\\s*:/;',
+    to: "const VERDICT_RE = /^(ALLOW|BLOCK):/;",
+    expect: ["C10 動詞與冒號之間允許空白", "C10b TAB 也算"],
+  },
+  {
     id: "m2-length-counts-characters",
     why: "長度改數字元而非字母數字 → 零寬/變體選擇符/空行都能湊過門檻",
     from: 'const m = String(text).match(/[\\p{L}\\p{N}]/gu);\n  return m ? m.length : 0;',

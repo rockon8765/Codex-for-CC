@@ -118,6 +118,17 @@ check("C0c 帶尾隨空白的哨兵不符文法", !M.OK_SENTINEL_RE.test("CONSUL
   "尾隨空白被接受");
 
 console.log("\n§C 2026-08-18 設計審查新增");
+// 裁決文法：實作是 `^(ALLOW|BLOCK)\s*:`，三份 SKILL.md 原本寫成 `^(ALLOW|BLOCK):`。
+// 2026-08-18 設計審查指出這個不一致會直接改變是否鑄證。
+// 裁決：**改文件不改實作**——拒絕 `ALLOW :` 屬錯誤方向的失敗（cry-wolf），
+// 且改 regex 會讓 macOS 對 validator 的原生驗證失效。這幾條把實際文法釘住。
+t("C10 動詞與冒號之間允許空白", { lines: ["ALLOW   : ok", LONG] },
+  (r) => r.ok && r.verdict === "ALLOW");
+t("C10b TAB 也算", { lines: ["ALLOW	: ok", LONG] },
+  (r) => r.ok && r.verdict === "ALLOW");
+t("C10c 動詞後接其他字母不算", { lines: ["ALLOWX: ok", LONG] }, (r) => !r.ok);
+t("C10d 沒有冒號不算", { lines: ["ALLOW ok", LONG] }, (r) => !r.ok);
+
 t("C1 schema 優先於 noCredential（求值順序）",
   { lines: ['{"ok":true}'], schemaMode: true, noCredential: true }, (r) => r.ok && r.mode === "json");
 t("C2 strict JSON：trailing comma 拒", { lines: ['{"a":1,}'], schemaMode: true }, (r) => !r.ok);

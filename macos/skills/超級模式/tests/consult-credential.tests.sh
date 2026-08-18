@@ -53,7 +53,9 @@ root="$(mktemp -d "${TMPDIR:-/tmp}/consult-cred-XXXXXX")" || { echo "mktemp -d �
 #    ——**那個前提是假的**。`cd X && pwd` 走的是 logical path，**不解析 symlink**；
 #    要解析得用 `pwd -P`。實測（WSL 真 symlink）：`cd link && pwd` → link，`pwd -P` → real。
 #    所以 macOS 上 `cd /var/folders/… && pwd` 回的仍是 `/var/…`。
-#    ⇒ 守衛放在正規化前或後**都一樣會通過**，這個順序沒有必要性，只是先驗原值比較直觀。
+#    ⇒ 這個順序**不是**「前後都一樣」：若使用者自訂 `TMPDIR=/Users/x/tmp/`（尾斜線），
+#      雙斜線原值不符白名單而**會被守衛擋下**，正規化後才符合。那是安全中止（測試臺拒跑）、
+#      不是假綠，且不影響預設 `/var/folders/*` 的 macOS 路徑。先驗原值是刻意的保守選擇。
 #    下面白名單裡的 /private/var/folders/* 因此**不是** mktemp 會回的形狀（實測一律 /var/folders/…），
 #    保留它純粹是涵蓋「使用者自己把 TMPDIR 設成 /private/var/…」的情況。
 case "$root" in

@@ -44,6 +44,9 @@ git status --porcelain
 
 三項都成立就可以往下跑。**不成立就停下來回報**，不要硬跑。
 
+⚠️ **這三項不是 blob 比對**：它們只驗分支名、三鏡像一致、工作樹乾淨——任何**已 commit** 的變更都會通過。要知道「驗的到底是哪一版」請一併記錄 `git rev-parse HEAD`。
+📌 **已完成的驗證紀錄**：原生 macOS 實測的是 `f601ac6`（26.6.1 arm64／`/bin/bash` 3.2.57／node 26.7.0），38/38、24/24、171/171、31/31 全綠，並以父 commit `cd2f848` 的 `29/31` 當對照組證明修法 load-bearing。之後的 commit 若只動文件／註解／新增 fixture，請在此續記，不要讓「驗過了」失去受詞。
+
 ---
 
 ## 1. 環境資料（請一併回報，不是選填）
@@ -99,7 +102,7 @@ bash macos/skills/超級模式/tests/consult-credential.tests.sh
 |---|---|---|
 | §1 | ALLOW 合格 → exit 0、憑證存在、內容綁 repo | `os.replace` 換檔在 APFS 上 |
 | §2 | **BLOCK 一樣鑄造**，但 stdout 要講「裁決為 BLOCK」 | 憑證是收據不是授權（見 SKILL §3.5） |
-| §3 | 不合格 → 43，且**既有憑證的內容與 mtime 都不變** | `stat -f %m`（BSD）vs `ls --time-style`（GNU）的分支在這裡 |
+| §3 | 不合格 → 43，且**既有憑證的內容與 mtime 都不變** | `mtime_of()` 的 BSD `stat -f %m` 分支在這裡（GNU 走 `stat -c %Y`）|
 | §4 | 空回覆、無裁決首行 → 43 | — |
 | §5 | 討論模式短回覆放行但**不鑄造**、空的仍 43 | — |
 | §6 | codex 自己失敗 → 沿用退出碼、不鑄造 | `PIPESTATUS` 在 bash 3.2 |
