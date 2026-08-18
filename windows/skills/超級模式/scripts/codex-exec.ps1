@@ -112,6 +112,6 @@ finally {
 if ($code -eq 0) {
   Write-Output "exec OK -- transcript: $log ; last message: $OutFile"
 } else {
-  Write-Warning "codex-exec: codex exited [$code]. transcript: $log"
+  [Console]::Error.WriteLine("codex-exec: codex exited [$code]. transcript: $log")
 }
 exit $code

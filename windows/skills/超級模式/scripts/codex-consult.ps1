@@ -305,9 +305,13 @@ if ($code -eq 0) {
   $tail = ""
   try { $tail = (Get-Content -LiteralPath $log -Raw -ErrorAction SilentlyContinue) } catch {}
   if ($tail -match '(?i)usage limit|rate limit|\b429\b|quota|not logged in|unauthorized|\b401\b') {
-    Write-Warning "CONSULT_UNAVAILABLE_QUOTA: codex 配額/認證失敗 (exit $code)。停止重試諮詢，向使用者回報；經同意可跑 super-mode.ps1 -Off 降級為一般模式。transcript: $log"
+    # 用 [Console]::Error 而非 Write-Warning（理由同本檔 -Prompt deprecation 那段，再加一條更嚴重的）：
+    # $WarningPreference='Stop' 下 Write-Warning 會變成終止性例外，程式**根本走不到下一行的 exit**，
+    # 退出碼契約塌成 1（pwsh 7 與 WinPS 5.1 兩 host 實測皆然），呼叫端據以 fail-fast 的專屬 42 就此消失。
+    # 另外 warning stream 跨 process 會落到 OS stdout —— 呼叫端在 stderr 根本看不到這個哨兵。
+    [Console]::Error.WriteLine("CONSULT_UNAVAILABLE_QUOTA: codex 配額/認證失敗 (exit $code)。停止重試諮詢，向使用者回報；經同意可跑 super-mode.ps1 -Off 降級為一般模式。transcript: $log")
     exit 42
   }
-  Write-Warning "codex-consult: codex exited [$code] -- no credential written. transcript: $log"
+  [Console]::Error.WriteLine("codex-consult: codex exited [$code] -- no credential written. transcript: $log")
 }
 exit $code
