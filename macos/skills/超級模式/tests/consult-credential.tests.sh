@@ -48,14 +48,21 @@ sut="$here/../scripts/codex-consult.sh"
 #    `rm -rf ""`；以 root 或在 container 內跑就可能碰到真實根目錄。
 #    （2026-08-18 設計審查指出，屬 A 類必修。）
 root="$(mktemp -d "${TMPDIR:-/tmp}/consult-cred-XXXXXX")" || { echo "mktemp -d 失敗，中止" >&2; exit 2; }
-# 形狀守衛先跑在**未正規化**的原值上（正規化會把 /var 變成 /private/var，白名單反而對不上）。
+# 形狀守衛跑在**未正規化**的原值上。
+# ⚠️ 2026-08-18 訂正：這裡原本寫「因為正規化會把 /var 變成 /private/var，白名單反而對不上」
+#    ——**那個前提是假的**。`cd X && pwd` 走的是 logical path，**不解析 symlink**；
+#    要解析得用 `pwd -P`。實測（WSL 真 symlink）：`cd link && pwd` → link，`pwd -P` → real。
+#    所以 macOS 上 `cd /var/folders/… && pwd` 回的仍是 `/var/…`。
+#    ⇒ 守衛放在正規化前或後**都一樣會通過**，這個順序沒有必要性，只是先驗原值比較直觀。
+#    下面白名單裡的 /private/var/folders/* 因此**不是** mktemp 會回的形狀（實測一律 /var/folders/…），
+#    保留它純粹是涵蓋「使用者自己把 TMPDIR 設成 /private/var/…」的情況。
 case "$root" in
   /tmp/consult-cred-*|/var/folders/*|/private/var/folders/*|"${TMPDIR%/}"/consult-cred-*) : ;;
   *) echo "mktemp 回了非預期路徑，拒絕以免 trap 刪到不該刪的地方: '$root'" >&2; exit 2 ;;
 esac
 [ -d "$root" ] || { echo "mktemp 回的路徑不是目錄: '$root'" >&2; exit 2; }
 # 🔴 正規化：macOS 的 TMPDIR **尾端帶斜線**，`mktemp -d "$TMPDIR/x-XXXX"` 會產出 `…/T//x-ab12`
-#    這種雙斜線路徑；而受測產品是用 `cd "$dir" && pwd` 取 repo（單斜線、且 /var→/private/var）。
+#    這種雙斜線路徑；而受測產品是用 `cd "$dir" && pwd` 取 repo——`pwd` 會**摺掉重複斜線**（單斜線）。
 #    測試若用字串串接組期望值，`grep -F` 就永遠比不中——**產品是對的，錯的是測試**。
 #    2026-08-18 macOS 原生驗證實測到這個假紅（`1c 憑證綁 repo`，去掉尾斜線後 19/19）。
 #    修法＝**用與產品同一套正規化**取值，而不是在斷言那邊做字串修補。

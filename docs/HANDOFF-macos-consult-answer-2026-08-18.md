@@ -68,12 +68,12 @@ echo "TMPDIR=${TMPDIR:-<unset>}"
 ```bash
 node tests/consult-answer.test.js
 ```
-預期尾行 `CONSULT-ANSWER 31/31`，`echo $?` = 0。
+預期尾行 `CONSULT-ANSWER 38/38`，`echo $?` = 0。
 
 ```bash
 node tests/consult-answer-teeth.test.js
 ```
-預期尾行 `CONSULT-ANSWER-TEETH 21/21`，`echo $?` = 0。
+預期尾行 `CONSULT-ANSWER-TEETH 24/24`，`echo $?` = 0。
 （這支會**暫時覆寫**
 `windows/skills/超級模式/lib/consult-answer.js` 再還原，最後一案就是「還原後仍全綠」。
 跑完請 `git status --short` 確認工作樹乾淨。）
@@ -91,7 +91,7 @@ node tests/gate-registration.test.js
 bash macos/skills/超級模式/tests/consult-credential.tests.sh
 ```
 
-預期尾行 `CONSULT-CREDENTIAL 19/19`，`echo $?` = 0。
+預期尾行 `CONSULT-CREDENTIAL 31/31`，`echo $?` = 0。
 
 **逐案在驗什麼**（不是只看總數——請把有 FAIL 的具名案例貼回來）：
 
@@ -103,11 +103,19 @@ bash macos/skills/超級模式/tests/consult-credential.tests.sh
 | §4 | 空回覆、無裁決首行 → 43 | — |
 | §5 | 討論模式短回覆放行但**不鑄造**、空的仍 43 | — |
 | §6 | codex 自己失敗 → 沿用退出碼、不鑄造 | `PIPESTATUS` 在 bash 3.2 |
-| §7 | `SUPER_MODE_NODE` 無效 → **45**、不鑄造 | fail-closed 不靜默退回 PATH |
+| §8 | 覆蓋**既有**憑證：仍 exit 0、內容真的換掉、無 `.tmp-*` 殘留 | 單一 rename 在 APFS |
+| §9 | schema 模式：合法短 JSON 過、散文 43 | 三平台共用同一個 JSON parser |
+| §7 | `SUPER_MODE_NODE` 無效 → **45**、不鑄造、有 `CONSULT_VALIDATOR_UNAVAILABLE` 標記 | fail-closed 不靜默退回 PATH |
+| §10 | 假哨兵 `CONSULT-ANSWER-OK-FAKE` → 45、不鑄造 | 不可只比前綴 |
+| §11 | 家目錄含空白仍能鑄造 | macOS 的 `/Users/First Last` 很常見 |
 
-⚠️ §3 的 mtime 檢查在 macOS 走 `stat -f %m` 分支（Linux 走 `ls --time-style=+%s`）。
-**若 §3d 失敗，先確認不是 `stat` 的用法問題再判定是產品 bug** —— 把
-`stat -f %m <token>` 的實際輸出貼回來。
+⚠️ **輸出的節次順序是 §1–§6、§8、§9、§7、§10、§11**（§7 被後補的段落擠到中間，不是漏跑）。
+
+⚠️ §3／§8 的 mtime 走 `mtime_of()`：先試 BSD 的 `stat -f %m`，不行才試 GNU 的 `stat -c %Y`，
+**兩個都拿不到就整支非 0 中止**（不容許這條檢查靜默退化成「空 = 空」恆真）。
+舊版是 `ls -l --time-style=+%s | awk` 加 fallback，只靠 `pipefail` 撐著——2026-08-18 的
+macOS 驗證用變異測試證實了那個脆弱性，已改掉。
+**若 §3d 失敗，先把 `stat -f %m <token>` 的實際輸出貼回來**，再判定是不是產品 bug。
 
 ---
 
@@ -169,5 +177,6 @@ echo "rc=$?"
   **那條 fallback 是為精簡 Linux 映像加的，macOS 驗不到它，這是預期的。**
 - `TMPDIR` 在 macOS 是 `/var/folders/...` 而非 `/tmp`。測試全部用 `${TMPDIR:-/tmp}`，
   路徑會長得不一樣，但不影響判定。
-- 第 3 節的 §7 會印一段 `CONSULT_VALIDATOR_UNAVAILABLE` 到 stderr，**那是預期的**
-  （測試在故意把 `SUPER_MODE_NODE` 指到不存在的路徑）。
+- ⚠️ **本文先前寫「§7 會印一段 `CONSULT_VALIDATOR_UNAVAILABLE` 到 stderr，那是預期的」——那是錯的。**
+  測試用 `2> "$root/err.txt"` 把 stderr 接走，console 上**一個字都看不到**；標記的存在改由
+  案例 `7c` 斷言。看不到那段訊息**不代表漏跑**。（2026-08-18 macOS 驗證者回報。）
