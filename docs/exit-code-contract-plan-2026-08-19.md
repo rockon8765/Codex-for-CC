@@ -1,8 +1,18 @@
 # 退出碼契約修復規畫書（2026-08-19）
 
-> **狀態（2026-08-19 最後更新）**：分支 `fix/windows-warning-exit-contract`，**尚未合併**。
-> P0 十七項中十六項已實作並在本機驗證；**Codex 第三輪仍判 BLOCK**（見 §9）。
-> ⚠️ 阻擋項中有一項本機做不到：**原生 macOS / Linux 驗證**。
+> **狀態（2026-08-19 最後更新）**：分支 `fix/exit-code-contract-2026-08-19-pending-native-macos`，**尚未合併**。
+>
+> ## ⚠️ 本文件的定位（2026-08-19 訂正）
+>
+> 這是**這一批的規畫與過程紀錄**，合併後即為史料。
+> **「還沒做什麼」的唯一真相是 [`backlog.md`](backlog.md)**，不是本文件。
+> 特別是 **§9.2 的「仍未做」表已被取代**——它曾被當成 backlog 用，
+> 造成「plan 說未完成、backlog 記舊實作、驗證散綁三個 commit」的三頭馬車
+> （2026-08-19 Codex 第五輪指出，我接受）。查未完成項目請一律看 backlog 的
+> `QUOTA-CLASSIFIER`／`TRANSCRIPT-PREFLIGHT`／`POSIX-EXEC-QUIET`／
+> `CODEX-CHECK-WARNING`／`BSD-GREP-INVALID-BYTES`／`WINDOWS-CI` 六列。
+>
+> 讀本文件是為了理解「當時為什麼這樣決定」與「哪些結論是被推翻的」。
 >
 > **本文件的定位**：這一批的合約。實作時以本文件的驗收標準為準；
 > 過程中若發現本文件錯了，**改本文件**，不要讓實作與文件默默分岔。
@@ -270,7 +280,7 @@ P0-6 的「stdout 含 `401:`、stderr 非配額」案，在 P0-14 修完之前**
 | High | 三平台判準不等價：`ERROR- quota` 只有 Windows 命中；`auth401beta` 只有 POSIX 命中 | **我，本批** | 統一成「ERROR 後接非英數或行尾」與「數字兩側非英數」 |
 | High | `exit $code` 在 `$code` 為 `$null` 時實際 **exit 0**（cmd.exe 找不到、native 沒啟動） | 既有 | 拿不到整數退出碼 → 映射成 **127**（＝POSIX 的 command not found，維持等價）＋ 專屬哨兵 |
 
-### 9.2 仍未做（**不得宣稱本批已完成**）
+### 9.2 仍未做（⚠️ **本表已於 2026-08-19 被 [`backlog.md`](backlog.md) 取代**，保留僅為紀錄當時的判斷；**不要**拿它當現況）
 
 | 等級 | 項目 | 為什麼還沒做 |
 |---|---|---|
@@ -300,3 +310,53 @@ P0-6 的「stdout 含 `401:`、stderr 非配額」案，在 P0-14 修完之前**
 6. **聚合器讓乾淨 live 安裝必敗**（matcher 寫死 `--repo`）＋ **含空白路徑會假紅**（`Start-Process -ArgumentList` 陣列不保留 argv 邊界——這個坑 repo 內早有記載）。
 7. **POSIX 分類器 SIGPIPE 靜默失效**（`printf | grep -q` ＋ `pipefail`）。
 8. 探針誤打真 codex 4 次（`codex-exec.ps1` 沒有測試接縫，我沒先確認就跑）。P0-8 的 child timeout 就是為了防這個。
+
+---
+
+## 10. Codex 第五輪（`codex_consult_20260819_203617_f5faec.txt`，裁決 **BLOCK**）與處置
+
+8 項解除條件它判「1、2、7 實質達成；3、4、5、6 部分達成；8 規則有牙齒但整合未達成」。
+最嚴重的一條我完全同意：
+
+> **我上一輪才修掉「聚合器寫死 `--repo` 導致乾淨 live 安裝必敗」，這一輪加靜態守衛時
+> 用同一個模式再犯一次** —— 把 repo-only 的 `tests/no-multibyte-varref.test.js`
+> 塞進 repo/live 共用 runner。實測 live 會解析成 `%USERPROFILE%\tests\…`（不存在）。
+
+處置一覽：
+
+| 指控 | 處置 |
+|---|---|
+| Critical：`-Mode live` 必敗 | manifest 每列可宣告 `Modes`；被 mode 濾掉的**印出來**並計入摘要的 `skipped`。實測 repo 9/9、live ran=8 skipped=1 fail=0 |
+| smoke 的 harness attestation 用 `bash --version`（PATH 上的 bash）冒充身分 | 改用 `${BASH_VERSION}`。**attestation 自己說謊比沒有 attestation 更糟** |
+| `SMOKE_ALLOW_NO_UTF8_LOCALE=1` 補三個假 PASS，尾行仍 22/0 | 改成降低期望案數，並在**摘要行**加 `LOCALE-DIMENSION-NOT-COVERED` 標記；CI 會 grep 它 |
+| HANDOFF 兩處 `$var` 緊接全形字元（它是可貼上執行的 bash） | 已修，並把「注入成功前置檢查」與 `grep -cF` 慣例寫進交接單 |
+| 「13 個 commit」 | 實際 **14**，已訂正 |
+| backlog 仍描述已淘汰的狀態、plan 冒充 backlog | 本次處理：backlog 重寫成七列現況、檔頭訂立**文件分工**；plan 自我降級為史料 |
+| 原生 Linux 是硬阻擋 | 已解決，見下 |
+
+### 10.1 原生 Linux：CI 抓到一個只有真 Linux 會露出來的缺陷
+
+本機 WSL2 是真 GNU/Linux（bash 5.3.9、ext4、`C.utf8`、chmod 有效）但**沒有 node**，
+而受測腳本的判準 preflight 需要它 ⇒ 實跑得到 **18 個「實得 45」的假失敗**。
+那 18 個全是同一個環境原因的迴聲，卻看起來像 18 個獨立的產品缺陷
+⇒ 因此新增 `PREREQ-MISSING` 前置檢查（一句話 ＋ `exit 3`）。
+
+改走 GitHub `ubuntu-latest`（自帶 node，且不必更動使用者的機器），並**永久接進**
+[`linux.yml`](../.github/workflows/linux.yml)。第一次跑就抓到：
+
+> `§4c` 的 SIGPIPE 案在 Linux 上 **rc=126（exec 失敗）—— 連 stub 都沒跑起來**。
+> 原因是我把 ~400KB 的假 stderr 用**環境變數**傳，撞上 Linux 的
+> `MAX_ARG_STRLEN`（單一 argv/env 字串 131072 bytes）。macOS 與 Cygwin 沒有這條限制。
+
+⇒ **那個案子在 macOS 22/0、Git Bash 22/0，兩邊全綠，在 Linux 上卻從來沒執行過。**
+兩個非 Linux 環境的綠燈加起來，也證明不了第三個環境。這正是 Codex 堅持要原生 Linux 的理由。
+
+修法：stdout/stderr 內容落檔、環境變數只傳路徑（與 Windows 版的 fixture 檔一致）。
+之後 CI 綠：**`pass=22 fail=0` @ `8eb4e08`**，bash 5.2.21、`locale=C.UTF-8 charmap=UTF-8`。
+
+### 10.2 靜態守衛在本輪抓到我三次，全部在中文註解裡
+
+用中文寫關於變數的說明時，後面自然會接全形標點 ⇒ `$VAR，` 命中規則。
+這**不是誤報**：shell 不區分註解，註解裡的寫法會被複製進程式碼。
+三次我都改寫措辭、**沒有**放寬守衛，並把「在 CJK 文字旁提到變數一律寫 `${VAR}`」
+寫進守衛檔頭。**笨而嚴的規則比會解析註解的聰明規則可信。**
