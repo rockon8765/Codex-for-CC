@@ -169,8 +169,13 @@ jobs:
       # 下面的 grep 就是在守這兩件事——只看退出碼會漏掉「跳過 locale 維度」那種情況。
       - name: 退出碼契約 smoke（含 locale 維度）
         run: |
+          # ⚠️ GitHub 的 shell 是 `bash -e`：`out=$(...)` 一非零就當場中止，
+          #    連下面的 printf 都跑不到 ⇒ 失敗時 log 裡什麼都沒有。
+          #    這正是本批一直在修的同型毛病（報告機制自己先中止），所以先關 errexit。
+          set +e
           out="$(bash "linux/skills/超級模式/tests/exit-code-contract.smoke.sh" 2>&1)"
           rc=$?
+          set -e
           printf '%s\n' "$out"
           if [ "$rc" -ne 0 ]; then echo "::error::smoke 失敗 rc=$rc"; exit 1; fi
           if printf '%s' "$out" | grep -q 'LOCALE-DIMENSION-NOT-COVERED'; then
