@@ -172,3 +172,48 @@ bash 5.x，但那台沒有。
 漏掉的格子**不是假想組合**：Homebrew 的 bash 會排在 PATH 前面，而本 repo 的腳本是
 `#!/usr/bin/env bash`、`AI-INSTALL` 也寫 `bash …/smoke.sh`
 ⇒「brew bash 5 × BSD userland」是一部分 macOS 使用者的**實際生產路徑**。
+
+---
+
+## 第二輪 macOS 驗證（2026-08-19，`bf4abe5`）：bash 版本 × locale 2×2
+
+### 方法（重點在「觸發用 locale 是動態抓的」）
+
+不寫死 locale 名稱，而是掃 `locale -a` 找**第一個 `locale charmap` 不回 `US-ASCII`** 的
+UTF-8／ISO8859-1 locale。抓到 **`ca_AD.UTF-8`**。
+
+> ⚠️ 為什麼一定要驗 charmap 而不是看名稱：macOS 實測
+> `LC_ALL=zz_ZZ.UTF-8 locale charmap` → **US-ASCII、rc 0**。
+> 寫死一個該機不存在的 locale 名稱會**安靜地退回 ASCII**，於是「UTF-8 回歸案」
+> 全綠、卻什麼都沒測到。名稱不是真相，charmap 才是。
+
+`SUT_BASH` 與外層 bash 設成同一顆，避免「外層 5.3、內部悄悄退回 3.2」的錯配。
+
+### 結果
+
+| bash | `LC_ALL` | 結果 |
+|---|---|---|
+| 3.2.57（Apple `/bin/bash`） | `C` | `pass=19 fail=0` |
+| 3.2.57（Apple `/bin/bash`） | `ca_AD.UTF-8` | `pass=19 fail=0` |
+| 5.3.15（Homebrew） | `C` | `pass=19 fail=0` |
+| 5.3.15（Homebrew） | `ca_AD.UTF-8` | `pass=19 fail=0` |
+
+### 這一格確實不是惰性通過
+
+驗證者指出：brew bash 的 `--version` 輸出**本身就是中文**（「GNU bash，版本」）
+⇒ UTF-8 環境確實生效到子行程，不是「設了 locale 但沒作用」。
+**受控變因真的進入了資料路徑**——這是對照組成立的前提。
+
+### ⚠️ 這個矩陣證明了什麼、沒證明什麼
+
+**證明了**：這 19 個案例的行為在「bash 3.2 vs 5.3」與「C vs 真 UTF-8」兩個維度上**不漂移**。
+
+**沒有證明**：
+- **沒有證明 multibyte var-ref 已修好。** 沒有紅色對照的話，全綠連「smoke 有走到被修的
+  那幾行」都不成立——那些行也可能根本沒被執行到。這與 Codex 打掉「修 5 處→19/19」
+  的是同一個論證。決定性的證據是 **M3**（把某一處退回 `$var` 形式，在觸發 locale 下必須變紅）。
+- **沒有涵蓋 18 處產品命中裡的大多數。** smoke 只走得到其中 2 處
+  （`codex-consult.sh` 的 125 與 297）。其餘 16 處是**靜態**替換、無動態證據。
+  那些靠 `tests/no-multibyte-varref.test.js`（原始碼層級規則）守，
+  這對「機械性類別修正」是合適的證據型別，但**不是**執行證據。
+- 本輪**沒有跑** `tests/no-multibyte-varref.test.js`（驗證者自己指出）。
