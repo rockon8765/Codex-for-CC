@@ -1,7 +1,8 @@
 # 退出碼契約修復規畫書（2026-08-19）
 
-> **狀態**：規畫階段，尚未實作。分支 `fix/windows-warning-exit-contract`，
-> 已有一個**不完整**的 commit `cc49808`（見 §3.1，該 commit 的宣稱過大，必須改寫）。
+> **狀態（2026-08-19 最後更新）**：分支 `fix/windows-warning-exit-contract`，**尚未合併**。
+> P0 十七項中十六項已實作並在本機驗證；**Codex 第三輪仍判 BLOCK**（見 §9）。
+> ⚠️ 阻擋項中有一項本機做不到：**原生 macOS / Linux 驗證**。
 >
 > **本文件的定位**：這一批的合約。實作時以本文件的驗收標準為準；
 > 過程中若發現本文件錯了，**改本文件**，不要讓實作與文件默默分岔。
@@ -249,6 +250,44 @@ P0-6 的「stdout 含 `401:`、stderr 非配額」案，在 P0-14 修完之前**
   其他版本／有 profile 的環境未觀測。
 - 「假 codex」只模擬 stdout/stderr/rc 三件事，**不模擬** codex 的逾時、部分輸出、串流中斷。
 
+
+---
+
+## 9. Codex 第三輪（`codex_consult_20260819_160631_11e561.txt`，裁決 **BLOCK**）
+
+⚠️ **這一輪的重點是：我在修前兩輪問題的過程中，自己引進了四個 Critical。**
+「前兩輪的指控全部修完」是真的，但那不等於這批可以合併。
+
+### 9.1 已修（本輪處置）
+
+| 等級 | 缺陷 | 是誰引進的 | 處置 |
+|---|---|---|---|
+| Critical | POSIX smoke 的 `root="$(mktemp -d)"` 沒有 fail-closed，而本檔是 `set -uo pipefail`（**無 `-e`**）⇒ mktemp 失敗時 `$root` 為空，`rm -rf "$root/home/…"` 變成對**根目錄**動手 | **我，本批** | fail-closed ＋ 絕對路徑檢查 ＋ `safe_root()` 守衛，trap 與每個破壞性操作前都過 |
+| Critical | 契約測試 §3a 只設 consult 接縫、刻意不設 exec 接縫 ⇒ exec **fallback 到真的 `C:\npm\codex.cmd`**（workspace-write），而斷言「fake 沒被叫到」**正好因為打了真 codex 而通過** | **我，本批** | 改成 poison stub：兩個接縫**永遠**都指向 stub，隔離用 poison 證明（rc 99 ＋ POISON trace），任何情況都不會 fallback |
+| Critical | 聚合器把 matcher 寫死 `--repo`，但我把它接進 `AI-INSTALL` **步驟 3（live）** ⇒ 乾淨 live 安裝 `SETTINGS_UNREADABLE` → 依文件要 rollback | **我，本批** | 加 `-Mode repo\|live`，兩處呼叫點分別帶 `-Mode repo` / `-Mode live` |
+| Critical | 聚合器用 `Start-Process -ArgumentList` **陣列** ⇒ 含空白的路徑被拆開、整個 suite 假紅（`consult-credential.tests.ps1` §11 早就記載過這個坑） | **我，本批** | 自己逐一加引號組成單一字串；另加「受測 host 不存在」的明確訊息 |
+| High | POSIX 分類器 `printf … \| grep -q` 在 `pipefail` 下，grep 命中即關管線 → printf 得 SIGPIPE 141 → 整條非零 → `if` 判 false ⇒ **明明命中卻漏判**。小輸入塞得進 pipe buffer 看不出來，大逐字稿才會炸 | **我，本批** | 改用 here-string（不開管線）；`grep \| head` 加 `\|\| true`。**補回歸測試**：40 行×10KB 的 quota ERROR；變異注入退回管線寫法 → rc 7、哨兵消失（實測） |
+| High | 三平台判準不等價：`ERROR- quota` 只有 Windows 命中；`auth401beta` 只有 POSIX 命中 | **我，本批** | 統一成「ERROR 後接非英數或行尾」與「數字兩側非英數」 |
+| High | `exit $code` 在 `$code` 為 `$null` 時實際 **exit 0**（cmd.exe 找不到、native 沒啟動） | 既有 | 拿不到整數退出碼 → 映射成 **127**（＝POSIX 的 command not found，維持等價）＋ 專屬哨兵 |
+
+### 9.2 仍未做（**不得宣稱本批已完成**）
+
+| 等級 | 項目 | 為什麼還沒做 |
+|---|---|---|
+| High | 分類器仍會被 `ERROR: MCP quota-monitor failed to initialize` 這種**含 quota 字樣但與配額無關**的錯誤行誤判；反向地，真配額 ERROR 後若有超過 40 行清理訊息就漏判 | 沒有真配額樣本可校準，調任何閾值都是猜。列 backlog |
+| High | log 目錄建立與 temp brief 寫入仍在 transcript 的 catch 之外 ⇒ EAP=Stop ＋ 唯讀父目錄/滿碟時直接 rc 1，沒有 46 哨兵 | 未做 |
+| High | POSIX `codex-exec.sh` 的 `-q` 分支仍直接 `>> "$log"`，log 失敗時分不出 transport failure 與 codex rc，也不保證 drain | 未做 |
+| Blocker | **原生 macOS / Linux 驗證**（本機只有 Git Bash 5.3/Cygwin） | 這台機器做不到，需另外安排 |
+| Medium | Linux CI 只跑 `bash -n`，沒有真的執行測試 | 未做 |
+| Low | `Resolve-CodexOverride` 在 consult/exec 完整重複 | PowerShell 無共用 lib，與 `Assert-CmdSafePath` 同樣的既有取捨 |
+
+### 9.3 Codex 說對、我接受的一句話
+
+> 「『疑似、未確證』只改善文字誠實度，沒有改善 recall 或 precision。
+> 消費端仍把『哨兵＋42』當權威控制訊號；假陽性仍停止重試，假陰性仍完全沒有訊號。」
+
+⇒ **不得**把「文案降級」當成分類器的驗收理由。真正的驗收要等到有真配額樣本。
+
 ---
 
 ## 8. 過程中我自己引進的缺陷（留紀錄）
@@ -256,4 +295,8 @@ P0-6 的「stdout 含 `401:`、stderr 非配額」案，在 P0-14 修完之前**
 1. 用 Git Bash 的 `sed -i` 改 `.ps1`，把 313 個 CRLF 洗成 LF（repo 規定 CRLF）。已還原、改用 Python 重做並逐位元複驗。**教訓：Git Bash 的 `sed -i` 會吃掉 CR，不要用它改 CRLF 檔。**
 2. 測試 wrapper 用 `Start-Process -ArgumentList` 傳空字串會整組位移；**PowerShell 陣列 splat 會變成位置參數**（`-Dir` 不被認成參數名）。兩者都會讓案子「以錯誤的理由通過」。已改 hashtable splat ＋ 環境變數傳參。
 3. `cc49808` 宣稱「退出碼契約已修好」——**假的**，只修了兩條路裡的一條。
-4. 探針誤打真 codex 4 次（`codex-exec.ps1` 沒有測試接縫，我沒先確認就跑）。P0-8 的 child timeout 就是為了防這個。
+4. **測試會誤打真 codex**：§3a 讓 exec 接縫留空 ⇒ fallback 到真的 `C:\npm\codex.cmd`，而斷言「stub 沒被叫到」正好因此通過。**我聲稱防住的東西，被我自己的測試繞過。**
+5. **POSIX smoke 可能對根目錄 `rm -rf`**（`mktemp -d` 未 fail-closed）。
+6. **聚合器讓乾淨 live 安裝必敗**（matcher 寫死 `--repo`）＋ **含空白路徑會假紅**（`Start-Process -ArgumentList` 陣列不保留 argv 邊界——這個坑 repo 內早有記載）。
+7. **POSIX 分類器 SIGPIPE 靜默失效**（`printf | grep -q` ＋ `pipefail`）。
+8. 探針誤打真 codex 4 次（`codex-exec.ps1` 沒有測試接縫，我沒先確認就跑）。P0-8 的 child timeout 就是為了防這個。

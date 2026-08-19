@@ -32,7 +32,7 @@ Windows:
 ```powershell
 node ".\windows\skills\超級模式\tests\run-gate-tests.js"               # 這裡就 FAIL → 別安裝
 node ".\windows\skills\超級模式\tests\matcher-contract.test.js" --repo # hook 的工具清單 vs settings matcher 是否一致
-& ".\windows\skills\超級模式\tests\run-windows-suite.ps1"              # 全部 Windows 測試的單一入口；最後要看到 SUITE_RESULT=OK
+& ".\windows\skills\超級模式\tests\run-windows-suite.ps1" -Mode repo   # 全部 Windows 測試的單一入口；最後要看到 SUITE_RESULT=OK
 ```
 
 > ℹ️ **`run-windows-suite.ps1` 約需 3 分鐘**（含 codex-check 的 ~2 分鐘）。它用**顯式 manifest**
@@ -385,7 +385,7 @@ bash ~/.claude/skills/超級模式/tests/exit-code-contract.smoke.sh     # 退�
 ```powershell
 node "$env:USERPROFILE\.claude\skills\超級模式\tests\run-gate-tests.js"               # 應全數 PASS
 node "$env:USERPROFILE\.claude\skills\超級模式\tests\matcher-contract.test.js" --live # ★ 必跑，見下方說明
-& "$env:USERPROFILE\.claude\skills\超級模式\tests\run-windows-suite.ps1"              # 要看到 SUITE_RESULT=OK；驗的是**剛安裝的那份**
+& "$env:USERPROFILE\.claude\skills\超級模式\tests\run-windows-suite.ps1" -Mode live   # 要看到 SUITE_RESULT=OK；驗的是**剛安裝的那份**
 ```
 
 > ⚠️ **這一步驗的是 live 副本，不是 repo。** 本 repo 的安裝是 `Copy-Item` 實體複製，

@@ -16,6 +16,11 @@
 #    的 CODEX-CHECK-WARNING。
 
 param(
+  # repo = 驗 repo 樹（AI-INSTALL 步驟 1a）；live = 驗已安裝的副本（步驟 3）。
+  # ⚠️ 這不是可選項：matcher-contract 在兩種情境要用不同旗標。寫死 --repo 會讓
+  #    乾淨的 live 安裝必敗（live 端沒有相鄰的 settings.snippet.json →
+  #    SETTINGS_UNREADABLE → 依 AI-INSTALL 要 rollback）。2026-08-19 Codex 抓到。
+  [ValidateSet('repo', 'live')][string]$Mode = 'repo',
   # 只跑名稱含此字串的項目（除錯用）。正式驗收不要帶。
   [string]$Filter = ''
 )
@@ -27,7 +32,7 @@ $here = Split-Path -Parent $MyInvocation.MyCommand.Path
 # Marker 一律用**錨定**的樣式：散文裡出現同樣的字不該讓它變綠。
 $MANIFEST = @(
   @{ Name = 'gate-cases';            Exe = 'node';        Args = @('run-gate-tests.js');                       Marker = '(?m)^PASS \d+/\d+\r?$';                      TimeoutMs = 120000 }
-  @{ Name = 'matcher-contract-repo'; Exe = 'node';        Args = @('matcher-contract.test.js', '--repo');      Marker = '(?m)^RESULT_CODE=OK\r?$';                    TimeoutMs = 120000 }
+  @{ Name = 'matcher-contract';      Exe = 'node';        Args = @('matcher-contract.test.js', "--$Mode");     Marker = '(?m)^RESULT_CODE=OK\r?$';                    TimeoutMs = 120000 }
   @{ Name = 'class-b-8dot3';         Exe = 'node';        Args = @('class-b-8dot3.test.js');                   Marker = '(?m)^PASS\r?$';                              TimeoutMs = 120000 }
   @{ Name = 'consult-schema';        Exe = 'pwsh';        Args = @('consult-schema.tests.ps1');                Marker = '(?m)^CONSULT-SCHEMA (\d+)/\1\r?$';           TimeoutMs = 300000 }
   @{ Name = 'consult-credential-7';  Exe = 'pwsh';        Args = @('consult-credential.tests.ps1', '-Shell', 'pwsh');       Marker = '(?m)^CONSULT-CREDENTIAL (\d+)/\1\r?$'; TimeoutMs = 600000 }
@@ -65,11 +70,23 @@ foreach ($m in $MANIFEST) {
     if ($m.Exe -in @('pwsh', 'powershell')) { $argv = @('-NoProfile', '-File', $target) } else { $argv = @($target) }
   }
 
+  # 受測 host 不存在時要講清楚是哪一支，不要變成看不懂的 FAIL。
+  if (-not (Get-Command $m.Exe -ErrorAction SilentlyContinue)) {
+    Write-Output ("FAIL  " + $m.Name + " -- 找不到受測 host '" + $m.Exe +
+      "'。本 suite 需要 node、pwsh 與 powershell 三者皆可用。")
+    $fail++; continue
+  }
+
   $o = Join-Path ([System.IO.Path]::GetTempPath()) ("suite-" + [guid]::NewGuid().ToString('N').Substring(0, 8) + ".out")
   $e = $o + ".err"
   $sw = [System.Diagnostics.Stopwatch]::StartNew()
+  # ⚠️ Start-Process 的 -ArgumentList **陣列**不保留 argv 邊界——它用空白串成單一
+  #    command line，所以含空白的路徑（`C:\Users\First Last\...`）會被拆開，
+  #    child 收到半截路徑 → 整個 suite 假紅。consult-credential.tests.ps1 §11 早就
+  #    記載過這個坑，我還是踩了（2026-08-19 Codex 抓到）。這裡自己逐一加引號。
+  $argString = ($argv | ForEach-Object { '"' + ($_ -replace '"', '\"') + '"' }) -join ' '
   # 逐支開**新 process**：共用 session 會讓某一支改動的 preference／環境變數污染下一支。
-  $pr = Start-Process -FilePath $m.Exe -ArgumentList $argv -NoNewWindow -PassThru `
+  $pr = Start-Process -FilePath $m.Exe -ArgumentList $argString -NoNewWindow -PassThru `
     -RedirectStandardOutput $o -RedirectStandardError $e
   $exited = $pr.WaitForExit($m.TimeoutMs)
   $sw.Stop()
@@ -105,7 +122,7 @@ foreach ($m in $MANIFEST) {
 Write-Output ""
 $results | ForEach-Object { Write-Output $_ }
 Write-Output ""
-Write-Output ("run-windows-suite: entries=" + $MANIFEST.Count + " fail=" + $fail)
+Write-Output ("run-windows-suite [mode=" + $Mode + "]: entries=" + $MANIFEST.Count + " fail=" + $fail)
 if ($fail -gt 0) { exit 1 }
 Write-Output "SUITE_RESULT=OK"
 exit 0

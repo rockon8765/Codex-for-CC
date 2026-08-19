@@ -84,6 +84,18 @@ type "%FAKE_ERR_FILE%" 1>&2
 exit /b %FAKE_EXIT%
 '@ | Set-Content -LiteralPath $fakeCodex -Encoding ascii
 
+# poison stub：用來證明「exec 讀的是自己的接縫變數」。它一被叫到就留下 POISON 記號並回 99。
+# ⚠️ 存在的理由是安全而不只是斷言：exec 的接縫**永遠**要指向某個 stub。
+#    2026-08-19 的舊版把它留空來測隔離，結果 exec fallback 到真的 C:\npm\codex.cmd
+#    （--sandbox workspace-write），而斷言「fake 沒被叫到」正好因此通過 —— 測試綠燈、
+#    真 codex 被打。Codex 反方審查抓到，屬實。
+$poisonCodex = Join-Path $root "poison-codex.cmd"
+@'
+@echo off
+>>"%FAKE_TRACE%" echo POISON
+exit /b 99
+'@ | Set-Content -LiteralPath $poisonCodex -Encoding ascii
+
 # wrapper：注入三個 preference 的唯一辦法（-File 無法設 preference 變數）。
 # 參數全走環境變數：實測 Start-Process -ArgumentList 傳空字串會整組位移，
 # 而 **陣列 splat 會被當成位置參數**（-Dir 不被認成參數名）→ 兩者都會讓案子
@@ -136,10 +148,16 @@ function Invoke-Sut {
   Write-Utf8 $outFixture $StdoutText
   Write-Utf8 $errFixture $StderrText
 
-  # 兩個接縫變數都先清掉，再只設要用的那一個 —— 免得上一案的殘留讓本案「以錯誤理由通過」。
-  Remove-Item -LiteralPath Env:SUPER_MODE_CODEX_CMD -ErrorAction SilentlyContinue
-  Remove-Item -LiteralPath Env:SUPER_MODE_CODEX_CMD_EXEC -ErrorAction SilentlyContinue
-  Set-Item -LiteralPath ("Env:" + $SeamVar) -Value $fakeCodex
+  # ⚠️ **兩個接縫變數永遠都要有值**，不留空。留空會讓對應的腳本 fallback 到真的
+  #    C:\npm\codex.cmd —— 測試可能因此打到真 codex（exec 還是 workspace-write），
+  #    而「stub 沒被叫到」這種斷言反而會因為打了真 codex 而通過。
+  #    要測隔離就用 poison stub，不要用「不設」。
+  $seamMap = @{
+    'SUPER_MODE_CODEX_CMD'      = $poisonCodex
+    'SUPER_MODE_CODEX_CMD_EXEC' = $poisonCodex
+  }
+  $seamMap[$SeamVar] = $fakeCodex
+  foreach ($k in $seamMap.Keys) { Set-Item -LiteralPath ("Env:" + $k) -Value $seamMap[$k] }
 
   $env:FAKE_OUT_FILE = $outFixture
   $env:FAKE_ERR_FILE = $errFixture
@@ -158,8 +176,11 @@ function Invoke-Sut {
       try { $pr.Kill() } catch {}
       return @{ Code = -999; Out = ""; Err = "TIMEOUT"; Ran = -1 }
     }
-    $ranLines = @((Read-Utf8 $trace) -split "`r?`n" | Where-Object { $_ -match 'RAN' })
-    return @{ Code = $pr.ExitCode; Out = (Read-Utf8 $o); Err = (Read-Utf8 $e); Ran = $ranLines.Count }
+    $traceTxt = Read-Utf8 $trace
+    $ranLines = @(($traceTxt -split "`r?`n") | Where-Object { $_ -match 'RAN' })
+    $poisonLines = @(($traceTxt -split "`r?`n") | Where-Object { $_ -match 'POISON' })
+    return @{ Code = $pr.ExitCode; Out = (Read-Utf8 $o); Err = (Read-Utf8 $e);
+      Ran = $ranLines.Count; Poison = $poisonLines.Count }
   }
   finally {
     $env:USERPROFILE = $oldHome
@@ -272,12 +293,17 @@ try {
 
   # ═══ §3 codex-exec：專屬接縫 ＋ 同一組 transport 保證 ══════════════════════
   Write-Output "§3 codex-exec"
-  # 先證明**專屬**接縫是分開的：只設 consult 的變數時，exec 不該採用它。
-  # （若 exec 誤用了 consult 的變數，stub 會被執行 → Ran 會 > 0。）
+  # 隔離測試：consult 的變數指向正常 fake、exec 的變數指向 poison。
+  # exec 若正確地只讀自己的變數 → 會跑到 poison（rc 99、trace 有 POISON、沒有 RAN）。
+  # exec 若誤讀了 consult 的變數 → 會跑到 fake（trace 有 RAN）。
+  # 兩種情況都**不會**碰到真 codex —— 這正是舊版 3a 的致命缺陷。
   $r = Invoke-Sut -Target $execSut -Params $execArgs -SeamVar 'SUPER_MODE_CODEX_CMD' `
     -StdoutText "" -StderrText "" -FakeExit 0
-  Check "3a exec 不得採用 consult 的接縫變數" ($r.Ran -eq 0) `
+  Check "3a-1 exec 不得採用 consult 的接縫變數" ($r.Ran -eq 0) `
     ("Ran=" + $r.Ran + " —— exec 竟然吃了 SUPER_MODE_CODEX_CMD")
+  Check "3a-2 exec 必須採用自己的接縫變數（跑到 poison）" ($r.Poison -ge 1) `
+    ("Poison=" + $r.Poison + " —— exec 兩個變數都沒讀，很可能 fallback 到真 codex")
+  Check "3a-3 poison 的退出碼要原樣傳回（99）" ($r.Code -eq 99) ("exit=" + $r.Code)
 
   foreach ($pf in $profiles) {
     $t = $pf.Tag
@@ -355,7 +381,7 @@ try {
   }
   # 案數守衛：只證明「沒少跑案」，**不證明案子有牙齒**（刪 stimulus 留 assertion 的 mutant 案數不變）。
   # 公式：§2 固定 2 案 + §1 每 profile 7 案 + §2 4 案 + §3a 1 案 + §3 每 profile 3 案 + §4 6 案。
-  $expected = 29 + 10 * $profiles.Count   # 13 原有 + §5 的 11 + §2 新增的 4（2e2/2e3/2f/2g）
+  $expected = 31 + 10 * $profiles.Count   # 13 原有 + §5 的 11 + §2 新增的 4（2e2/2e3/2f/2g）
   $ran = $script:pass + $script:fail
   Check "案數守衛：實跑 $expected 案" ($ran -eq $expected) ("實跑=" + $ran + " 期望=" + $expected)
 }

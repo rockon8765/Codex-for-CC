@@ -175,6 +175,14 @@ try {
   }
   # ══ capture scope 結束 ════════════════════════════════════════════════════
 
+  # ⚠️ 拿不到整數退出碼＝native 根本沒被啟動（典型原因：PATH 缺 System32，cmd.exe 找不到）。
+  #    此時 $LASTEXITCODE 維持未設定，`exit $code` 會變成 **exit 0** —— 假成功。
+  #    映射成 127（POSIX 的 command not found），與 POSIX 版天然行為一致。
+  if ($null -eq $code -or -not ($code -is [int])) {
+    [Console]::Error.WriteLine("EXEC_NATIVE_UNAVAILABLE: 無法取得 codex 的退出碼（native 很可能根本沒啟動，" +
+      "例如 PATH 缺 System32 導致找不到 cmd.exe）。**不得視為成功**。transcript: $log")
+    $code = 127
+  }
   if (Test-Path -LiteralPath $errFile) {
     try { $stderrText = [System.IO.File]::ReadAllText($errFile, (New-Object System.Text.UTF8Encoding $false)) }
     catch { if ($transcriptErrors.Count -eq 0) { $transcriptErrors.Add("讀取 stderr 暫存檔失敗: $_") } }

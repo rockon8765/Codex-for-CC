@@ -295,6 +295,14 @@ try {
   }
   # ══ capture scope 結束 ════════════════════════════════════════════════════
 
+  # ⚠️ 拿不到整數退出碼＝native 根本沒被啟動（典型原因：PATH 缺 System32，cmd.exe 找不到）。
+  #    此時 $LASTEXITCODE 維持未設定，`exit $code` 會變成 **exit 0** —— 假成功。
+  #    映射成 127（POSIX 的 command not found），與 POSIX 版天然行為一致。
+  if ($null -eq $code -or -not ($code -is [int])) {
+    [Console]::Error.WriteLine("CONSULT_NATIVE_UNAVAILABLE: 無法取得 codex 的退出碼（native 很可能根本沒啟動，" +
+      "例如 PATH 缺 System32 導致找不到 cmd.exe）。**不得視為成功**。transcript: $log")
+    $code = 127
+  }
   # ⚠️ 先把 raw stderr 讀進記憶體，**之後**才准清 temp。裁決只吃這份副本。
   if (Test-Path -LiteralPath $errFile) {
     try { $stderrText = [System.IO.File]::ReadAllText($errFile, (New-Object System.Text.UTF8Encoding $false)) }
@@ -407,8 +415,12 @@ if ($code -eq 0) {
   # ⚠️ 我們**沒有**任何「真的配額耗盡」的逐字稿樣本 ⇒ 寫不出有證據支撐的精確正例。
   #    故 Tier 1 只在「錯誤行 ∧ 配額字樣」時才 fail-fast；其餘只提示、不下判斷。
   #    哨兵文案一律是「疑似…（未確證）」——不要再寫成斷言。
-  $quotaRe = '(?i)usage limit|rate limit|\b429\b|quota|not logged in|unauthorized|\b401\b'
-  $errLineRe = '^\s*(ERROR|error)\b'
+  # ⚠️ 這兩條 regex 必須與 POSIX 版**語意等價**（repo 規約：三平台行為等價）。
+  #    數字用「兩側非英數」圍界：`\b401\b` 在 `auth401beta` 不命中，POSIX 若寫成
+  #    `[^0-9]` 圍界就會命中 —— 那就是兩邊判準漂掉（2026-08-19 Codex 舉的例子）。
+  $quotaRe = '(?i)usage limit|rate limit|(^|[^0-9A-Za-z])429([^0-9A-Za-z]|$)|quota|not logged in|unauthorized|(^|[^0-9A-Za-z])401([^0-9A-Za-z]|$)'
+  # 錯誤行 = 行首（可有空白）接 ERROR，後面是非英數或行尾。`ERRORS` 不算、`ERROR-` 算。
+  $errLineRe = '(?i)^\s*ERROR([^0-9A-Za-z]|$)'
   $tailLines = @()
   if ($stderrText) { $tailLines = @(($stderrText -split "`r?`n") | Select-Object -Last 40) }
   $quotaErrLines = @($tailLines | Where-Object { $_ -match $errLineRe -and $_ -match $quotaRe })

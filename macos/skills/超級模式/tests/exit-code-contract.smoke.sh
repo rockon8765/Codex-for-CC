@@ -27,8 +27,24 @@ here="$(cd "$(dirname "$0")" && pwd)"
 SUT="${1:-$here/../scripts/codex-consult.sh}"
 [ -f "$SUT" ] || { echo "找不到受測腳本: $SUT" >&2; exit 2; }
 
-root="$(mktemp -d)"
-trap 'chmod -R u+w "$root" 2>/dev/null; rm -rf "$root"' EXIT
+# ⚠️ fail-closed，而且要驗到底：本檔是 `set -uo pipefail`（**沒有 -e**），
+#    mktemp 失敗時 $root 會是空字串，後面每一個 `rm -rf "$root/..."`／`chmod -R "$root"`
+#    就變成對**根目錄**動手。這不是理論風險，是把 / 底下的路徑當成暫存區在操作。
+root="$(mktemp -d)" || root=""
+case "$root" in
+  /*) ;;                                   # 必須是絕對路徑
+  *)  echo "mktemp -d 失敗或回了非絕對路徑（得到 '''$root'''），中止。" >&2; exit 2 ;;
+esac
+[ -d "$root" ] || { echo "mktemp -d 的結果不是目錄: $root" >&2; exit 2; }
+# 之後所有破壞性操作都先過這一關（trap 也走它）。
+safe_root() {
+  case "${root:-}" in
+    ""|"/") echo "拒絕對 '''${root:-<空>}''' 做破壞性操作" >&2; return 1 ;;
+    /*) [ -d "$root" ] || return 1; return 0 ;;
+    *) return 1 ;;
+  esac
+}
+trap 'if safe_root; then chmod -R u+w "$root" 2>/dev/null; rm -rf "$root"; fi' EXIT
 
 mkdir -p "$root/stub" "$root/home/.claude" "$root/repo"
 printf 'test brief\n' > "$root/brief.md"
@@ -47,7 +63,7 @@ STUB
 chmod +x "$root/stub/codex"
 
 pass=0; fail=0; failed=""
-EXPECTED_CHECKS=17   # 只證明「沒少跑案」，不證明案子有牙齒
+EXPECTED_CHECKS=19   # 只證明「沒少跑案」，不證明案子有牙齒
 
 chk() {
   if [ "$2" = "$3" ]; then pass=$((pass+1)); else
@@ -62,6 +78,7 @@ chkm() { # chkm <name> <haystack> <needle> <should-match:1|0>
 }
 
 run() { # run <fake_exit> <stdout> <stderr> [lock]
+  safe_root || exit 2
   chmod -R u+w "$root/home" 2>/dev/null || true
   rm -rf "$root/home/.claude/super-mode-logs"
   : > "$root/trace"
@@ -118,7 +135,21 @@ chkm "4f 要附「未據此判定」的提示" "$ERR" "未據此判定" 1
 run 7 "" "ERROR: 429 Too Many Requests"
 chk  "4g 錯誤行上的 429 → 42"     "$RC" "42"
 
+echo "§4c 大量輸出：判準不得因 SIGPIPE 而靜默失效"
+# 40 行 x 約 10KB，每行都是 quota ERROR。舊寫法（printf | grep -q）在 pipefail 之下
+# 會因為 grep 提早關管線讓 printf 得 141，整條 pipeline 非零 → if 判 false → 漏判。
+# 小輸入塞得進 pipe buffer 所以測不出來，一定要用大輸入。
+big_line="ERROR: usage limit reached $(head -c 10000 /dev/zero | tr '\0' 'x')"
+big_err=""
+i=0
+while [ "$i" -lt 40 ]; do big_err="$big_err$big_line
+"; i=$((i+1)); done
+run 7 "" "$big_err"
+chk  "4h 大量 quota ERROR 仍要判成 42"  "$RC" "42"
+chkm "4i 大量輸出時哨兵仍在 stderr"      "$ERR" "CONSULT_UNAVAILABLE_QUOTA" 1
+
 echo "§5 preflight：logdir 位置是個檔案 → 呼叫 codex 之前就停"
+safe_root || exit 2
 chmod -R u+w "$root/home" 2>/dev/null || true
 rm -rf "$root/home/.claude/super-mode-logs"
 : > "$root/home/.claude/super-mode-logs"

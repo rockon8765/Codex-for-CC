@@ -280,16 +280,25 @@ rm -f "$ans_tmp"
 # ⚠️ 沒有任何「真的配額耗盡」的樣本 ⇒ 寫不出有證據支撐的精確正例。
 #    Tier 1（錯誤行 ∧ 配額字樣）才 fail-fast；Tier 2 只提示、不下判斷。
 # ⚠️ 數字用 [^0-9] 圍界而不用 \b：BSD 與 GNU 的 ERE 對 \b 支援不一致。
-quota_re='usage limit|rate limit|(^|[^0-9])429([^0-9]|$)|quota|not logged in|unauthorized|(^|[^0-9])401([^0-9]|$)'
-tail_txt="$(printf '%s\n' "$stderr_text" | tail -n 40)"
-err_lines="$(printf '%s\n' "$tail_txt" | grep -E '^[[:space:]]*([Ee][Rr][Rr][Oo][Rr])([[:space:]]|:)' || true)"
-if printf '%s\n' "$err_lines" | grep -qiE "$quota_re"; then
-  first_err="$(printf '%s\n' "$err_lines" | grep -iE "$quota_re" | head -n 1)"
+# ⚠️ 與 Windows 版**語意等價**（repo 規約）：數字兩側用「非英數」圍界。
+#    只用 [^0-9] 的話 `auth401beta` 會命中，但 Windows 的 \b401\b 不會 —— 判準就漂了。
+quota_re='usage limit|rate limit|(^|[^0-9A-Za-z])429([^0-9A-Za-z]|$)|quota|not logged in|unauthorized|(^|[^0-9A-Za-z])401([^0-9A-Za-z]|$)'
+# 錯誤行 = 行首（可有空白）接 ERROR，後面是非英數或行尾。ERRORS 不算、ERROR- 算。
+err_line_re='^[[:space:]]*[Ee][Rr][Rr][Oo][Rr]([^0-9A-Za-z]|$)'
+# ⚠️ **不要用 `printf … | grep -q`**：`set -o pipefail` 之下，grep -q 命中就立刻結束、
+#    關掉管線，printf 收到 SIGPIPE 得 141 ⇒ 整條 pipeline 非零 ⇒ if 判成 false ⇒
+#    **明明命中卻被當成沒命中**。小輸入塞得進 pipe buffer 看不出來，大逐字稿才會炸。
+#    here-string 不開管線，沒有這個問題（bash 3.2 起支援）。
+tail_txt="$(tail -n 40 <<< "$stderr_text" || true)"
+err_lines="$(grep -E "$err_line_re" <<< "$tail_txt" || true)"
+if grep -qiE "$quota_re" <<< "$err_lines"; then
+  # head 也會提早關管線 → 一樣要 || true。
+  first_err="$(grep -iE "$quota_re" <<< "$err_lines" | head -n 1 || true)"
   echo "CONSULT_UNAVAILABLE_QUOTA: 疑似 codex 配額/認證失敗（未確證，exit $code）。判準：逐字稿尾端的 codex 錯誤行命中配額/認證字樣 -- $first_err 。停止重試諮詢，向使用者回報；經同意可跑 super-mode.sh off 降級為一般模式。transcript: $log$(transcript_note)" >&2
   exit 42
 fi
 hint=""
-if printf '%s\n' "$tail_txt" | grep -qiE "$quota_re"; then
+if grep -qiE "$quota_re" <<< "$tail_txt"; then
   hint=" （附註：逐字稿尾端出現配額/認證相關字樣，但不在 codex 的錯誤行上，故未據此判定；若你懷疑真的是額度問題，請自行檢視逐字稿。）"
 fi
 echo "codex-consult: codex exited [$code] -- no credential written. transcript: $log$(transcript_note)$hint" >&2
