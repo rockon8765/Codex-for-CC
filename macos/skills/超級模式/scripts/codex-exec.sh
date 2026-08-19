@@ -44,9 +44,25 @@ if [ -n "$schema" ]; then
   schema_args=(--output-schema "$schema")
 fi
 
-logdir="$HOME/.claude/super-mode-logs"; mkdir -p "$logdir"
+logdir="$HOME/.claude/super-mode-logs"
+if ! mkdir -p "$logdir" 2>/dev/null; then
+  echo "EXEC_TRANSCRIPT_UNAVAILABLE: 無法建立逐字稿目錄 $logdir。**尚未呼叫 codex**。" >&2
+  exit 46
+fi
 stamp="$(date +%Y%m%d_%H%M%S)_$(uuidgen | tr 'A-Z' 'a-z' | tr -d '-' | cut -c1-6)"
 log="$logdir/codex_exec_${stamp}.txt"
+# 在呼叫 codex 之前先建 log：此刻中止安全，還沒有退出碼要保。
+if ! : > "$log" 2>/dev/null; then
+  echo "EXEC_TRANSCRIPT_UNAVAILABLE: 無法建立逐字稿 $log。**尚未呼叫 codex**。" >&2
+  exit 46
+fi
+# 逐字稿寫入錯誤只記**第一個**，且**絕不中止**——中止就抓不到 codex 的退出碼。
+transcript_error=""
+transcript_note() {
+  if [ -n "$transcript_error" ]; then
+    printf ' 逐字稿不完整（%s）。' "$transcript_error"
+  fi
+}
 out="${outfile:-$logdir/codex_exec_${stamp}_last.txt}"
 brief_tmp="$(mktemp "${TMPDIR:-/tmp}/codex_brief_XXXXXX")"
 err_tmp="$(mktemp "${TMPDIR:-/tmp}/codex_err_XXXXXX")"
@@ -68,15 +84,31 @@ else
     -c memories.use_memories=false -c memories.generate_memories=false -C "$dir" \
     ${schema_args[@]+"${schema_args[@]}"} --output-last-message "$out" \
     < "$brief_tmp" 2> "$err_tmp" | tee -a "$log"
-  code=${PIPESTATUS[0]}
+  # ⚠️ 同一語句整包複製 PIPESTATUS —— 賦值本身會重設它（見 codex-consult.sh 同段註解）。
+  pipe_rc=("${PIPESTATUS[@]}")
+  code=${pipe_rc[0]}
+  log_tee_rc=${pipe_rc[1]:-0}
+  if [ "$log_tee_rc" -ne 0 ]; then transcript_error="逐字稿寫入失敗 (tee rc=$log_tee_rc)"; fi
 fi
 set -e
-{ echo "===== STDERR ====="; cat "$err_tmp"; } >> "$log"
+stderr_text=""
+if [ -f "$err_tmp" ]; then stderr_text="$(cat "$err_tmp" 2>/dev/null || true)"; fi
+# 原本這一行在 set -e 之下失敗就中止，而它在擷取 code 之後、裁決之前 → rc 塌成 1。
+# ⚠️ 必須用子 shell：`{ ...; } >> file` 在**重導向失敗**時複合命令的退出碼仍是 0，
+#    守衛會變成永遠不觸發的空殼（bash 5.3 實測）。`( ... )` 才會回非零。
+if ! ( { echo "===== STDERR ====="; printf '%s\n' "$stderr_text"; } >> "$log" ) 2>/dev/null; then
+  [ -n "$transcript_error" ] || transcript_error="逐字稿 stderr 區段寫入失敗"
+fi
 rm -f "$brief_tmp" "$err_tmp"
 
 if [ "$code" -eq 0 ]; then
+  # codex 成功但逐字稿寫壞 → 不得回報成功：派工的逐字稿是後續驗收的唯一依據。
+  if [ -n "$transcript_error" ]; then
+    echo "EXEC_TRANSCRIPT_FAILED: codex 成功 (exit 0)，但逐字稿寫入失敗 -- $transcript_error transcript(可能不完整): $log ; last message: $out" >&2
+    exit 46
+  fi
   echo "exec OK -- transcript: $log ; last message: $out"
 else
-  echo "codex-exec: codex exited [$code]. transcript: $log" >&2
+  echo "codex-exec: codex exited [$code]. transcript: $log$(transcript_note)" >&2
 fi
 exit "$code"

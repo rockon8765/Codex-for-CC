@@ -1,0 +1,130 @@
+#!/usr/bin/env bash
+# exit-code-contract.smoke.sh -- POSIX 側：codex-consult.sh 的退出碼契約行為測試。
+#
+# 契約：42 = 疑似配額/認證失敗；46 = 逐字稿不可用/寫壞（不得回報成功、不得鑄證）；
+#       其餘 = 原樣傳回 codex 的退出碼。Windows 對應的是 tests/exit-code-contract.tests.ps1。
+#
+# 為什麼需要這支（2026-08-19）：POSIX 版本來就用 `set +e … PIPESTATUS … set -e` 保住了
+# codex 本體的退出碼，但**漏了三處同類**，全部是「在裁決之前中止或靜默失敗」：
+#   (1) mkdir -p "$logdir" 失敗 → set -e 靜默 rc 1，沒有任何哨兵。
+#   (2) tee -a "$log" 失敗被完全忽略 → 逐字稿殘缺卻照樣回報成功並鑄證。
+#   (3) `{ …; } >> "$log"` 失敗 → set -e 中止，而它就在擷取 code 之後、裁決之前。
+#
+# ⚠️ 本檔在開發機是用 Git Bash（bash 5.x/Cygwin）跑的，**不是** macOS 的 bash 3.2、
+#    也不是真 Linux。BSD 與 GNU 的 tee／chmod 行為差異未涵蓋 —— 原生機器請重跑本檔。
+#
+# ⚠️ 未涵蓋：鑄證路徑（本檔一律帶 -n）、真 codex、逾時、串流中斷。
+#
+# 開發過程中本檔抓到兩個我自己引進、而 `bash -n` 完全看不出來的缺陷，留作教訓：
+#   A. `code=${PIPESTATUS[0]}` 這個**賦值本身**會重設 PIPESTATUS，下一行讀 [1] 在 set -u
+#      之下就是 unbound variable → 整支 rc 1。必須在同一語句整包複製。
+#   B. `{ …; } >> file` 在**重導向失敗**時複合命令的退出碼仍是 **0** ⇒ 用 `if !` 包它
+#      等於寫了一個永遠不觸發的空守衛。必須用子 shell `( … )`。
+
+set -uo pipefail
+
+here="$(cd "$(dirname "$0")" && pwd)"
+SUT="${1:-$here/../scripts/codex-consult.sh}"
+[ -f "$SUT" ] || { echo "找不到受測腳本: $SUT" >&2; exit 2; }
+
+root="$(mktemp -d)"
+trap 'chmod -R u+w "$root" 2>/dev/null; rm -rf "$root"' EXIT
+
+mkdir -p "$root/stub" "$root/home/.claude" "$root/repo"
+printf 'test brief\n' > "$root/brief.md"
+
+# stub codex：POSIX 版呼叫的是 PATH 上的裸 `codex`，所以用 stub 目錄攔截即可
+# （Windows 版寫死絕對路徑，那邊才需要 SUPER_MODE_CODEX_CMD 接縫）。
+# FAKE_LOCK_LOG=1 時在輸出前把 log 設成唯讀，用來注入「跑到一半逐字稿壞掉」。
+cat > "$root/stub/codex" <<'STUB'
+#!/usr/bin/env bash
+echo RAN >> "$FAKE_TRACE"
+if [ "${FAKE_LOCK_LOG:-0}" = "1" ]; then chmod a-w "$FAKE_LOGDIR"/*.txt 2>/dev/null || true; fi
+printf '%s' "${FAKE_OUT:-}"
+printf '%s' "${FAKE_ERR:-}" >&2
+exit "${FAKE_EXIT:-0}"
+STUB
+chmod +x "$root/stub/codex"
+
+pass=0; fail=0; failed=""
+EXPECTED_CHECKS=13   # 只證明「沒少跑案」，不證明案子有牙齒
+
+chk() {
+  if [ "$2" = "$3" ]; then pass=$((pass+1)); else
+    fail=$((fail+1)); failed="$failed
+  - $1"; printf '  FAIL  %s  (實得 %s，期望 %s)\n' "$1" "$2" "$3"; fi
+}
+chkm() { # chkm <name> <haystack> <needle> <should-match:1|0>
+  case "$2" in *"$3"*) got=1 ;; *) got=0 ;; esac
+  if [ "$got" = "$4" ]; then pass=$((pass+1)); else
+    fail=$((fail+1)); failed="$failed
+  - $1"; printf '  FAIL  %s  (match=%s，期望 %s)\n' "$1" "$got" "$4"; fi
+}
+
+run() { # run <fake_exit> <stdout> <stderr> [lock]
+  chmod -R u+w "$root/home" 2>/dev/null || true
+  rm -rf "$root/home/.claude/super-mode-logs"
+  : > "$root/trace"
+  FAKE_TRACE="$root/trace" \
+  FAKE_LOGDIR="$root/home/.claude/super-mode-logs" \
+  FAKE_LOCK_LOG="${4:-0}" \
+  FAKE_EXIT="$1" FAKE_OUT="$2" FAKE_ERR="$3" \
+  HOME="$root/home" PATH="$root/stub:$PATH" \
+    bash "$SUT" -d "$root/repo" -f "$root/brief.md" -n > "$root/o.txt" 2> "$root/e.txt"
+  RC=$?
+  OUT="$(cat "$root/o.txt")"; ERR="$(cat "$root/e.txt")"
+  RAN="$(grep -c RAN "$root/trace" 2>/dev/null)"; RAN="${RAN:-0}"
+  chmod -R u+w "$root/home" 2>/dev/null || true
+}
+
+echo "SUT  = $SUT"
+echo "bash = $(bash --version | head -1)"
+
+echo "§1 一般失敗 → 原樣傳回退出碼"
+run 7 "some answer" "plain failure"
+chk  "1a rc=7"                  "$RC" "7"
+chk  "1b stub 恰跑一次"          "$RAN" "1"
+chkm "1c 不得有配額哨兵"         "$ERR" "CONSULT_UNAVAILABLE_QUOTA" 0
+
+echo "§2 第二個退出碼（防產品被改成寫死 7）"
+run 23 "ans" "plain failure"
+chk  "2a rc=23"                 "$RC" "23"
+
+echo "§3 stderr 有配額訊息 → 42 ＋ 哨兵在 stderr"
+run 7 "" "ERROR: usage limit reached"
+chk  "3a rc=42"                 "$RC" "42"
+chkm "3b 哨兵在 stderr"          "$ERR" "CONSULT_UNAVAILABLE_QUOTA" 1
+chkm "3c 哨兵不得污染 stdout"     "$OUT" "CONSULT_UNAVAILABLE_QUOTA" 0
+
+echo "§4 逐字稿跑到一半壞掉"
+run 7 "partial" "plain failure" 1
+chk  "4a 不得吃掉退出碼（仍 7，不是 1）" "$RC" "7"
+chkm "4b 訊息附上逐字稿不完整診斷" "$ERR" "逐字稿不完整" 1
+run 7 "" "ERROR: usage limit reached" 1
+chk  "4c 逐字稿壞掉但配額分類不受影響 → 42" "$RC" "42"
+
+echo "§5 preflight：logdir 位置是個檔案 → 呼叫 codex 之前就停"
+chmod -R u+w "$root/home" 2>/dev/null || true
+rm -rf "$root/home/.claude/super-mode-logs"
+: > "$root/home/.claude/super-mode-logs"
+: > "$root/trace"
+FAKE_TRACE="$root/trace" FAKE_EXIT=0 FAKE_OUT="x" FAKE_ERR="" \
+  HOME="$root/home" PATH="$root/stub:$PATH" \
+  bash "$SUT" -d "$root/repo" -f "$root/brief.md" -n > "$root/o.txt" 2> "$root/e.txt"
+RC=$?; ERR="$(cat "$root/e.txt")"
+RAN="$(grep -c RAN "$root/trace" 2>/dev/null)"; RAN="${RAN:-0}"
+chk  "5a preflight 失敗 → rc=46"  "$RC" "46"
+chkm "5b 有 TRANSCRIPT_UNAVAILABLE 哨兵" "$ERR" "CONSULT_TRANSCRIPT_UNAVAILABLE" 1
+chk  "5c codex 根本不該被呼叫"     "$RAN" "0"
+rm -f "$root/home/.claude/super-mode-logs"
+
+ran=$((pass+fail))
+if [ "$ran" -ne "$EXPECTED_CHECKS" ]; then
+  fail=$((fail+1))
+  printf '  FAIL  案數守衛：實跑 %s 案，期望 %s\n' "$ran" "$EXPECTED_CHECKS"
+fi
+
+echo
+echo "exit-code-contract.smoke: pass=$pass fail=$fail"
+if [ "$fail" -ne 0 ]; then printf 'failed:%s\n' "$failed"; exit 1; fi
+exit 0

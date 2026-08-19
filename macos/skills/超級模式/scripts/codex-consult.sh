@@ -119,7 +119,12 @@ if [ -n "$schema" ]; then
   schema_args=(--output-schema "$schema")
 fi
 
-logdir="$HOME/.claude/super-mode-logs"; mkdir -p "$logdir"
+logdir="$HOME/.claude/super-mode-logs"
+# 逐字稿目錄建不出來 → 明講並用專屬 46 收場。原本在 set -e 之下是**靜默** rc 1。
+if ! mkdir -p "$logdir" 2>/dev/null; then
+  echo "CONSULT_TRANSCRIPT_UNAVAILABLE: 無法建立逐字稿目錄 $logdir。**尚未呼叫 codex**，未鑄造憑證。" >&2
+  exit 46
+fi
 # 去重後綴防同秒碰撞。⚠️ 2026-08-18：原本硬吃 uuidgen，缺它就整支 rc=127 掛掉
 # （macOS 一定有，但精簡的 Linux／WSL 映像不一定裝 util-linux；新的整合測試在 WSL 實際踩到）。
 # 改成三段 fallback，任何一段成立即可。
@@ -132,6 +137,18 @@ rand6="$( { uuidgen 2>/dev/null || true; } | tr 'A-Z' 'a-z' | tr -d '-' | cut -c
 [ -n "$rand6" ] || rand6="$$"
 stamp="$(date +%Y%m%d_%H%M%S)_${rand6}"
 log="$logdir/codex_consult_${stamp}.txt"
+# 在呼叫 codex **之前**就把 log 建出來：此刻中止是安全的（還沒有退出碼要保）。
+if ! : > "$log" 2>/dev/null; then
+  echo "CONSULT_TRANSCRIPT_UNAVAILABLE: 無法建立逐字稿 $log。**尚未呼叫 codex**，未鑄造憑證。" >&2
+  exit 46
+fi
+# 逐字稿寫入錯誤只記**第一個**，且**絕不中止**——中止就抓不到 codex 的退出碼。
+transcript_error=""
+transcript_note() {
+  if [ -n "$transcript_error" ]; then
+    printf ' 逐字稿不完整（%s）。' "$transcript_error"
+  fi
+}
 brief_tmp="$(mktemp "${TMPDIR:-/tmp}/codex_brief_XXXXXX")"
 err_tmp="$(mktemp "${TMPDIR:-/tmp}/codex_err_XXXXXX")"
 # codex 的 **stdout 專用**副本，餵給判準用。⚠️ 不能拿 $log 代替：log 事後會被接上
@@ -150,12 +167,40 @@ codex exec --sandbox read-only --ephemeral --skip-git-repo-check \
   -c memories.use_memories=false -c memories.generate_memories=false -C "$dir" \
   ${schema_args[@]+"${schema_args[@]}"} \
   < "$brief_tmp" 2> "$err_tmp" | tee -a "$log" | tee "$ans_tmp"
-code=${PIPESTATUS[0]}
+# ⚠️ PIPESTATUS 必須在**同一個語句**整包複製：任何 simple command（包含
+#    `code=${PIPESTATUS[0]}` 這種賦值）都會把它重設成單元素陣列，
+#    下一行再讀 ${PIPESTATUS[1]} 在 set -u 之下就是 unbound variable → rc 1。
+pipe_rc=("${PIPESTATUS[@]}")
 set -e
-{ echo "===== STDERR ====="; cat "$err_tmp"; } >> "$log"
+code=${pipe_rc[0]}
+log_tee_rc=${pipe_rc[1]:-0}
+ans_tee_rc=${pipe_rc[2]:-0}
+# tee 失敗＝逐字稿殘缺。原本完全被忽略，於是「log 寫不出去」照樣回報成功並鑄證。
+if [ "$log_tee_rc" -ne 0 ]; then transcript_error="逐字稿寫入失敗 (tee rc=$log_tee_rc)"; fi
+if [ "$ans_tee_rc" -ne 0 ]; then
+  [ -n "$transcript_error" ] || transcript_error="判準用 answer 暫存檔寫入失敗 (tee rc=$ans_tee_rc)"
+fi
+
+# ⚠️ 先把 raw stderr 讀進變數，**之後**才准刪 temp。裁決只吃這份副本，不回頭讀 $log
+#    ——把「分類正確性」綁在磁碟寫入成功上，正是最需要正確分類時最會失手的設計。
+stderr_text=""
+if [ -f "$err_tmp" ]; then stderr_text="$(cat "$err_tmp" 2>/dev/null || true)"; fi
+# 逐字稿的 stderr 區段：best-effort。原本這一行在 set -e 之下失敗就中止，
+# 而它就在擷取 code 之後、裁決之前 → rc 塌成 1、哨兵消失（與 Windows 同型）。
+# ⚠️ 必須用子 shell：`{ ...; } >> file` 在**重導向失敗**時複合命令的退出碼仍是 0，
+#    守衛會變成永遠不觸發的空殼（bash 5.3 實測）。`( ... )` 才會回非零。
+if ! ( { echo "===== STDERR ====="; printf '%s\n' "$stderr_text"; } >> "$log" ) 2>/dev/null; then
+  [ -n "$transcript_error" ] || transcript_error="逐字稿 stderr 區段寫入失敗"
+fi
 rm -f "$brief_tmp" "$err_tmp"
 
 if [ "$code" -eq 0 ]; then
+  # codex 成功但逐字稿寫壞 → 不得鑄證。憑證是「這次諮詢真的發生過」的收據，
+  # 逐字稿是它唯一的稽核痕跡；沒有痕跡就不該發收據。
+  if [ -n "$transcript_error" ]; then
+    echo "CONSULT_TRANSCRIPT_FAILED: codex 成功 (exit 0)，但逐字稿寫入失敗 -- $transcript_error 未鑄造憑證，**既有憑證（若有）未被移除**。transcript(可能不完整): $log" >&2
+    exit 46
+  fi
   # ⚠️ 2026-08-18：codex exit 0 **不再等於**可以鑄證。舊行為讓 codex 回空字串或幾個字
   #    也照樣解鎖 gate 20 分鐘，而那種情況通常正代表諮詢其實沒送到。
   #    判準本體在三平台共用的 lib/consult-answer.js，這裡只負責叫它並看結果。
@@ -224,9 +269,13 @@ fi
 rm -f "$ans_tmp"
 
 # 額度/認證 fail-fast：stderr 已併入 log 後才掃（樣式集中在這一條，codex 改字樣只改這裡）
-if grep -qiE 'usage limit|rate limit|429|quota|not logged in|unauthorized|401' "$log"; then
-  echo "CONSULT_UNAVAILABLE_QUOTA: codex quota/auth failure (exit $code). 停止重試諮詢，向使用者回報；經同意可跑 super-mode.sh off 降級為一般模式。transcript: $log" >&2
+# ⚠️ 判準吃的是記憶體裡的 stderr，不是磁碟上的 $log（與 Windows 對齊）。
+# ⚠️ 這**不等於** QUOTA-CLASSIFIER 已修：本式仍是「在整段文字裡找子字串」，
+#    誤陽性（codex 推理軌跡裡的 grep 行號前綴、本 repo 原始碼裡的 QUOTA 字串）仍在。
+#    精度問題見 docs/backlog.md 的 QUOTA-CLASSIFIER。
+if printf '%s' "$stderr_text" | grep -qiE 'usage limit|rate limit|429|quota|not logged in|unauthorized|401'; then
+  echo "CONSULT_UNAVAILABLE_QUOTA: codex quota/auth failure (exit $code). 停止重試諮詢，向使用者回報；經同意可跑 super-mode.sh off 降級為一般模式。transcript: $log$(transcript_note)" >&2
   exit 42
 fi
-echo "codex-consult: codex exited [$code] -- no credential written. transcript: $log" >&2
+echo "codex-consult: codex exited [$code] -- no credential written. transcript: $log$(transcript_note)" >&2
 exit "$code"
