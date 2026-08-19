@@ -244,7 +244,9 @@ try {
   # 誤陽性負例 (ii)：**stderr** 中段是 codex 的推理/工具軌跡（grep 行號前綴、
   # 以及我們自己原始碼裡的 CONSULT_UNAVAILABLE_QUOTA 字串），尾端才是真正的失敗原因。
   # 這是 2026-08-13 事故的真實形狀（實測 88 份逐字稿，47 份只在 stderr 命中）。
-  # ⚠️ 目前**必紅**：判準還是在整段 stderr 找子字串。P0-14 修好後改成 Check。
+  # 這四行就是 2026-08-13 事故逐字稿的真實形狀：前三行是 codex 的推理/工具軌跡
+  # （grep 行號前綴、以及它讀到我們自己原始碼裡的 QUOTA 字串），最後一行才是真正的
+  # 失敗原因，而那個原因**與配額無關**。判準必須只認最後那種形狀的行。
   $noisyErr = @(
     'docs/history/FIX-PLAN-macos-2026-07-03.md:401:  3. rerun tests',
     'grep hit: "CONSULT_UNAVAILABLE_QUOTA: codex quota/auth failure"',
@@ -252,8 +254,21 @@ try {
     'ERROR: This content was flagged for possible cybersecurity risk.'
   ) -join "`n"
   $r = Invoke-Sut -Target $consult -Params $consultArgs -StdoutText "" -StderrText $noisyErr -FakeExit 7
-  CheckXFail "2e stderr 軌跡雜訊不得誤判成配額" (-not ($r.Err -match $QUOTA)) `
-    "判準仍在整段 stderr 找子字串，見 backlog QUOTA-CLASSIFIER / 規畫書 P0-14" ("err=" + $r.Err)
+  Check "2e stderr 軌跡雜訊不得誤判成配額" (-not ($r.Err -match $QUOTA)) ("err=" + $r.Err)
+  Check "2e2 但仍要原樣傳回退出碼" ($r.Code -eq 7) ("exit=" + $r.Code)
+  Check "2e3 要附一句「有字樣但未據此判定」的提示" ($r.Err -match '未據此判定') ("err=" + $r.Err)
+
+  # tier 1 的另一個關鍵字：確認判準不是只認得 'usage limit' 這一句。
+  $r = Invoke-Sut -Target $consult -Params $consultArgs `
+    -StdoutText "" -StderrText "ERROR: 429 Too Many Requests" -FakeExit 7
+  Check "2f 錯誤行上的 429 → 42 + 哨兵" (($r.Code -eq 42) -and ($r.Err -match $QUOTA)) `
+    ("exit=" + $r.Code + " err=" + $r.Err)
+
+  # 尾端視窗：配額字樣出現在**很早**的地方、後面被大量軌跡蓋過 → 不得判定。
+  # （真的額度用盡時，錯誤一定在最後才印出來。）
+  $buried = (@('ERROR: usage limit reached') + (1..60 | ForEach-Object { "trace line $_" })) -join "`n"
+  $r = Invoke-Sut -Target $consult -Params $consultArgs -StdoutText "" -StderrText $buried -FakeExit 7
+  Check "2g 尾端視窗之外的配額字樣不得判定" (-not ($r.Err -match $QUOTA)) ("err=" + $r.Err)
 
   # ═══ §3 codex-exec：專屬接縫 ＋ 同一組 transport 保證 ══════════════════════
   Write-Output "§3 codex-exec"
@@ -340,7 +355,7 @@ try {
   }
   # 案數守衛：只證明「沒少跑案」，**不證明案子有牙齒**（刪 stimulus 留 assertion 的 mutant 案數不變）。
   # 公式：§2 固定 2 案 + §1 每 profile 7 案 + §2 4 案 + §3a 1 案 + §3 每 profile 3 案 + §4 6 案。
-  $expected = 24 + 10 * $profiles.Count   # 13 原有固定案 + §5 的 11 案
+  $expected = 29 + 10 * $profiles.Count   # 13 原有 + §5 的 11 + §2 新增的 4（2e2/2e3/2f/2g）
   $ran = $script:pass + $script:fail
   Check "案數守衛：實跑 $expected 案" ($ran -eq $expected) ("實跑=" + $ran + " 期望=" + $expected)
 }

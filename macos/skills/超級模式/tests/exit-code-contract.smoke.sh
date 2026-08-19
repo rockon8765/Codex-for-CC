@@ -47,7 +47,7 @@ STUB
 chmod +x "$root/stub/codex"
 
 pass=0; fail=0; failed=""
-EXPECTED_CHECKS=13   # 只證明「沒少跑案」，不證明案子有牙齒
+EXPECTED_CHECKS=17   # 只證明「沒少跑案」，不證明案子有牙齒
 
 chk() {
   if [ "$2" = "$3" ]; then pass=$((pass+1)); else
@@ -102,6 +102,21 @@ chk  "4a 不得吃掉退出碼（仍 7，不是 1）" "$RC" "7"
 chkm "4b 訊息附上逐字稿不完整診斷" "$ERR" "逐字稿不完整" 1
 run 7 "" "ERROR: usage limit reached" 1
 chk  "4c 逐字稿壞掉但配額分類不受影響 → 42" "$RC" "42"
+
+echo "§4b 誤陽性負例：codex 的推理/工具軌跡不得被判成配額"
+# 2026-08-13 事故逐字稿的真實形狀：前三行是軌跡雜訊，最後一行才是真正的（非配額）原因。
+noisy='docs/history/FIX-PLAN-macos-2026-07-03.md:401:  3. rerun tests
+grep hit: "CONSULT_UNAVAILABLE_QUOTA: codex quota/auth failure"
+web search: CLICOLOR_FORCE
+ERROR: This content was flagged for possible cybersecurity risk.'
+run 7 "" "$noisy"
+chkm "4d 軌跡雜訊不得誤判成配額" "$ERR" "CONSULT_UNAVAILABLE_QUOTA" 0
+chk  "4e 仍要原樣傳回退出碼"      "$RC" "7"
+chkm "4f 要附「未據此判定」的提示" "$ERR" "未據此判定" 1
+
+# tier 1 的另一個關鍵字（確認不是只認得 usage limit）
+run 7 "" "ERROR: 429 Too Many Requests"
+chk  "4g 錯誤行上的 429 → 42"     "$RC" "42"
 
 echo "§5 preflight：logdir 位置是個檔案 → 呼叫 codex 之前就停"
 chmod -R u+w "$root/home" 2>/dev/null || true

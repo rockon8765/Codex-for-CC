@@ -394,18 +394,41 @@ if ($code -eq 0) {
 } else {
   Remove-Item -LiteralPath $answerFile -Force -ErrorAction SilentlyContinue
   # 配額/認證類失敗 → 明確標記 + 專屬 exit 42，讓上層 fail-fast、別在額度最稀缺時空轉重試。
-  # ⚠️ 2026-08-19：判準來源從「回頭重讀整份 $log」改成**記憶體裡捕捉的 stderr**。
-  #    舊寫法把「分類正確性」綁在磁碟寫入是否成功上：log 寫壞 → 分類跟著錯，
-  #    而 log 寫壞正是最需要正確分類的時候。log 現在只是持久化副作用。
-  #    ⚠️ 這**不等於** QUOTA-CLASSIFIER 已修：regex 邊界問題（`\b401\b` 擋不住 `401:`）
-  #    仍在，只是誤陽性的來源從「整份逐字稿（含 codex 回答正文）」縮到「stderr」。
-  if ($stderrText -match '(?i)usage limit|rate limit|\b429\b|quota|not logged in|unauthorized|\b401\b') {
+  # ══ 配額/認證分類器（兩層）══════════════════════════════════════════════
+  # 判準來源是**記憶體裡捕捉的 stderr**，不回頭重讀 $log —— 舊寫法把「分類正確性」
+  # 綁在磁碟寫入是否成功上，而 log 寫壞正是最需要正確分類的時候。
+  #
+  # ⚠️ 為什麼不能在整段 stderr 找子字串（2026-08-19 實證，88 份真實逐字稿）：
+  #    codex 把**推理軌跡與工具輸出**寫進 stderr，裡面充滿 grep 行號前綴（`…md:401:`）
+  #    與本 repo 原始碼裡的 `CONSULT_UNAVAILABLE_QUOTA` 字串。47 份「只在 stderr 命中」
+  #    的逐字稿幾乎全是**成功**的諮詢 ⇒ stderr 是最吵的輸入，不是最乾淨的。
+  #    真正的致命錯誤長成「行首 ERROR:、出現在尾端」（2026-08-13 事故即如此）。
+  #
+  # ⚠️ 我們**沒有**任何「真的配額耗盡」的逐字稿樣本 ⇒ 寫不出有證據支撐的精確正例。
+  #    故 Tier 1 只在「錯誤行 ∧ 配額字樣」時才 fail-fast；其餘只提示、不下判斷。
+  #    哨兵文案一律是「疑似…（未確證）」——不要再寫成斷言。
+  $quotaRe = '(?i)usage limit|rate limit|\b429\b|quota|not logged in|unauthorized|\b401\b'
+  $errLineRe = '^\s*(ERROR|error)\b'
+  $tailLines = @()
+  if ($stderrText) { $tailLines = @(($stderrText -split "`r?`n") | Select-Object -Last 40) }
+  $quotaErrLines = @($tailLines | Where-Object { $_ -match $errLineRe -and $_ -match $quotaRe })
+  $quotaHintLines = @($tailLines | Where-Object { $_ -match $quotaRe })
+
+  if ($quotaErrLines.Count -gt 0) {
     # 用 [Console]::Error 而非 Write-Warning：$WarningPreference='Stop' 下 Write-Warning 會變成
     # 終止性例外，程式走不到下一行的 exit → 退出碼契約塌成 1（兩 host 實測）。另外 warning stream
     # 跨 process 會落到 OS stdout，呼叫端在 stderr 根本看不到這個哨兵。
-    [Console]::Error.WriteLine("CONSULT_UNAVAILABLE_QUOTA: codex 配額/認證失敗 (exit $code)。停止重試諮詢，向使用者回報；經同意可跑 super-mode.ps1 -Off 降級為一般模式。transcript: $log" + (Get-TranscriptNote))
+    [Console]::Error.WriteLine("CONSULT_UNAVAILABLE_QUOTA: 疑似 codex 配額/認證失敗（未確證，exit $code）。" +
+      "判準：逐字稿尾端的 codex 錯誤行命中配額/認證字樣 -- " + $quotaErrLines[0].Trim() +
+      " 。停止重試諮詢，向使用者回報；經同意可跑 super-mode.ps1 -Off 降級為一般模式。transcript: $log" + (Get-TranscriptNote))
     exit 42
   }
-  [Console]::Error.WriteLine("codex-consult: codex exited [$code] -- no credential written. transcript: $log" + (Get-TranscriptNote))
+  $hint = ""
+  if ($quotaHintLines.Count -gt 0) {
+    # 有字樣但不在 codex 的錯誤行上 —— 依 2026-08-13 的教訓，這種情況**不得**判成配額失敗。
+    $hint = " （附註：逐字稿尾端出現配額/認證相關字樣，但不在 codex 的錯誤行上，故未據此判定；" +
+      "若你懷疑真的是額度問題，請自行檢視逐字稿。）"
+  }
+  [Console]::Error.WriteLine("codex-consult: codex exited [$code] -- no credential written. transcript: $log" + (Get-TranscriptNote) + $hint)
 }
 exit $code

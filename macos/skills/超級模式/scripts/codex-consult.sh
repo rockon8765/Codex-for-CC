@@ -269,13 +269,28 @@ fi
 rm -f "$ans_tmp"
 
 # 額度/認證 fail-fast：stderr 已併入 log 後才掃（樣式集中在這一條，codex 改字樣只改這裡）
-# ⚠️ 判準吃的是記憶體裡的 stderr，不是磁碟上的 $log（與 Windows 對齊）。
-# ⚠️ 這**不等於** QUOTA-CLASSIFIER 已修：本式仍是「在整段文字裡找子字串」，
-#    誤陽性（codex 推理軌跡裡的 grep 行號前綴、本 repo 原始碼裡的 QUOTA 字串）仍在。
-#    精度問題見 docs/backlog.md 的 QUOTA-CLASSIFIER。
-if printf '%s' "$stderr_text" | grep -qiE 'usage limit|rate limit|429|quota|not logged in|unauthorized|401'; then
-  echo "CONSULT_UNAVAILABLE_QUOTA: codex quota/auth failure (exit $code). 停止重試諮詢，向使用者回報；經同意可跑 super-mode.sh off 降級為一般模式。transcript: $log$(transcript_note)" >&2
+# ══ 配額/認證分類器（兩層）══════════════════════════════════════════════
+# 判準來源是記憶體裡的 stderr，不回頭讀 $log（與 Windows 對齊）。
+#
+# ⚠️ 為什麼不能在整段 stderr 找子字串（2026-08-19 實證，88 份真實逐字稿）：
+#    codex 把推理軌跡與工具輸出寫進 stderr，裡面充滿 grep 行號前綴（`…md:401:`）與
+#    本 repo 原始碼裡的 CONSULT_UNAVAILABLE_QUOTA 字串；47 份「只在 stderr 命中」的
+#    逐字稿幾乎全是**成功**的諮詢。真正的致命錯誤長成「行首 ERROR:、出現在尾端」。
+#
+# ⚠️ 沒有任何「真的配額耗盡」的樣本 ⇒ 寫不出有證據支撐的精確正例。
+#    Tier 1（錯誤行 ∧ 配額字樣）才 fail-fast；Tier 2 只提示、不下判斷。
+# ⚠️ 數字用 [^0-9] 圍界而不用 \b：BSD 與 GNU 的 ERE 對 \b 支援不一致。
+quota_re='usage limit|rate limit|(^|[^0-9])429([^0-9]|$)|quota|not logged in|unauthorized|(^|[^0-9])401([^0-9]|$)'
+tail_txt="$(printf '%s\n' "$stderr_text" | tail -n 40)"
+err_lines="$(printf '%s\n' "$tail_txt" | grep -E '^[[:space:]]*([Ee][Rr][Rr][Oo][Rr])([[:space:]]|:)' || true)"
+if printf '%s\n' "$err_lines" | grep -qiE "$quota_re"; then
+  first_err="$(printf '%s\n' "$err_lines" | grep -iE "$quota_re" | head -n 1)"
+  echo "CONSULT_UNAVAILABLE_QUOTA: 疑似 codex 配額/認證失敗（未確證，exit $code）。判準：逐字稿尾端的 codex 錯誤行命中配額/認證字樣 -- $first_err 。停止重試諮詢，向使用者回報；經同意可跑 super-mode.sh off 降級為一般模式。transcript: $log$(transcript_note)" >&2
   exit 42
 fi
-echo "codex-consult: codex exited [$code] -- no credential written. transcript: $log$(transcript_note)" >&2
+hint=""
+if printf '%s\n' "$tail_txt" | grep -qiE "$quota_re"; then
+  hint=" （附註：逐字稿尾端出現配額/認證相關字樣，但不在 codex 的錯誤行上，故未據此判定；若你懷疑真的是額度問題，請自行檢視逐字稿。）"
+fi
+echo "codex-consult: codex exited [$code] -- no credential written. transcript: $log$(transcript_note)$hint" >&2
 exit "$code"
