@@ -59,12 +59,17 @@ printf 'test brief\n' > "$root/brief.md"
 # stub codex：POSIX 版呼叫的是 PATH 上的裸 `codex`，所以用 stub 目錄攔截即可
 # （Windows 版寫死絕對路徑，那邊才需要 SUPER_MODE_CODEX_CMD 接縫）。
 # FAKE_LOCK_LOG=1 時在輸出前把 log 設成唯讀，用來注入「跑到一半逐字稿壞掉」。
+# ⚠️ stdout/stderr 內容走**檔案**不走環境變數。
+#    Linux 對單一 argv/env 字串有 MAX_ARG_STRLEN = 131072 bytes 的上限，
+#    §4c 的 ~400KB 大輸入以環境變數傳會讓 exec 直接失敗（rc 126）——
+#    那個案子會「紅得莫名其妙」，而且在 macOS／Cygwin 上看不出來（它們沒這條限制）。
+#    2026-08-19 由 GitHub ubuntu-latest 的原生 Linux 執行抓到。
 cat > "$root/stub/codex" <<'STUB'
 #!/usr/bin/env bash
 echo RAN >> "$FAKE_TRACE"
 if [ "${FAKE_LOCK_LOG:-0}" = "1" ]; then chmod a-w "$FAKE_LOGDIR"/*.txt 2>/dev/null || true; fi
-printf '%s' "${FAKE_OUT:-}"
-printf '%s' "${FAKE_ERR:-}" >&2
+[ -f "${FAKE_OUT_FILE:-}" ] && cat "$FAKE_OUT_FILE"
+[ -f "${FAKE_ERR_FILE:-}" ] && cat "$FAKE_ERR_FILE" >&2
 exit "${FAKE_EXIT:-0}"
 STUB
 chmod +x "$root/stub/codex"
@@ -109,10 +114,13 @@ run() { # run <fake_exit> <stdout> <stderr> [lock]
   chmod -R u+w "$root/home" 2>/dev/null || true
   rm -rf "$root/home/.claude/super-mode-logs"
   : > "$root/trace"
+  # 內容落檔再傳路徑（見 stub 上方註解：環境變數有 128KB 上限）
+  printf '%s' "$2" > "$root/fake-out.txt"
+  printf '%s' "$3" > "$root/fake-err.txt"
   FAKE_TRACE="$root/trace" \
   FAKE_LOGDIR="$root/home/.claude/super-mode-logs" \
   FAKE_LOCK_LOG="${4:-0}" \
-  FAKE_EXIT="$1" FAKE_OUT="$2" FAKE_ERR="$3" \
+  FAKE_EXIT="$1" FAKE_OUT_FILE="$root/fake-out.txt" FAKE_ERR_FILE="$root/fake-err.txt" \
   HOME="$root/home" PATH="$root/stub:$PATH" LC_ALL="$RUN_LC" \
     "$SUT_BASH" "$SUT" -d "$root/repo" -f "$root/brief.md" -n > "$root/o.txt" 2> "$root/e.txt"
   RC=$?
@@ -194,7 +202,9 @@ chmod -R u+w "$root/home" 2>/dev/null || true
 rm -rf "$root/home/.claude/super-mode-logs"
 : > "$root/home/.claude/super-mode-logs"
 : > "$root/trace"
-FAKE_TRACE="$root/trace" FAKE_EXIT=0 FAKE_OUT="x" FAKE_ERR="" \
+printf '%s' "x" > "$root/fake-out.txt"; : > "$root/fake-err.txt"
+FAKE_TRACE="$root/trace" FAKE_EXIT=0 \
+  FAKE_OUT_FILE="$root/fake-out.txt" FAKE_ERR_FILE="$root/fake-err.txt" \
   HOME="$root/home" PATH="$root/stub:$PATH" \
   "$SUT_BASH" "$SUT" -d "$root/repo" -f "$root/brief.md" -n > "$root/o.txt" 2> "$root/e.txt"
 RC=$?; ERR="$(cat "$root/e.txt")"
