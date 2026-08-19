@@ -139,7 +139,11 @@ echo "§4c 大量輸出：判準不得因 SIGPIPE 而靜默失效"
 # 40 行 x 約 10KB，每行都是 quota ERROR。舊寫法（printf | grep -q）在 pipefail 之下
 # 會因為 grep 提早關管線讓 printf 得 141，整條 pipeline 非零 → if 判 false → 漏判。
 # 小輸入塞得進 pipe buffer 所以測不出來，一定要用大輸入。
-big_line="ERROR: usage limit reached $(head -c 10000 /dev/zero | tr '\0' 'x')"
+# ⚠️ 用 printf 的寬度指定造 padding，不要用 `head -c /dev/zero | tr '\0'`：
+# BSD 與 GNU 的 tr 對 NUL 處理不同，macOS 上可能拿到空字串 ⇒ 「大輸入」悄悄變成
+# 小輸入，SIGPIPE 這個案子就失去意義卻仍然全綠。
+pad="$(printf '%*s' 10000 '' | tr ' ' 'x')"
+big_line="ERROR: usage limit reached $pad"
 big_err=""
 i=0
 while [ "$i" -lt 40 ]; do big_err="$big_err$big_line
