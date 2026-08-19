@@ -69,6 +69,22 @@ exit "${FAKE_EXIT:-0}"
 STUB
 chmod +x "$root/stub/codex"
 
+# ── 前置條件：SUT 自己需要的東西 ─────────────────────────────────────────
+# ⚠️ 為什麼要在這裡擋：codex-consult.sh 的判準 preflight 需要 node。缺 node 時
+#    **每一個**案子都會得到 45，產出十幾個「實得 45，期望 42/7/46…」的失敗 ——
+#    全是同一個環境原因的迴聲，卻看起來像十幾個獨立的產品缺陷。
+#    （2026-08-19 於 WSL2 Ubuntu 實際踩到：18 個 FAIL，真因只是沒裝 node。）
+#    一句話講清楚，比一堆假的產品失敗有用。
+missing=""
+command -v node >/dev/null 2>&1 || missing="node"
+if [ -n "$missing" ]; then
+  echo "PREREQ-MISSING: 這個環境缺少 ${missing}，而受測腳本的判準 preflight 需要它。" >&2
+  echo "  ⇒ 本測試**無法在此環境執行**（不是產品有問題）。裝好後重跑。" >&2
+  echo "  ⇒ 這是 hard fail 而非 skip：靜靜跳過會讓「沒跑」看起來像「跑過了」。" >&2
+  echo "exit-code-contract.smoke: PREREQ-MISSING ($missing)"
+  exit 3
+fi
+
 pass=0; fail=0; failed=""
 EXPECTED_CHECKS=22   # 只證明「沒少跑案」，不證明案子有牙齒
 
@@ -110,7 +126,10 @@ run() { # run <fake_exit> <stdout> <stderr> [lock]
 #    退回 US-ASCII（macOS 實測 `LC_ALL=zz_ZZ.UTF-8 locale charmap` → US-ASCII、rc 0），
 #    此時任何「UTF-8 回歸案」都會全綠而其實什麼都沒測到。
 echo "SUT          = $SUT"
-echo "harness bash = $(bash --version | head -1)"
+# ⚠️ 用 ${BASH_VERSION}（**實際在跑這支腳本的 shell**），不要用 `bash --version`
+#    —— 後者問的是 PATH 上的 bash。以 `/bin/bash smoke.sh` 啟動、而 PATH 指向 brew bash 時，
+#    會把 harness 誤報成 5.x。這種「attestation 自己說謊」比沒有 attestation 更糟。
+echo "harness bash = $BASH_VERSION  (\$BASH=${BASH:-?})"
 echo "SUT bash     = $("$SUT_BASH" --version | head -1)"
 echo "locale       = $RUN_LC  charmap=$(LC_ALL="$RUN_LC" locale charmap 2>/dev/null || echo '?')"
 
@@ -193,6 +212,7 @@ echo "§6 locale 維度：判準不得隨 locale 漂移"
 #    雙引號字串裡的變數若**緊接**多位元組字元，該字元的首位元組會被併進變數名 → set -u → 中止 → 退出碼塌成 1、哨兵不印。
 #    2026-08-19 於 macOS 3.2.57 + ca_AD.UTF-8 實測：注入 mutant 後 pass=13 fail=6，
 #    而同一個 mutant 在 LC_ALL=C 下 pass=19 fail=0 ⇒ 紅必須是「mutant × locale」的交集。
+locale_skipped=0
 trigger_locale=""
 for L in $(locale -a 2>/dev/null); do
   case "$L" in
@@ -211,7 +231,10 @@ if [ -z "$trigger_locale" ]; then
     # 明示的退出口，而且會**留在輸出裡**——不是靜靜略過。
     echo "  !! 本機找不到 charmap 非 ASCII 的 locale，且已用 SMOKE_ALLOW_NO_UTF8_LOCALE=1 明示放行。"
     echo "  !! ⇒ 本次執行**沒有涵蓋 locale 維度**，不得當成完整驗證。"
-    pass=$((pass+3))   # 佔位，讓案數守衛仍成立；但上面兩行會留在 log 裡
+    # ⚠️ **不要**補假的 PASS 讓尾行維持 22/0 —— 自動化入口只讀摘要，補了就分不出
+    #    「跑完 22 案」與「跳過 locale 維度」。改成降低期望案數，並在**摘要行**留標記。
+    locale_skipped=1
+    EXPECTED_CHECKS=19
   else
     echo "  FAIL  找不到 charmap 非 ASCII 的 locale ⇒ locale 維度無法驗證。"
     echo "        這是 hard fail 而不是 skip：靜靜略過會讓「全綠」失去意義。"
@@ -237,6 +260,9 @@ if [ "$ran" -ne "$EXPECTED_CHECKS" ]; then
 fi
 
 echo
-echo "exit-code-contract.smoke: pass=$pass fail=$fail"
+# 摘要行帶標記：自動化入口的 marker 只認乾淨形式，跳過 locale 就對不上。
+suffix=""
+[ "${locale_skipped:-0}" = "1" ] && suffix=" LOCALE-DIMENSION-NOT-COVERED"
+echo "exit-code-contract.smoke: pass=$pass fail=$fail$suffix"
 if [ "$fail" -ne 0 ]; then printf 'failed:%s\n' "$failed"; exit 1; fi
 exit 0

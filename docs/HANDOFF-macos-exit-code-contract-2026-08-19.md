@@ -105,7 +105,7 @@ perl -0pi -e 's/if ! \( \{ echo "===== STDERR ====="; printf \x27%s\\n\x27 "\$st
 cp /tmp/m2.bak macos/skills/超級模式/scripts/codex-consult.sh
 
 echo
-echo "===== M3: 把 ${code} 退回 $code（期望：只在觸發 locale 下變紅）====="
+echo "===== M3: 把 dollar-brace-code 退回 dollar-code（期望：只在觸發 locale 下變紅）====="
 # 這個 mutant 專門驗 macOS bash 3.2 的 multibyte var-ref 缺陷。
 # **兩格都要跑**：LC_ALL=C 那格必須仍綠，否則分不出「locale 造成的」還是「我改壞了」。
 TRIG="$(for L in $(locale -a); do case "$L" in *[Uu][Tt][Ff]*|*8859*)
@@ -118,7 +118,7 @@ perl -0pi -e 's/exit \$\{code\}/exit \$code/' "$C"
 grep -cF 'exit $code' "$C"                               # 改完必須是 1（證明真的注入了）
 echo "-- 對照組 LC_ALL=C（期望仍 pass=19+ fail=0）--"
 SUT_BASH=/bin/bash LC_ALL=C /bin/bash macos/skills/超級模式/tests/exit-code-contract.smoke.sh 2>&1 | tail -1
-echo "-- 實驗組 LC_ALL=$TRIG（期望變紅）--"
+echo "-- 實驗組 LC_ALL=${TRIG} (expect RED) --"
 SUT_BASH=/bin/bash LC_ALL="$TRIG" /bin/bash macos/skills/超級模式/tests/exit-code-contract.smoke.sh 2>&1 | grep -E 'FAIL|pass=' | head -8
 cp /tmp/m3.bak "$C"
 

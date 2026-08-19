@@ -39,8 +39,12 @@ $MANIFEST = @(
   @{ Name = 'exit-contract-7';       Exe = 'pwsh';        Args = @('exit-code-contract.tests.ps1', '-Shell', 'pwsh');       Marker = '(?m)^exit-code-contract \[pwsh\]: pass=\d+ fail=0 '; TimeoutMs = 900000 }
   @{ Name = 'exit-contract-51';      Exe = 'pwsh';        Args = @('exit-code-contract.tests.ps1', '-Shell', 'powershell'); Marker = '(?m)^exit-code-contract \[powershell\]: pass=\d+ fail=0 '; TimeoutMs = 900000 }
   @{ Name = 'codex-check';           Exe = 'powershell';  Args = @('codex-check.tests.ps1');                   Marker = '(?m)^TOTAL \d+ FAIL 0\r?$';                  TimeoutMs = 900000 }
-  # repo 層級的靜態規則（不在 skill payload 內，所以用相對路徑往上指）。
-  @{ Name = 'no-multibyte-varref';   Exe = 'node';        Args = @('..\..\..\..\tests\no-multibyte-varref.test.js'); Marker = '(?m)^RESULT_CODE=OK\r?$';        TimeoutMs = 120000 }
+  # ⚠️ repo 層級的規則：這支測試**不在 skill payload 內**，live 安裝時根本不存在
+  #    （從 ~/.claude/skills/超級模式/tests 往上四層是 %USERPROFILE%，不是 repo 根）。
+  #    2026-08-19 我上一輪才修掉「matcher 寫死 --repo 導致 live 必敗」，
+  #    加這條時**用同一個模式再犯一次** —— repo-only 的東西塞進 repo/live 共用 runner。
+  #    所以每一列都要宣告它適用哪些 mode，而被跳過的要**印出來**，不能靜靜消失。
+  @{ Name = 'no-multibyte-varref';   Exe = 'node';        Args = @('..\..\..\..\tests\no-multibyte-varref.test.js'); Marker = '(?m)^RESULT_CODE=OK\r?$';        TimeoutMs = 120000; Modes = @('repo') }
 )
 
 # 這個數字是**刻意寫死**的：manifest 被人不小心刪掉一列時要看得出來。
@@ -56,8 +60,15 @@ if ($MANIFEST.Count -ne $EXPECTED_ENTRIES) {
   $fail++
 }
 
+$skipped = @()
 foreach ($m in $MANIFEST) {
   if ($Filter -and ($m.Name -notlike "*$Filter*")) { continue }
+  # 沒宣告 Modes = 兩種 mode 都跑。宣告了就只在列出的 mode 跑。
+  $entryModes = if ($m.ContainsKey('Modes')) { $m.Modes } else { @('repo', 'live') }
+  if ($entryModes -notcontains $Mode) {
+    $skipped += ("{0}（只在 -Mode {1} 跑）" -f $m.Name, ($entryModes -join '/'))
+    continue
+  }
   $target = Join-Path $here $m.Args[0]
   if (-not (Test-Path -LiteralPath $target)) {
     Write-Output ("FAIL  " + $m.Name + " -- 找不到 " + $target)
@@ -123,8 +134,14 @@ foreach ($m in $MANIFEST) {
 
 Write-Output ""
 $results | ForEach-Object { Write-Output $_ }
+if ($skipped.Count -gt 0) {
+  Write-Output ""
+  # 被跳過的要看得見：靜靜消失的話，「全綠」就分不出「跑完了」與「沒跑」。
+  Write-Output ("因 mode 而未執行： " + ($skipped -join '； '))
+}
 Write-Output ""
-Write-Output ("run-windows-suite [mode=" + $Mode + "]: entries=" + $MANIFEST.Count + " fail=" + $fail)
+Write-Output ("run-windows-suite [mode=" + $Mode + "]: entries=" + $MANIFEST.Count +
+  " ran=" + $results.Count + " skipped=" + $skipped.Count + " fail=" + $fail)
 if ($fail -gt 0) { exit 1 }
 Write-Output "SUITE_RESULT=OK"
 exit 0
