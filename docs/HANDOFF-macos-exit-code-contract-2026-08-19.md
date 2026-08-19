@@ -1,7 +1,9 @@
 # macOS 原生驗證交接單（退出碼契約批次，2026-08-19）
 
 分支：`fix/exit-code-contract-2026-08-19-pending-native-macos`
-規畫書：[`exit-code-contract-plan-2026-08-19.md`](exit-code-contract-plan-2026-08-19.md)（§9 是目前的未決清單）
+規畫書：[`exit-code-contract-plan-2026-08-19.md`](exit-code-contract-plan-2026-08-19.md)（過程紀錄）
+⚠️ **「還沒做什麼」的唯一真相是 [`backlog.md`](backlog.md)**，不是規畫書、也不是本檔。
+（規畫書 §9.2 曾被當成未決清單用，已標為取代。）
 
 ## 為什麼需要原生驗證
 
@@ -59,7 +61,7 @@ bash tests/ai-install/run-posix.sh 2>&1 | tail -5
 
 | 區塊 | 期望 |
 |---|---|
-| A（/bin/bash 3.2） | `exit-code-contract.smoke: pass=19 fail=0` |
+| A（/bin/bash 3.2） | `exit-code-contract.smoke: pass=N fail=0`（案數會隨批次增加，**看 fail=0 與摘要行的 `[sut-bash=… locale=…]`**，不要記死數字） |
 | B（PATH bash） | 同上 |
 | C | `PASS 117/117`（或更高）＋ `RESULT_CODE=OK` |
 | D | 以 Mac 上的實際數字為準；**重點是 symlink 那幾案不再是環境性失敗** |
@@ -147,11 +149,17 @@ git status --short   # 應該是乾淨的；不乾淨代表還原失敗，請 gi
 3. 兩個 mutant **有沒有**照預期變紅
 4. D 區塊在 Mac 上的實際數字
 
-## 本批還沒做的事（不在你這輪的驗證範圍）
+## 本批還沒做的事
 
-見規畫書 §9.2。摘要：分類器對「含 quota 字樣但與配額無關的錯誤行」仍會誤判
-（缺真配額樣本，無法校準）、log 目錄建立仍在 exit 46 契約之外、
-POSIX `codex-exec.sh` 的 `-q` 分支 transport 未修、Linux CI 只跑 `bash -n`。
+⚠️ **以 [`backlog.md`](backlog.md) 為準**，不要看本段的舊摘要。
+
+本檔先前這一段寫的三件事**已經全部做完**（2026-08-19 稍晚）：
+log 目錄建立已納入 exit 46 契約、POSIX `codex-exec.sh` 的 `-q` 分支 transport 已修、
+Linux CI 已從「只跑 `bash -n`」改成**實際執行** smoke 與靜態守衛。
+留這段話在這裡本身就是 Codex 第六輪點名的「文件入口漂移」，故一併訂正。
+
+目前仍開放的見 backlog 的 `QUOTA-CLASSIFIER`／`CODEX-CHECK-WARNING`／
+`BSD-GREP-INVALID-BYTES`／`WINDOWS-CI` 四列。
 
 ---
 

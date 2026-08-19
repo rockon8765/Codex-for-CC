@@ -138,6 +138,7 @@ windows/                         # PowerShell 版（已稽核、已部署）
     lib/      gate-registration.js  consult-answer.js      # 三平台**逐位元相同**，由 tests/gate-registration.test.js §C 守住
     scripts/  super-mode.ps1  codex-consult.ps1  codex-exec.ps1  codex-check.ps1
     tests/    run-windows-suite.ps1   # ← 單一入口（顯式 manifest；最後印 SUITE_RESULT=OK）
+              #   -Mode repo|live 必填語義：live 會拒絕 repo root，-Filter 只產出 FILTERED 不算證據
               run-gate-tests.js  run-gate-tests.ps1  matcher-contract.test.js  gate-cases.json
               consult-schema.tests.ps1  consult-credential.tests.ps1  codex-check.tests.ps1
               exit-code-contract.tests.ps1   # 退出碼契約：preference 矩陣／逐字稿故障／AST 守衛
