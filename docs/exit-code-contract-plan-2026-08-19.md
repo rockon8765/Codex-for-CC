@@ -72,6 +72,44 @@ Windows 漏了這一步。⇒ 修這件事**不是範圍擴張，是補齊等價
 | `codex-check.ps1` | 468 | `& cmd.exe` 後才抓 `$smokeExit` | 擷取前中止 |
 | `codex-check.ps1` | 513 / 515 | `Write-Warning` 緊接 `Remove-Item` 清快取 | **壞快取不會被刪**，下次非 `-Force` 仍命中舊綠快取，把壞掉的 codex 報成可用 |
 
+### 2.5 `QUOTA-CLASSIFIER` 的實證診斷（2026-08-19，**推翻了 Codex 的一條建議**）
+
+Codex 第二輪建議「分類器直接吃 captured stderr，不再重讀 log」。我照做之後去翻**真實逐字稿**驗證，
+發現這條建議建立在一個錯誤的前提上：它假設 stderr 是乾淨的錯誤通道。**在本 repo 不是。**
+
+**方法**：對 `~/.claude/super-mode-logs/` 的 88 份 `codex_consult_*.txt`，
+以 `===== STDERR =====` 切成 stdout / stderr 兩段，分別套用現行判準 regex。
+
+**結果**：
+
+| 命中位置 | 份數 |
+|---|---|
+| 只在 stdout 命中 | **0** |
+| 兩段都命中 | 10 |
+| **只在 stderr 命中** | **47** |
+
+而這 47 份**幾乎全是成功的諮詢**（exit 0，根本不是配額失敗）。原因是
+**codex 把推理軌跡與工具輸出寫到 stderr**，其中包含：
+
+- `FIX-PLAN-macos-2026-07-03.md:401:` —— **grep 的行號前綴**，正是 2026-08-13 事故的同一種東西；
+- `CONSULT_UNAVAILABLE_QUOTA` —— codex 讀了**我們自己的原始碼**，那個字串裡就有 `QUOTA`。
+
+⇒ **stderr 是本 repo 最吵的輸入，不是最乾淨的。** 「換 stream」根本不是這題的解法。
+
+**2026-08-13 事故的地面真相**（逐字稿 `codex_consult_20260813_041806_f7b3fe.txt`）：
+
+- `===== STDERR =====` 出現在**位置 0** ⇒ 那次 **stdout 是空的**，整份 303KB 都是 stderr。
+- 真正的失敗原因是 codex 自己印的：
+  `ERROR: This content was flagged for possible cybersecurity risk...`（OpenAI 內容過濾），**與配額無關**。
+- ⇒ **只改成 stderr-only 並不能修掉這次事故**（stdout 本來就是空的，兩者等價）。
+
+**因此判準的問題不是「哪一條 stream」，是「stream 裡的哪一部分」。**
+真正的 codex 致命錯誤是**行首 `ERROR: ` 的行、出現在 stderr 尾端**；
+誤陽性則散布在中段的推理軌跡裡。
+
+⚠️ **我們手上沒有任何一份「真的配額耗盡」的逐字稿樣本**，
+所以**無法從證據寫出精確的正例匹配式**。這一點必須誠實寫進實作，見 P0-14。
+
 ---
 
 ## 3. Codex 兩輪反方審查：立場與我的裁決
@@ -94,7 +132,7 @@ Windows 漏了這一步。⇒ 修這件事**不是範圍擴張，是補齊等價
 | **我提的折衷（pipeline 內 `Add-Content -ErrorAction Stop`）是錯的** —— `-ErrorAction Stop` 會刻意凌駕本地 EAP，在擷取 rc 前中止 | **採納，且這是我這輪最大的錯** | 邏輯直接成立：我為了保住 log 完整性，把我正在修的「提前中止」換個地方再犯一次 |
 | 第三案：**B ＋ 完整 drain ＋ 延遲裁決** | **採納為主設計**（§4） | 它同時解決 rc 擷取、log 失敗、以及分類輸入來源三個問題 |
 | `EAP=Continue` 只避免提前終止，**不等於完整中和**（第 5 列 stderr 會多出 `NativeCommandExitException`） | **採納** | 我自己的量測第 5 列就有這個現象，我原本沒把它當回事 |
-| 分類器應直接吃 **captured stderr**，不要重讀 log | **採納，且我認為這是整份審查裡最重要的一條** | 現況把「分類正確性」綁在磁碟寫入成功上；log 應該是副作用不是判準輸入 |
+| 分類器應直接吃 **captured stderr**，不要重讀 log | **部分採納 —— 前半對、後半錯** | 「判準不該綁在磁碟寫入成功上」完全正確，已採納。但「stderr 是比較乾淨的輸入」這個隱含前提**經實證推翻**（§2.5）：88 份真實逐字稿中，47 份**只在 stderr** 命中配額 regex，且幾乎都是成功諮詢——因為 codex 把推理軌跡與工具輸出（含 grep 行號前綴、含我們自己原始碼裡的 `QUOTA` 字串）都寫到 stderr。**stderr 是最吵的輸入，不是最乾淨的。** 判準的軸線是「文字的哪一部分」而不是「哪一條 stream」 |
 | 測試永遠只餵 `exit 7` ⇒ 產品改成寫死 `exit 7` 仍全綠 | **採納** | 這正是「案數守衛不等於牙齒」的同型問題 |
 | 假 codex 必須分開控制 stdout / stderr；要有「stdout 含 `401:`、stderr 非配額」負例 | **採納** | 這條同時是 D-2 的測試地基 |
 | exec seam 的 `Test-Path` 不夠（要 `PathType Leaf`＋FileSystem provider＋`Assert-CmdSafePath`＋nonce attestation＋child timeout） | **採納** | 我這輪已經誤打真 codex 4 次，timeout 這條是切身之痛 |
@@ -170,7 +208,7 @@ native 呼叫段落產出一個結構，之後**所有**裁決都只看這個結
 |---|---|---|
 | **P0-0** | 改寫 `cc49808` 的 commit 訊息與 backlog 敘述（該 commit 宣稱「契約已修好」是**假的**） | backlog 兩處錯誤敘述訂正；不得留下「已修」字樣 |
 | **P0-1** | 依 §4 重寫 `codex-consult.ps1:214-230` 與 `codex-exec.ps1:92-104` 的 native 段落 | §2.1 五種組合全部 rc 正確、哨兵在 stderr、stdout 不含哨兵 |
-| **P0-2** | 分類器改吃 captured stderr（不重讀 log） | 「log 完全寫不出去」時分類結果**不變** |
+| **P0-2** | 分類器改吃**記憶體捕捉的 stream**（不回頭重讀 log） | 「log 完全寫不出去」時分類結果**不變**。⚠️ 依 §2.5，這只解決「判準綁在磁碟寫入成功上」這個問題，**完全不解決誤陽性**——換成 stderr-only 對 2026-08-13 那次事故是**等價的**（該次 stdout 為空）。精度問題全部歸 P0-14。 |
 | **P0-3** | 三平台 `46`／transcript 失敗語義（§4.3） | 三平台行為等價；POSIX 亦實作 |
 | **P0-4** | preference 矩陣測試：pwsh 跑 2³ 完整矩陣（Warning × EAP × native）；WinPS 跑 2²，native 標 N/A | 另**禁止** stderr 出現 `NativeCommandExitException` / `NativeCommandError` |
 | **P0-5** | passthrough 至少用**兩個不同** rc（例如 7 與 23）＋ 普通 `rc42` 無哨兵負例 | 產品改成寫死 `exit 7` 必須紅 |
@@ -182,7 +220,7 @@ native 呼叫段落產出一個結構，之後**所有**裁決都只看這個結
 | **P0-11** | 接進 canonical 入口：`docs/AI-INSTALL.md` 步驟 1a（repo 驗證）與步驟 3（live 驗證）兩張清單 ＋ README 檔案清單 | 只補 README **不算**完成 |
 | **P0-12** | 兩 host 全跑，並 **attest 實際 child host／版本** | 特別注意 `codex-check.tests.ps1` 寫死 `powershell.exe` |
 | **P0-13** | 位元層驗收：UTF-8 BOM ＋ working-tree CRLF | `.gitattributes` **不會**自動修復被 `sed -i` 洗掉的既有工作檔 |
-| **P0-14** | **D-2 併入本批**（見 §3.2 排序裁決）：三平台配額分類器診斷與修正 ＋ 三平台回歸測試 | Windows `\b401\b` 擋不住 `401:`；POSIX 連 `\b` 都沒有 |
+| **P0-14** | **D-2 併入本批**（見 §3.2 排序裁決）：三平台配額分類器修正 ＋ 三平台回歸測試 | 依 §2.5 的診斷，判準要從「在整段文字裡找子字串」改成「**只認 codex 自己的錯誤行**」：(a) 只掃 stderr **尾端**有限行數；(b) 只比對**行首錯誤標記**（實測樣本為 `ERROR: `）的行；(c) 保留 `\b` 邊界並讓 POSIX 對齊 Windows。⚠️ **手上沒有真配額失敗的樣本** ⇒ 不得宣稱「精確辨識配額」。哨兵文案必須降級為**「疑似配額/認證失敗（未確證）」**，並保留逐字稿路徑讓人自己看。負例（必須不命中）：stderr 中段含 `…md:401:` 的 grep 行號前綴、含本 repo 原始碼裡的 `CONSULT_UNAVAILABLE_QUOTA` 字串、以及 `ERROR: This content was flagged…` 的內容過濾失敗。 |
 | **P0-15** | **D-3 併入本批**：消費契約改成「rc 42 **且** 精確哨兵」 | 三份 `SKILL.md` ＋ 三份 `CLAUDE-global-rule.md` ＋ 相關測試註解與操作指引**全部**統一，否則仍會有 consumer 單獨把 raw rc42 讀成配額 |
 | **P0-16** | 部署到 live（`docs/AI-INSTALL.md`）並跑 live suite | **repo 改好 ≠ 生效**；本輪就是被這個咬過 |
 

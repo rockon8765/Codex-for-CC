@@ -200,6 +200,17 @@ $logDir = Join-Path $env:USERPROFILE ".claude\super-mode-logs"
 if (-not (Test-Path $logDir)) { New-Item -ItemType Directory -Path $logDir | Out-Null }
 $log = Join-Path $logDir ("codex_consult_{0}_{1}.txt" -f (Get-Date -Format "yyyyMMdd_HHmmss"), ([guid]::NewGuid().ToString('N').Substring(0, 6)))  # 去重後綴防同秒碰撞
 
+# ── 逐字稿前置：在呼叫 codex **之前**就強制把 log 建出來 ──────────────
+# 此刻中止是安全的：還沒有 native 退出碼需要保住。呼叫 codex 之後就不能再這樣做了
+# （見下方 capture scope）。順序本身就是設計的一部分。
+try {
+  [System.IO.File]::WriteAllText($log, "", (New-Object System.Text.UTF8Encoding $false))
+}
+catch {
+  [Console]::Error.WriteLine("CONSULT_TRANSCRIPT_UNAVAILABLE: 無法建立逐字稿 $log -- $_ 。**尚未呼叫 codex**，未鑄造憑證。")
+  exit 46
+}
+
 $Dir = $Dir.TrimEnd('\')
 if ($Dir -match '^[A-Za-z]:$') { $Dir += '\' }
 Assert-CmdSafePath $Dir 'Dir'   # $Dir 也進 cmd /c 字串(既有注入面)，一併 fail-closed
@@ -211,6 +222,18 @@ $errFile = Join-Path $env:TEMP ("codex_err_{0}.txt" -f ([guid]::NewGuid().ToStri
 # "===== STDERR =====" 區段，把 stderr 一起送進判準會改變裁決（例如 schema 模式的 JSON 解析）。
 $answerFile = Join-Path $env:TEMP ("codex_answer_{0}.txt" -f ([guid]::NewGuid().ToString('N')))
 [System.IO.File]::WriteAllText($brief, $p, (New-Object System.Text.UTF8Encoding $false))
+# 逐行捕捉的 codex stdout；裁決一律只看這裡，不回頭讀 $log。
+$stdoutLines = New-Object System.Collections.Generic.List[string]
+# 逐字稿寫入錯誤只記**第一個**（後續多半是同一個原因刷屏），且絕不中止 pipeline。
+$transcriptErrors = New-Object System.Collections.Generic.List[string]
+$stderrText = ""
+$code = $null
+
+function Get-TranscriptNote {
+  if ($transcriptErrors.Count -eq 0) { return "" }
+  return " ⚠️ 逐字稿不完整（" + $transcriptErrors[0] + "），上面的判斷是以記憶體捕捉的輸出做的。"
+}
+
 try {
   # stderr 導到獨立檔(編號佔位符 {3})；不可用 2>&1(會回灌 stdout)。$LASTEXITCODE 仍是 codex 退出碼。
   # 5.2：--ephemeral 讓短命唯讀諮詢不落地 Codex session 檔(下游不 resume 此 session，留著純浪費)
@@ -219,14 +242,62 @@ try {
   # generate_memories=false 斷寫出(否則簡報進全域 memories，下次 consult 又讀到，形成自我強化閉環)。
   # 0.144.1 實測：加這兩個 -c 後 MEMORIES: NO_MEMORIES_VISIBLE、exit 0、MCP 工具面/沙箱邊界皆不受影響。
   $inner = ('"{0}" exec --sandbox read-only --ephemeral --skip-git-repo-check -c memories.use_memories=false -c memories.generate_memories=false -C "{1}" ' + $schemaArg + '< "{2}" 2> "{3}"') -f $codexCmd, $Dir, $brief, $errFile, $SchemaFile
-  $answerLines = New-Object System.Collections.Generic.List[string]
-  & cmd.exe /d /s /c $inner | ForEach-Object { $_; $answerLines.Add([string]$_); Add-Content -LiteralPath $log -Value $_ -Encoding utf8 }
-  $code = $LASTEXITCODE
-  [System.IO.File]::WriteAllText($answerFile, ($answerLines -join "`n"), (New-Object System.Text.UTF8Encoding $false))
-  if (Test-Path $errFile) {
-    Add-Content -LiteralPath $log -Value "===== STDERR =====" -Encoding utf8
-    [System.IO.File]::ReadAllText($errFile, (New-Object System.Text.UTF8Encoding $false)) | Add-Content -LiteralPath $log -Encoding utf8
+
+  # ══ native capture scope ══════════════════════════════════════════════════
+  # 這一段的唯一任務是「把 codex 跑完、把退出碼與兩條 stream 完整帶出來」。
+  # 在拿到退出碼之前，**任何**理由的提前中止都會讓 rc 契約塌成 1。
+  #
+  # 為什麼要動 preference（2026-08-19 兩 host 實測）：
+  #   (1) pwsh 7：`$PSNativeCommandUseErrorActionPreference = $true` 且 `$ErrorActionPreference='Stop'`
+  #       時，native 非零退出會丟 NativeCommandExitException —— 連下一行的 `$LASTEXITCODE` 都到不了。
+  #       實測 EAP=Stop × native=true → rc 塌成 1、哨兵消失；其餘三組 → rc=42。
+  #   (2) WinPS 5.1 沒有 (1) 那個 preference，但會把 native 的 stderr 包成 NativeCommandError；
+  #       本處 stderr 已在 cmd 層重導到檔案、正常不經 PowerShell，但 cmd.exe 自己仍可能寫 stderr。
+  # ⇒ 兩個都在本 scope 內降級，離開時還原。
+  # ⚠️ 這正是 POSIX 版 `set +e` … `code=${PIPESTATUS[0]}` … `set -e` 的平台翻譯，不是新機制。
+  $prevEap = $ErrorActionPreference
+  try {
+    $ErrorActionPreference = 'Continue'
+    # -Scope 0 = 只在本 scope 建立遮蔽變數；finally 移除後，呼叫端原本的值自然重新可見。
+    Set-Variable -Name 'PSNativeCommandUseErrorActionPreference' -Value $false -Scope 0
+
+    & cmd.exe /d /s /c $inner | ForEach-Object {
+      $line = [string]$_
+      $line                       # 即時回顯（呼叫端要看得到進度）
+      $stdoutLines.Add($line)
+      # ⚠️ 這裡**不可以**用 -ErrorAction Stop。log 寫入失敗若中止 pipeline，下面的
+      #    $LASTEXITCODE 就抓不到 → 又是一次 rc 塌成 1。（2026-08-19 我第一版的折衷
+      #    方案正是犯這個錯，被 Codex 反方審查抓到。）只記第一個錯，繼續 drain。
+      if ($transcriptErrors.Count -eq 0) {
+        try { Add-Content -LiteralPath $log -Value $line -Encoding utf8 -ErrorAction Stop }
+        catch { $transcriptErrors.Add("$_") }
+      }
+    }
+    $code = $LASTEXITCODE       # pipeline 完整結束後**立刻**擷取
   }
+  finally {
+    $ErrorActionPreference = $prevEap
+    Remove-Variable -Name 'PSNativeCommandUseErrorActionPreference' -Scope 0 -ErrorAction SilentlyContinue
+  }
+  # ══ capture scope 結束 ════════════════════════════════════════════════════
+
+  # ⚠️ 先把 raw stderr 讀進記憶體，**之後**才准清 temp。裁決只吃這份副本。
+  if (Test-Path -LiteralPath $errFile) {
+    try { $stderrText = [System.IO.File]::ReadAllText($errFile, (New-Object System.Text.UTF8Encoding $false)) }
+    catch { if ($transcriptErrors.Count -eq 0) { $transcriptErrors.Add("讀取 stderr 暫存檔失敗: $_") } }
+  }
+
+  # codex 的 **stdout 專用**副本，餵給判準用。⚠️ 不能拿 $log 代替：log 事後會被接上
+  # "===== STDERR =====" 區段，把 stderr 一起送進判準會改變裁決（例如 schema 模式的 JSON 解析）。
+  try { [System.IO.File]::WriteAllText($answerFile, ($stdoutLines -join "`n"), (New-Object System.Text.UTF8Encoding $false)) }
+  catch { if ($transcriptErrors.Count -eq 0) { $transcriptErrors.Add("寫入判準用 answer 暫存檔失敗: $_") } }
+
+  # 逐字稿的 stderr 區段：best-effort，失敗只記錄。
+  try {
+    Add-Content -LiteralPath $log -Value "===== STDERR =====" -Encoding utf8 -ErrorAction Stop
+    Add-Content -LiteralPath $log -Value $stderrText -Encoding utf8 -ErrorAction Stop
+  }
+  catch { if ($transcriptErrors.Count -eq 0) { $transcriptErrors.Add("逐字稿 stderr 區段寫入失敗: $_") } }
 }
 finally {
   Remove-Item -LiteralPath $brief -Force -ErrorAction SilentlyContinue
@@ -234,6 +305,13 @@ finally {
 }
 
 if ($code -eq 0) {
+  # ⚠️ 2026-08-19：codex 成功但逐字稿寫壞 → **不得**鑄證。憑證是「這次諮詢真的發生過」的收據，
+  #    而逐字稿是它唯一的稽核痕跡；沒有痕跡就不該發收據。專屬 exit 46（雙重失敗優先序見規畫書 §4.3）。
+  if ($transcriptErrors.Count -gt 0) {
+    [Console]::Error.WriteLine("CONSULT_TRANSCRIPT_FAILED: codex 成功 (exit 0)，但逐字稿寫入失敗 -- " +
+      $transcriptErrors[0] + " 。未鑄造憑證，**既有憑證（若有）未被移除**。transcript(可能不完整): $log")
+    exit 46
+  }
   # ⚠️ 2026-08-18：codex exit 0 **不再等於**可以鑄證。舊行為讓 codex 回空字串或幾個字
   #    也照樣解鎖 gate 20 分鐘，而那種情況通常正代表諮詢其實沒送到。
   #    判準本體在三平台共用的 lib/consult-answer.js，這裡只負責叫它並看結果。
@@ -301,17 +379,19 @@ if ($code -eq 0) {
   }
 } else {
   Remove-Item -LiteralPath $answerFile -Force -ErrorAction SilentlyContinue
-  # 配額/認證類失敗 → 明確標記 + 專屬 exit 42，讓上層 fail-fast、別在額度最稀缺時空轉重試
-  $tail = ""
-  try { $tail = (Get-Content -LiteralPath $log -Raw -ErrorAction SilentlyContinue) } catch {}
-  if ($tail -match '(?i)usage limit|rate limit|\b429\b|quota|not logged in|unauthorized|\b401\b') {
-    # 用 [Console]::Error 而非 Write-Warning（理由同本檔 -Prompt deprecation 那段，再加一條更嚴重的）：
-    # $WarningPreference='Stop' 下 Write-Warning 會變成終止性例外，程式**根本走不到下一行的 exit**，
-    # 退出碼契約塌成 1（pwsh 7 與 WinPS 5.1 兩 host 實測皆然），呼叫端據以 fail-fast 的專屬 42 就此消失。
-    # 另外 warning stream 跨 process 會落到 OS stdout —— 呼叫端在 stderr 根本看不到這個哨兵。
-    [Console]::Error.WriteLine("CONSULT_UNAVAILABLE_QUOTA: codex 配額/認證失敗 (exit $code)。停止重試諮詢，向使用者回報；經同意可跑 super-mode.ps1 -Off 降級為一般模式。transcript: $log")
+  # 配額/認證類失敗 → 明確標記 + 專屬 exit 42，讓上層 fail-fast、別在額度最稀缺時空轉重試。
+  # ⚠️ 2026-08-19：判準來源從「回頭重讀整份 $log」改成**記憶體裡捕捉的 stderr**。
+  #    舊寫法把「分類正確性」綁在磁碟寫入是否成功上：log 寫壞 → 分類跟著錯，
+  #    而 log 寫壞正是最需要正確分類的時候。log 現在只是持久化副作用。
+  #    ⚠️ 這**不等於** QUOTA-CLASSIFIER 已修：regex 邊界問題（`\b401\b` 擋不住 `401:`）
+  #    仍在，只是誤陽性的來源從「整份逐字稿（含 codex 回答正文）」縮到「stderr」。
+  if ($stderrText -match '(?i)usage limit|rate limit|\b429\b|quota|not logged in|unauthorized|\b401\b') {
+    # 用 [Console]::Error 而非 Write-Warning：$WarningPreference='Stop' 下 Write-Warning 會變成
+    # 終止性例外，程式走不到下一行的 exit → 退出碼契約塌成 1（兩 host 實測）。另外 warning stream
+    # 跨 process 會落到 OS stdout，呼叫端在 stderr 根本看不到這個哨兵。
+    [Console]::Error.WriteLine("CONSULT_UNAVAILABLE_QUOTA: codex 配額/認證失敗 (exit $code)。停止重試諮詢，向使用者回報；經同意可跑 super-mode.ps1 -Off 降級為一般模式。transcript: $log" + (Get-TranscriptNote))
     exit 42
   }
-  [Console]::Error.WriteLine("codex-consult: codex exited [$code] -- no credential written. transcript: $log")
+  [Console]::Error.WriteLine("codex-consult: codex exited [$code] -- no credential written. transcript: $log" + (Get-TranscriptNote))
 }
 exit $code
