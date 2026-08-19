@@ -74,7 +74,11 @@ mk_or_46() {  # mk_or_46 <label> <template>
 }
 brief_tmp="$(mk_or_46 '簡報' "${TMPDIR:-/tmp}/codex_brief_XXXXXX")"
 err_tmp="$(mk_or_46 'stderr' "${TMPDIR:-/tmp}/codex_err_XXXXXX")"
-printf '%s' "$p" > "$brief_tmp"
+# ⚠️ 同 codex-consult：寫入失敗屬「尚未呼叫 codex」的 46，不是靜默 rc 1。
+if ! printf '%s' "$p" > "$brief_tmp" 2>/dev/null; then
+  echo "EXEC_TRANSCRIPT_UNAVAILABLE: 無法寫入暫存簡報 ${brief_tmp}。**尚未呼叫 codex**。" >&2
+  exit 46
+fi
 
 # 簡報走 stdin(< file)；stderr 導獨立檔再併 log，絕不 2>&1。
 # 注意 bash 3.2：set -u 下空陣列要用 ${arr[@]+"${arr[@]}"} 展開。
@@ -114,7 +118,11 @@ if [ -f "$err_tmp" ]; then stderr_text="$(cat "$err_tmp" 2>/dev/null || true)"; 
 if ! ( { echo "===== STDERR ====="; printf '%s\n' "$stderr_text"; } >> "$log" ) 2>/dev/null; then
   [ -n "$transcript_error" ] || transcript_error="逐字稿 stderr 區段寫入失敗"
 fi
-rm -f "$brief_tmp" "$err_tmp"
+# ⚠️ 收尾一律 `|| true`：從擷取退出碼到裁決之間**不得有任何可以中止的裸指令**，
+#    而逐行判斷「這行在 capture 前還是後」正是本批反覆出錯的來源，所以一致套用。
+#    TMPDIR 中途失去刪除權限就會讓 rm 非零 → set -e 中止 → rc 塌成 1、哨兵被吞。
+#    （2026-08-19 Codex 第七輪抓到。）
+rm -f "$brief_tmp" "$err_tmp" || true
 
 if [ "$code" -eq 0 ]; then
   # codex 成功但逐字稿寫壞 → 不得回報成功：派工的逐字稿是後續驗收的唯一依據。

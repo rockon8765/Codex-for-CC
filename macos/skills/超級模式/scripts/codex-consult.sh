@@ -74,7 +74,11 @@ run_validator() {
   VCODE=$?
   set -e
   VOUT="$(cat "$_vout")"; VERR="$(cat "$_verr")"
-  rm -f "$_vout" "$_verr"
+# ⚠️ 收尾一律 `|| true`：從擷取退出碼到裁決之間**不得有任何可以中止的裸指令**，
+#    而逐行判斷「這行在 capture 前還是後」正是本批反覆出錯的來源，所以一致套用。
+#    TMPDIR 中途失去刪除權限就會讓 rm 非零 → set -e 中止 → rc 塌成 1、哨兵被吞。
+#    （2026-08-19 Codex 第七輪抓到。）
+  rm -f "$_vout" "$_verr" || true
 }
 
 # ⚠️ 不可只看 exit 0：空模組、被截斷的檔、被 shim 掉的 node 都會自然 exit 0。
@@ -102,17 +106,17 @@ printf 'ALLOW: preflight\n%s\n' "$(printf 'x%.0s' $(seq 60))" > "$_pf_good"
 printf 'hi' > "$_pf_bad"
 run_validator "$_pf_good"
 if [ "$VCODE" -ne 0 ] || ! validator_sentinel_ok; then
-  rm -f "$_pf_good" "$_pf_bad"
+  rm -f "$_pf_good" "$_pf_bad" || true
   echo "CONSULT_VALIDATOR_UNAVAILABLE: 判準 preflight 失敗（好樣本 exit=$VCODE stdout='$VOUT'）。未鑄造憑證，**既有憑證未變**。" >&2
   exit 45
 fi
 run_validator "$_pf_bad"
 if [ "$VCODE" -ne 43 ]; then
-  rm -f "$_pf_good" "$_pf_bad"
+  rm -f "$_pf_good" "$_pf_bad" || true
   echo "CONSULT_VALIDATOR_UNAVAILABLE: 判準 preflight 失敗（壞樣本沒被擋，exit=${VCODE}）—— 判準可能是空的或被替換。未鑄造憑證，**既有憑證未變**。" >&2
   exit 45
 fi
-rm -f "$_pf_good" "$_pf_bad"
+rm -f "$_pf_good" "$_pf_bad" || true
 
 # T2b: -s 轉絕對路徑(-C 換工作根) + 啟動 codex 前先驗 JSON 可解析(fail-fast)；只約束輸出形狀，不改沙箱(read-only/ephemeral 不變)。
 schema_args=()
@@ -162,7 +166,12 @@ err_tmp="$(mk_or_46 'stderr' "${TMPDIR:-/tmp}/codex_err_XXXXXX")"
 # codex 的 **stdout 專用**副本，餵給判準用。⚠️ 不能拿 $log 代替：log 事後會被接上
 # "===== STDERR =====" 區段，把 stderr 一起送進判準會改變裁決（schema 模式的 JSON 解析尤其）。
 ans_tmp="$(mk_or_46 'answer' "${TMPDIR:-/tmp}/codex_answer_XXXXXX")"
-printf '%s' "$p" > "$brief_tmp"
+# ⚠️ mk_or_46 只證明「建得出空檔」；真正的寫入仍可能失敗（滿碟／配額／權限中途改變）。
+#    寫不進去 = codex 收不到輸入，屬「尚未呼叫 codex」的 46，不是靜默 rc 1。
+if ! printf '%s' "$p" > "$brief_tmp" 2>/dev/null; then
+  echo "CONSULT_TRANSCRIPT_UNAVAILABLE: 無法寫入暫存簡報 ${brief_tmp}。**尚未呼叫 codex**，未鑄造憑證。" >&2
+  exit 46
+fi
 
 # 簡報走 stdin(< file)避開引號/長度/word-split；stderr 導獨立檔再併 log，絕不 2>&1。
 # --ephemeral：短命唯讀諮詢不留 codex session 檔。
@@ -200,7 +209,7 @@ if [ -f "$err_tmp" ]; then stderr_text="$(cat "$err_tmp" 2>/dev/null || true)"; 
 if ! ( { echo "===== STDERR ====="; printf '%s\n' "$stderr_text"; } >> "$log" ) 2>/dev/null; then
   [ -n "$transcript_error" ] || transcript_error="逐字稿 stderr 區段寫入失敗"
 fi
-rm -f "$brief_tmp" "$err_tmp"
+rm -f "$brief_tmp" "$err_tmp" || true
 
 if [ "$code" -eq 0 ]; then
   # codex 成功但逐字稿寫壞 → 不得鑄證。憑證是「這次諮詢真的發生過」的收據，
@@ -215,7 +224,7 @@ if [ "$code" -eq 0 ]; then
   v_nocred=""; [ "$nocred" -eq 1 ] && v_nocred="--no-credential"
   v_schema=""; [ -n "$schema" ] && v_schema="--schema"
   run_validator "$ans_tmp" "$v_nocred" "$v_schema"
-  rm -f "$ans_tmp"
+  rm -f "$ans_tmp" || true
   if [ "$VCODE" -eq 43 ]; then
     echo "$VERR transcript: $log" >&2
     echo "（未鑄造新憑證；**既有憑證（若有）未被移除**，其原本的有效期不受本次影響。）" >&2
@@ -274,7 +283,7 @@ PY
   esac
   exit 0
 fi
-rm -f "$ans_tmp"
+rm -f "$ans_tmp" || true
 
 # 額度/認證 fail-fast：stderr 已併入 log 後才掃（樣式集中在這一條，codex 改字樣只改這裡）
 # ══ 配額/認證分類器（兩層）══════════════════════════════════════════════
