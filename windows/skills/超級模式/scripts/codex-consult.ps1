@@ -131,6 +131,19 @@ function Test-ValidatorSentinel($r) {
 function Assert-ValidatorUsable([string]$nodeExe) {
   # preflight：在燒掉一次諮詢**之前**就確認判準跑得動，而且不是「永遠放行」或「永遠拒絕」。
   # 兩個探針缺一不可——只驗好樣本會放過 always-OK 的空模組，只驗壞樣本會放過 always-43。
+  # ⚠️ TEMP 本身不可寫 → 那是**環境問題**，要回 46 並說清楚，不要讓下面的 catch
+  #    把它誤診成 45「判準模組 preflight 失敗」。真因是 TEMP，不是判準。
+  #    （POSIX 側的 mk_or_46 已經這樣做；不一起改就是我自己製造三平台分歧。）
+  $tempProbe = Join-Path $env:TEMP ("consult_tmp_probe_{0}.txt" -f ([guid]::NewGuid().ToString('N')))
+  try {
+    [System.IO.File]::WriteAllText($tempProbe, "probe", (New-Object System.Text.UTF8Encoding $false))
+    Remove-Item -LiteralPath $tempProbe -Force -ErrorAction SilentlyContinue
+  }
+  catch {
+    [Console]::Error.WriteLine("CONSULT_TRANSCRIPT_UNAVAILABLE: 暫存目錄不可寫（TEMP=$env:TEMP）-- $_ 。" +
+      "**尚未呼叫 codex**，未鑄造憑證。這是環境問題，不是判準或 codex 的問題。")
+    exit 46
+  }
   $good = Join-Path $env:TEMP ("consult_pf_g_{0}.txt" -f ([guid]::NewGuid().ToString('N')))
   $bad = Join-Path $env:TEMP ("consult_pf_b_{0}.txt" -f ([guid]::NewGuid().ToString('N')))
   try {

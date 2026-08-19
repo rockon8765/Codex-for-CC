@@ -141,6 +141,16 @@ if ($Dir -match '^[A-Za-z]:$') { $Dir += '\' }
 Assert-CmdSafePath $Dir 'Dir'   # $Dir 也進 cmd /c 字串(既有注入面)，一併 fail-closed
 
 # 正規化落地 UTF-8(無 BOM)暫存簡報，cmd `<` 重導向 → 位元組直達 codex
+# ⚠️ TEMP 不可寫是環境問題，走 46（與 consult 及 POSIX 對齊）。
+$tempProbe = Join-Path $env:TEMP ("exec_tmp_probe_{0}.txt" -f ([guid]::NewGuid().ToString('N')))
+try {
+  [System.IO.File]::WriteAllText($tempProbe, "probe", (New-Object System.Text.UTF8Encoding $false))
+  Remove-Item -LiteralPath $tempProbe -Force -ErrorAction SilentlyContinue
+}
+catch {
+  [Console]::Error.WriteLine("EXEC_TRANSCRIPT_UNAVAILABLE: 暫存目錄不可寫（TEMP=$env:TEMP）-- $_ 。**尚未呼叫 codex**。")
+  exit 46
+}
 $brief = Join-Path $env:TEMP ("codex_brief_{0}.txt" -f ([guid]::NewGuid().ToString('N')))
 $errFile = Join-Path $env:TEMP ("codex_err_{0}.txt" -f ([guid]::NewGuid().ToString('N')))
 try { [System.IO.File]::WriteAllText($brief, $p, (New-Object System.Text.UTF8Encoding $false)) }

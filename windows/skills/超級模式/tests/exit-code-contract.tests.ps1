@@ -126,7 +126,9 @@ function Invoke-Sut {
     [string]$Warn = '', [string]$Eap = '', [string]$Native = '',
     [string]$StdoutText = '', [string]$StderrText = '', [int]$FakeExit = 0,
     [string]$SeamVar = 'SUPER_MODE_CODEX_CMD',
-    [switch]$LockLog, [switch]$BreakLogDir
+    [switch]$LockLog, [switch]$BreakLogDir,
+    # 新 preflight 的兩條路：logdir 建不出來、暫存簡報寫不出去。
+    [switch]$BreakClaudeRoot, [switch]$BreakTemp
   )
   $o = Join-Path $root "o.txt"; $e = Join-Path $root "e.txt"
   Remove-Item -LiteralPath $o, $e, $trace -Force -ErrorAction SilentlyContinue
@@ -142,6 +144,13 @@ function Invoke-Sut {
     # 接著 preflight 的 WriteAllText 必定失敗 → 這是「還沒呼叫 codex 就壞」那條路。
     New-Item -ItemType Directory -Path (Split-Path -Parent $fakeLogDir) -Force | Out-Null
     Set-Content -LiteralPath $fakeLogDir -Value "not a directory" -Encoding ascii
+  }
+  if ($BreakClaudeRoot) {
+    # 把 ~/.claude 本身變成**檔案** ⇒ logdir 不存在且建不出來 ⇒ New-Item 丟例外。
+    # 這才碰得到新程式碼；§5d 的「logdir 是檔案」會讓 Test-Path 為真而跳過 New-Item。
+    $claudeDir = Join-Path $fakeHome ".claude"
+    if (Test-Path -LiteralPath $claudeDir) { Remove-Item -LiteralPath $claudeDir -Recurse -Force -ErrorAction SilentlyContinue }
+    Set-Content -LiteralPath $claudeDir -Value "not a directory" -Encoding ascii
   }
   $env:FAKE_LOGDIR = $fakeLogDir
   $env:FAKE_LOCK_LOG = $(if ($LockLog) { "1" } else { "0" })
@@ -168,7 +177,14 @@ function Invoke-Sut {
   $env:XC_ARGS = (($Params.GetEnumerator() | ForEach-Object { "$($_.Key)=$($_.Value)" }) -join "`n")
 
   $oldHome = $env:USERPROFILE
+  $oldTemp = $env:TEMP; $oldTmp = $env:TMP
   $env:USERPROFILE = $fakeHome
+  if ($BreakTemp) {
+    # TEMP 指向一個**檔案** ⇒ Join-Path 之後的暫存簡報寫入必定失敗。
+    $badTemp = Join-Path $root "temp-is-a-file"
+    if (-not (Test-Path -LiteralPath $badTemp)) { Set-Content -LiteralPath $badTemp -Value "x" -Encoding ascii }
+    $env:TEMP = $badTemp; $env:TMP = $badTemp
+  }
   try {
     $pr = Start-Process -FilePath $Shell -ArgumentList @('-NoProfile', '-File', $wrapper) `
       -NoNewWindow -PassThru -RedirectStandardOutput $o -RedirectStandardError $e
@@ -184,6 +200,7 @@ function Invoke-Sut {
   }
   finally {
     $env:USERPROFILE = $oldHome
+    $env:TEMP = $oldTemp; $env:TMP = $oldTmp
     if (Test-Path -LiteralPath $fakeLogDir -PathType Container) {
       Get-ChildItem -LiteralPath $fakeLogDir -File -Force -ErrorAction SilentlyContinue |
         ForEach-Object { try { $_.IsReadOnly = $false } catch {} }
@@ -352,6 +369,23 @@ try {
   Check "5d-2 有 TRANSCRIPT_UNAVAILABLE 哨兵" ($r.Err -match 'CONSULT_TRANSCRIPT_UNAVAILABLE') ("err=" + $r.Err)
   Check "5d-3 codex 根本不該被呼叫" ($r.Ran -eq 0) ("Ran=" + $r.Ran)
 
+  # ═══ §6 新 preflight 的兩條路（2026-08-19 補）════════════════════════════
+  # 這兩條走的是**新程式碼**：logdir `New-Item` 失敗、暫存簡報寫入失敗。
+  # §5d 碰不到它們（那條讓 Test-Path 為真而跳過 New-Item）。
+  Write-Output "§6 preflight：logdir 建不出來 / 暫存簡報寫不出去"
+
+  $r = Invoke-Sut -Target $consult -Params $consultArgs -BreakClaudeRoot `
+    -StdoutText "x" -StderrText "" -FakeExit 0
+  Check "6a logdir 建不出來 → 精確 exit 46" ($r.Code -eq 46) ("exit=" + $r.Code + " err=" + $r.Err)
+  Check "6b 有 TRANSCRIPT_UNAVAILABLE 哨兵" ($r.Err -match 'CONSULT_TRANSCRIPT_UNAVAILABLE') ("err=" + $r.Err)
+  Check "6c codex 根本不該被呼叫" ($r.Ran -eq 0) ("Ran=" + $r.Ran)
+
+  $r = Invoke-Sut -Target $consult -Params $consultArgs -BreakTemp `
+    -StdoutText "x" -StderrText "" -FakeExit 0
+  Check "6d 暫存簡報寫不出去 → 精確 exit 46" ($r.Code -eq 46) ("exit=" + $r.Code + " err=" + $r.Err)
+  Check "6e 有 TRANSCRIPT_UNAVAILABLE 哨兵" ($r.Err -match 'CONSULT_TRANSCRIPT_UNAVAILABLE') ("err=" + $r.Err)
+  Check "6f codex 根本不該被呼叫" ($r.Ran -eq 0) ("Ran=" + $r.Ran)
+
   # ═══ §4 靜態守衛（AST）══════════════════════════════════════════════════
   # 規則：這兩支 process wrapper **不得使用 PowerShell 的 warning stream**。
   # ⚠️ 名稱刻意叫「靜態可解析」：AST 抓不到 `& $cmd` 這種動態命令名，也抓不到
@@ -381,7 +415,7 @@ try {
   }
   # 案數守衛：只證明「沒少跑案」，**不證明案子有牙齒**（刪 stimulus 留 assertion 的 mutant 案數不變）。
   # 公式：§2 固定 2 案 + §1 每 profile 7 案 + §2 4 案 + §3a 1 案 + §3 每 profile 3 案 + §4 6 案。
-  $expected = 31 + 10 * $profiles.Count   # 13 原有 + §5 的 11 + §2 新增的 4（2e2/2e3/2f/2g）
+  $expected = 37 + 10 * $profiles.Count   # 13 原有 + §5 的 11 + §2 新增的 4（2e2/2e3/2f/2g）
   $ran = $script:pass + $script:fail
   Check "案數守衛：實跑 $expected 案" ($ran -eq $expected) ("實跑=" + $ran + " 期望=" + $expected)
 }
