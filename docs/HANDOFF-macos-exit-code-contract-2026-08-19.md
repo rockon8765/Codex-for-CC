@@ -310,3 +310,43 @@ shim 是互動 shell 的 function、不繼承到子行程（`env` 裡沒有 `BAS
 repo 內 46 處 grep 全走真 grep，且多數 pattern 的 `$` 來自 shell 展開、沒進 pattern。
 
 ⇒ 交接單裡所有前置檢查已一律改用 `grep -cF`。
+
+---
+
+## 第四輪 macOS 驗證（`376c7bb`）：SUT bash × locale 2×2 補齊
+
+### 為什麼需要這一輪
+
+前一次在 `1c0563e` 的 `pass=22 fail=0`，banner 顯示
+**harness bash 3.2.57、SUT bash 5.3.15** —— 驗證者用 `/bin/bash` 啟動，
+但 `SUT_BASH` 走預設＝PATH 上的 bash＝該機的 brew bash。
+⇒ 那一跑**沒有涵蓋「SUT 跑在 bash 3.2」**，而 multibyte var-ref 缺陷正是 3.2 特有的。
+
+attestation 印得出來，但**摘要行看不出來** —— 而摘要行才是被貼進報告、被 CI grep、
+被日後引用的那一行。故摘要行改成自帶 `[sut-bash=… locale=…]`。
+
+### 結果（四格全綠，88/88）
+
+| SUT bash | locale | 結果 |
+|---|---|---|
+| 3.2.57（Apple） | `C` | `pass=22 fail=0` |
+| 3.2.57（Apple） | `ca_AD.UTF-8` | `pass=22 fail=0` |
+| 5.3.15（Homebrew） | `C` | `pass=22 fail=0` |
+| 5.3.15（Homebrew） | `ca_AD.UTF-8` | `pass=22 fail=0` |
+
+### 驗證者指出的兩個判讀要點（都成立，原樣保留）
+
+1. **banner 證明 `SUT_BASH` 真的被採用** —— 四列的版本字串不同，
+   不是「設了但沒作用」。
+2. **四列案數完全一致（各 22）** —— 沒有哪一格靠「靜靜跳過某些案」換到綠燈。
+
+### 目前的完整覆蓋（以 **SUT** 的 bash 為準）
+
+| SUT bash | userland | 證據 |
+|---|---|---|
+| 3.2.57 | BSD / macOS | 本輪 ×2 locale |
+| 5.3.15 | BSD / macOS | 本輪 ×2 locale |
+| 5.2.21 | GNU / Linux | GitHub `ubuntu-latest` CI @ `376c7bb`，已永久接進 `linux.yml` |
+| 5.3.15 | Cygwin / Git Bash | 開發機 |
+
+⚠️ 仍未涵蓋：bash 4.x（任何 userland）。未見到需要它的具體理由，故不列阻擋。
