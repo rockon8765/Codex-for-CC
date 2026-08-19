@@ -182,7 +182,7 @@ jobs:
             echo "::error::locale 維度沒被涵蓋（runner 上找不到 charmap 非 ASCII 的 locale）"
             exit 1
           fi
-          printf '%s' "$out" | grep -qE '^exit-code-contract\.smoke: pass=[0-9]+ fail=0$' \
+          printf '%s' "$out" | grep -qE '^exit-code-contract\.smoke: pass=[0-9]+ fail=0 \[sut-bash=' \
             || { echo "::error::找不到乾淨的成功摘要行"; exit 1; }
 
       # 這條規則守的缺陷在 `bash -n` 下完全看不出來，而且只在特定 bash 版本 × locale

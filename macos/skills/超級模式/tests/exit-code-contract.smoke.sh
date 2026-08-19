@@ -273,6 +273,11 @@ echo
 # 摘要行帶標記：自動化入口的 marker 只認乾淨形式，跳過 locale 就對不上。
 suffix=""
 [ "${locale_skipped:-0}" = "1" ] && suffix=" LOCALE-DIMENSION-NOT-COVERED"
-echo "exit-code-contract.smoke: pass=$pass fail=$fail$suffix"
+# ⚠️ 摘要行必須帶**受測 SUT 的 bash 版本**與基準 locale。
+#    2026-08-19 實際踩到：在 macOS 用 `/bin/bash smoke.sh` 啟動，harness 是 3.2.57，
+#    但 SUT_BASH 走預設＝PATH 上的 bash＝brew 5.3.15 ⇒ 那一跑其實**沒有涵蓋 SUT 跑在 3.2**，
+#    而 multibyte 缺陷正是 3.2 特有的。光看 "pass=22 fail=0" 完全分不出來。
+sut_ver="$("$SUT_BASH" -c 'echo ${BASH_VERSION}' 2>/dev/null || echo '?')"
+echo "exit-code-contract.smoke: pass=$pass fail=$fail [sut-bash=${sut_ver} locale=${RUN_LC}]$suffix"
 if [ "$fail" -ne 0 ]; then printf 'failed:%s\n' "$failed"; exit 1; fi
 exit 0
