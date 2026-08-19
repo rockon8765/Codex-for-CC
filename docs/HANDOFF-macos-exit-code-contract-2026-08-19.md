@@ -64,15 +64,31 @@ bash tests/ai-install/run-posix.sh 2>&1 | tail -5
 | C | `PASS 117/117`（或更高）＋ `RESULT_CODE=OK` |
 | D | 以 Mac 上的實際數字為準；**重點是 symlink 那幾案不再是環境性失敗** |
 
-## 然後請跑兩個「變異注入」——證明測試真的有牙齒
+## 然後請跑變異注入——證明測試真的有牙齒
 
-綠燈本身不是證據。這兩個 mutant 對應本批修掉的兩個**靜默**缺陷，
-如果它們在 Mac 上**沒有變紅**，代表守衛在 3.2/BSD 下是空的，那比全綠更需要知道。
+綠燈本身不是證據。這些 mutant 對應本批修掉的**靜默**缺陷，
+如果它們**沒有變紅**，代表守衛是空的，那比全綠更需要知道。
+
+> ⚠️ **每個 mutant 都要有「注入成功」的前置檢查。**
+> `perl -0pi -e 's/A/B/' file` 在**沒有匹配**時是**靜默成功**的 ——
+> 於是「注入了卻仍全綠」會被讀成「守衛沒牙齒」，實際上是 mutant 根本沒進去。
+> 下面每一段都先 `grep -cF` 確認目標存在、改完再確認已變。
+>
+> ⚠️ **前置檢查一律用 `grep -cF`（固定字串），不要用 `grep -c`。**
+> 2026-08-19 實測：某些互動 shell 把 `grep` 換成 `ugrep -G` 的 function shim，
+> 而 **ugrep 的 BRE 會把句中的 `$` 當行尾錨點**（POSIX BRE／GNU grep／BSD grep
+> 都當字面字元）⇒ `grep -c 'exit ${code}'` 回 **0**，看起來像「目標不見了」。
+> `-F` 繞開所有方言差異。
+> （已查證：**repo 內 46 處 grep 都不受影響** —— shim 是互動 shell 的 function，
+> 不繼承到子行程；且絕大多數 pattern 的 `$` 來自 shell 展開、根本沒進 pattern。
+> 風險只在「貼進終端機的一次性驗證指令」。）
 
 ```bash
 cd /tmp/cfc-verify
+C=macos/skills/超級模式/scripts/codex-consult.sh
 
 echo "===== M1: 把 SIGPIPE 修法退回管線寫法（期望：4h/4i 變紅）====="
+grep -cF 'grep -qiE "$quota_re" <<< "$err_lines"' "$C"   # 必須是 1，不是就停下來回報
 cp macos/skills/超級模式/scripts/codex-consult.sh /tmp/m1.bak
 perl -0pi -e 's/if grep -qiE "\$quota_re" <<< "\$err_lines"; then/if printf \x27%s\\n\x27 "\$err_lines" | grep -qiE "\$quota_re"; then/' \
   macos/skills/超級模式/scripts/codex-consult.sh
@@ -81,11 +97,37 @@ cp /tmp/m1.bak macos/skills/超級模式/scripts/codex-consult.sh
 
 echo
 echo "===== M2: 把子 shell 重導向守衛退回複合命令（期望：4b 變紅）====="
+grep -cF 'if ! ( { echo "===== STDERR ====="' "$C"       # 必須是 1
 cp macos/skills/超級模式/scripts/codex-consult.sh /tmp/m2.bak
 perl -0pi -e 's/if ! \( \{ echo "===== STDERR ====="; printf \x27%s\\n\x27 "\$stderr_text"; \} >> "\$log" \) 2>\/dev\/null; then/if ! { echo "===== STDERR ====="; printf \x27%s\\n\x27 "\$stderr_text"; } >> "\$log" 2>\/dev\/null; then/' \
   macos/skills/超級模式/scripts/codex-consult.sh
 /bin/bash macos/skills/超級模式/tests/exit-code-contract.smoke.sh | tail -6
 cp /tmp/m2.bak macos/skills/超級模式/scripts/codex-consult.sh
+
+echo
+echo "===== M3: 把 ${code} 退回 $code（期望：只在觸發 locale 下變紅）====="
+# 這個 mutant 專門驗 macOS bash 3.2 的 multibyte var-ref 缺陷。
+# **兩格都要跑**：LC_ALL=C 那格必須仍綠，否則分不出「locale 造成的」還是「我改壞了」。
+TRIG="$(for L in $(locale -a); do case "$L" in *[Uu][Tt][Ff]*|*8859*)
+  cm="$(LC_ALL=$L locale charmap 2>/dev/null)";
+  case "$cm" in US-ASCII|ANSI_X3.4-1968|"") ;; *) echo "$L"; break;; esac;; esac; done)"
+echo "觸發用 locale = ${TRIG:-<找不到>}  charmap=$(LC_ALL=${TRIG:-C} locale charmap 2>/dev/null)"
+grep -cF 'exit ${code}' "$C"                             # 必須是 1
+cp "$C" /tmp/m3.bak
+perl -0pi -e 's/exit \$\{code\}/exit \$code/' "$C"
+grep -cF 'exit $code' "$C"                               # 改完必須是 1（證明真的注入了）
+echo "-- 對照組 LC_ALL=C（期望仍 pass=19+ fail=0）--"
+SUT_BASH=/bin/bash LC_ALL=C /bin/bash macos/skills/超級模式/tests/exit-code-contract.smoke.sh 2>&1 | tail -1
+echo "-- 實驗組 LC_ALL=$TRIG（期望變紅）--"
+SUT_BASH=/bin/bash LC_ALL="$TRIG" /bin/bash macos/skills/超級模式/tests/exit-code-contract.smoke.sh 2>&1 | grep -E 'FAIL|pass=' | head -8
+cp /tmp/m3.bak "$C"
+
+echo
+echo "===== 靜態守衛也要單獨驗（不要用 pipeline，$? 會取到 tail 的碼）====="
+node tests/no-multibyte-varref.test.js > /tmp/g.txt 2>&1; echo "原版 rc=$?"
+perl -0pi -e 's/exit \$\{code\}/exit \$code/' "$C"
+node tests/no-multibyte-varref.test.js > /tmp/g.txt 2>&1; echo "mutant rc=$? （期望 1）"; tail -3 /tmp/g.txt
+cp /tmp/m3.bak "$C"; rm -f /tmp/m3.bak /tmp/g.txt
 
 git status --short   # 應該是乾淨的；不乾淨代表還原失敗，請 git checkout -- .
 ```
@@ -217,3 +259,54 @@ UTF-8／ISO8859-1 locale。抓到 **`ca_AD.UTF-8`**。
   那些靠 `tests/no-multibyte-varref.test.js`（原始碼層級規則）守，
   這對「機械性類別修正」是合適的證據型別，但**不是**執行證據。
 - 本輪**沒有跑** `tests/no-multibyte-varref.test.js`（驗證者自己指出）。
+
+---
+
+## 第三輪 macOS 驗證（2026-08-19，`fa549cb`）：M3 —— multibyte var-ref 的決定性對照
+
+### 結果（**只有一格變紅**，這是最強的形式）
+
+| | 原版 | M3 mutant（`exit $code`） |
+|---|---|---|
+| `LC_ALL=C` | `pass=19 fail=0` rc=0 | **`pass=19 fail=0` rc=0** ← mutant 存活 |
+| `LC_ALL=ca_AD.UTF-8` | `pass=19 fail=0` rc=0 | **`pass=13 fail=6` rc=1** ← mutant 被殺 |
+
+**為什麼「只有一格紅」比「紅了」有力得多**：
+trigger locale 單獨不會紅（右上綠）、mutant 單獨也不會紅（左下綠）
+⇒ 紅必須是**兩者的交集**。還原後在同一個 trigger locale 下回到 `pass=19`
+⇒ 紅來自 mutant 而不是 locale 本身。因果被兩個方向同時釘住。
+
+### 失敗簽章與預測的機制對得上（不只是「有紅」）
+
+6 個 FAIL 分成兩族，同一個機制解釋得完：
+
+- **rc 塌成 1**（`3a`／`4c`／`4g`／`4h`：實得 1、期望 42）
+  —— `1` 正是 bash 3.2 `set -u` 撞到 unbound variable 的中止碼。
+- **哨兵從 stderr 消失**（`3b`／`4i`：match=0）
+  —— `echo` 那一行當場中止，訊息根本沒印出來。
+
+`$code` 後面接的是全形 `）`（U+FF09 = `EF BC 89`），首位元組被併進變數名。
+
+> ⚠️ 驗證者註明：機制是**從失敗簽章推的**，沒有再往下隔離到 bash 內部。
+
+### 靜態守衛獨立驗證（第二條證據鏈）
+
+不經 pipeline 重測（`$?` 若取自 pipeline 尾端的 `tail` 會是錯的 —— 驗證者自己抓到並更正）：
+
+```
+原版   → rc=0
+mutant → rc=1  FAIL 找到 1 處：codex-consult.sh:297  $code<EF>  → 改成 ${code}
+```
+
+⇒ smoke 與靜態守衛是**兩條獨立證據鏈**，指向同一行。
+
+### 附帶查證：`grep` shim 的影響範圍
+
+驗證機器的互動 shell 把 `grep` 換成 `ugrep -G` 的 function shim，
+而 ugrep 的 BRE 把句中 `$` 當行尾錨點 ⇒ `grep -c 'exit ${code}'` 回 0（偽陰性）。
+
+**影響範圍已查清：只在貼進終端機的一次性指令，不在 repo。**
+shim 是互動 shell 的 function、不繼承到子行程（`env` 裡沒有 `BASH_FUNC_grep`）；
+repo 內 46 處 grep 全走真 grep，且多數 pattern 的 `$` 來自 shell 展開、沒進 pattern。
+
+⇒ 交接單裡所有前置檢查已一律改用 `grep -cF`。

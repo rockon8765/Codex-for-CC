@@ -70,7 +70,7 @@ STUB
 chmod +x "$root/stub/codex"
 
 pass=0; fail=0; failed=""
-EXPECTED_CHECKS=19   # 只證明「沒少跑案」，不證明案子有牙齒
+EXPECTED_CHECKS=22   # 只證明「沒少跑案」，不證明案子有牙齒
 
 chk() {
   if [ "$2" = "$3" ]; then pass=$((pass+1)); else
@@ -84,6 +84,10 @@ chkm() { # chkm <name> <haystack> <needle> <should-match:1|0>
   - $1"; printf '  FAIL  %s  (match=%s，期望 %s)\n' "$1" "$got" "$4"; fi
 }
 
+# 受測時實際套用的 locale。預設沿用外部環境，§6 會把它改成觸發用 locale 再跑一遍。
+# 明確釘住而不是「繼承」——不釘的話同一支測試在不同機器上測到的東西不一樣。
+RUN_LC="${RUN_LC:-${LC_ALL:-${LANG:-C}}}"
+
 run() { # run <fake_exit> <stdout> <stderr> [lock]
   safe_root || exit 2
   chmod -R u+w "$root/home" 2>/dev/null || true
@@ -93,7 +97,7 @@ run() { # run <fake_exit> <stdout> <stderr> [lock]
   FAKE_LOGDIR="$root/home/.claude/super-mode-logs" \
   FAKE_LOCK_LOG="${4:-0}" \
   FAKE_EXIT="$1" FAKE_OUT="$2" FAKE_ERR="$3" \
-  HOME="$root/home" PATH="$root/stub:$PATH" \
+  HOME="$root/home" PATH="$root/stub:$PATH" LC_ALL="$RUN_LC" \
     "$SUT_BASH" "$SUT" -d "$root/repo" -f "$root/brief.md" -n > "$root/o.txt" 2> "$root/e.txt"
   RC=$?
   OUT="$(cat "$root/o.txt")"; ERR="$(cat "$root/e.txt")"
@@ -108,7 +112,7 @@ run() { # run <fake_exit> <stdout> <stderr> [lock]
 echo "SUT          = $SUT"
 echo "harness bash = $(bash --version | head -1)"
 echo "SUT bash     = $("$SUT_BASH" --version | head -1)"
-echo "locale       = ${LC_ALL:-${LANG:-<unset>}}  charmap=$(locale charmap 2>/dev/null || echo '?')"
+echo "locale       = $RUN_LC  charmap=$(LC_ALL="$RUN_LC" locale charmap 2>/dev/null || echo '?')"
 
 echo "§1 一般失敗 → 原樣傳回退出碼"
 run 7 "some answer" "plain failure"
@@ -180,6 +184,51 @@ chk  "5a preflight 失敗 → rc=46"  "$RC" "46"
 chkm "5b 有 TRANSCRIPT_UNAVAILABLE 哨兵" "$ERR" "CONSULT_TRANSCRIPT_UNAVAILABLE" 1
 chk  "5c codex 根本不該被呼叫"     "$RAN" "0"
 rm -f "$root/home/.claude/super-mode-logs"
+
+echo "§6 locale 維度：判準不得隨 locale 漂移"
+# ⚠️ 動態選 locale 並**驗 charmap**，不寫死名稱。
+#    macOS 實測 `LC_ALL=zz_ZZ.UTF-8 locale charmap` → US-ASCII、rc 0
+#    ⇒ 寫死一個該機不存在的名稱會**安靜退回 ASCII**，UTF-8 回歸案全綠卻什麼都沒測到。
+# ⚠️ 這一節守的是 macOS bash 3.2 的 multibyte var-ref 缺陷：某些 locale 下
+#    雙引號字串裡的變數若**緊接**多位元組字元，該字元的首位元組會被併進變數名 → set -u → 中止 → 退出碼塌成 1、哨兵不印。
+#    2026-08-19 於 macOS 3.2.57 + ca_AD.UTF-8 實測：注入 mutant 後 pass=13 fail=6，
+#    而同一個 mutant 在 LC_ALL=C 下 pass=19 fail=0 ⇒ 紅必須是「mutant × locale」的交集。
+trigger_locale=""
+for L in $(locale -a 2>/dev/null); do
+  case "$L" in
+    *[Uu][Tt][Ff]*|*8859*)
+      cm="$(LC_ALL="$L" locale charmap 2>/dev/null || true)"
+      case "$cm" in
+        US-ASCII|ANSI_X3.4-1968|"") ;;    # 名稱像 UTF-8、實際退回 ASCII → 不算數
+        *) trigger_locale="$L"; break ;;
+      esac
+      ;;
+  esac
+done
+
+if [ -z "$trigger_locale" ]; then
+  if [ "${SMOKE_ALLOW_NO_UTF8_LOCALE:-0}" = "1" ]; then
+    # 明示的退出口，而且會**留在輸出裡**——不是靜靜略過。
+    echo "  !! 本機找不到 charmap 非 ASCII 的 locale，且已用 SMOKE_ALLOW_NO_UTF8_LOCALE=1 明示放行。"
+    echo "  !! ⇒ 本次執行**沒有涵蓋 locale 維度**，不得當成完整驗證。"
+    pass=$((pass+3))   # 佔位，讓案數守衛仍成立；但上面兩行會留在 log 裡
+  else
+    echo "  FAIL  找不到 charmap 非 ASCII 的 locale ⇒ locale 維度無法驗證。"
+    echo "        這是 hard fail 而不是 skip：靜靜略過會讓「全綠」失去意義。"
+    echo "        確定該環境不可能有 UTF-8 locale，才用 SMOKE_ALLOW_NO_UTF8_LOCALE=1 明示放行。"
+    fail=$((fail+1)); failed="$failed
+  - 6-locale 找不到可用的觸發 locale"
+  fi
+else
+  echo "  觸發用 locale = $trigger_locale (charmap=$(LC_ALL="$trigger_locale" locale charmap 2>/dev/null))"
+  RUN_LC="$trigger_locale"
+  run 7 "" "ERROR: usage limit reached"
+  chk  "6a 觸發 locale 下配額仍判 42"   "$RC" "42"
+  chkm "6b 觸發 locale 下哨兵仍在 stderr" "$ERR" "CONSULT_UNAVAILABLE_QUOTA" 1
+  run 7 "some answer" "plain failure"
+  chk  "6c 觸發 locale 下一般失敗仍原樣傳回 7" "$RC" "7"
+  RUN_LC="${LC_ALL:-${LANG:-C}}"
+fi
 
 ran=$((pass+fail))
 if [ "$ran" -ne "$EXPECTED_CHECKS" ]; then
