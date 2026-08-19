@@ -38,6 +38,32 @@ function Assert-CmdSafePath([string]$value, [string]$name) {
   if ($value -match '[%!"&|<>^]') { throw ($name + ' 含 cmd 不安全字元(% ! " & | < > ^ 之一)，拒絕以防注入: ' + $value) }
 }
 
+# 測試接縫的解析器。⚠️ 只換「執行哪支程式」，不改任何判準或鑄造規則；正式使用不需要設它。
+# 為什麼要這麼嚴（2026-08-19 Codex 反方審查）：光用 Test-Path 會放行目錄、
+# 非 FileSystem provider 的路徑，以及含 cmd 運算子的路徑（後者會直接變成注入面，
+# 因為解析結果會被拼進 cmd /c 字串）。
+function Resolve-CodexOverride([string]$envName, [string]$rawValue) {
+  if ([string]::IsNullOrWhiteSpace($rawValue)) { return $null }
+  $ri = $null
+  try { $ri = Resolve-Path -LiteralPath $rawValue -ErrorAction Stop }
+  catch { throw ($envName + ' 指向無法解析的路徑: ' + $rawValue) }
+  if ($ri.Provider.Name -ne 'FileSystem') {
+    throw ($envName + ' 必須是檔案系統路徑，實得 provider=' + $ri.Provider.Name + ': ' + $rawValue)
+  }
+  $resolved = $ri.ProviderPath
+  if (-not (Test-Path -LiteralPath $resolved -PathType Leaf)) {
+    throw ($envName + ' 必須指向一個檔案(不是目錄): ' + $resolved)
+  }
+  Assert-CmdSafePath $resolved $envName   # 解析後的路徑會進 cmd /c 字串
+  return $resolved
+}
+
+# codex-exec 的接縫**刻意與 consult 分開命名**：exec 跑的是 --sandbox workspace-write，
+# 不該讓一個變數同時改動唯讀諮詢與可寫派工兩條路徑。
+$execOverride = Resolve-CodexOverride 'SUPER_MODE_CODEX_CMD_EXEC' $env:SUPER_MODE_CODEX_CMD_EXEC
+if ($execOverride) { $codexCmd = $execOverride }
+
+
 # codex 輸出是 UTF-8：讓 PowerShell 正確解碼進 transcript
 try { [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding $false } catch {}
 
@@ -81,6 +107,28 @@ $stamp = "{0}_{1}" -f (Get-Date -Format "yyyyMMdd_HHmmss"), ([guid]::NewGuid().T
 $log = Join-Path $logDir ("codex_exec_{0}.txt" -f $stamp)
 if (-not $OutFile) { $OutFile = Join-Path $logDir ("codex_exec_{0}_last.txt" -f $stamp) }
 
+# ── 逐字稿前置：在呼叫 codex **之前**就強制把 log 建出來 ──────────────
+# 此刻中止是安全的：還沒有 native 退出碼需要保住。呼叫 codex 之後就不能再這樣做了。
+try {
+  [System.IO.File]::WriteAllText($log, "", (New-Object System.Text.UTF8Encoding $false))
+}
+catch {
+  [Console]::Error.WriteLine("EXEC_TRANSCRIPT_UNAVAILABLE: 無法建立逐字稿 $log -- $_ 。**尚未呼叫 codex**。")
+  exit 46
+}
+# 逐行捕捉的 codex stdout；裁決一律只看這裡，不回頭讀 $log。
+$stdoutLines = New-Object System.Collections.Generic.List[string]
+# 逐字稿寫入錯誤只記**第一個**（後續多半是同一個原因刷屏），且絕不中止 pipeline。
+$transcriptErrors = New-Object System.Collections.Generic.List[string]
+$stderrText = ""
+$code = $null
+
+function Get-TranscriptNote {
+  if ($transcriptErrors.Count -eq 0) { return "" }
+  return " ⚠️ 逐字稿不完整（" + $transcriptErrors[0] + "）。"
+}
+
+
 $Dir = $Dir.TrimEnd('\')
 if ($Dir -match '^[A-Za-z]:$') { $Dir += '\' }
 Assert-CmdSafePath $Dir 'Dir'   # $Dir 也進 cmd /c 字串(既有注入面)，一併 fail-closed
@@ -96,13 +144,46 @@ try {
   # (a)可重現：worker 只依本簡報行事，不受過往記憶漂移影響；(b)斷閉環：不把本專案實作細節寫進
   # 全域 memories，否則下次同專案 consult 讀到→反方獨立性被污染。與 consult 對稱處理。
   $inner = ('"{0}" exec --sandbox workspace-write --skip-git-repo-check -c memories.use_memories=false -c memories.generate_memories=false -C "{1}" ' + $schemaArg + '--output-last-message "{2}" < "{3}" 2> "{4}"') -f $codexCmd, $Dir, $OutFile, $brief, $errFile, $SchemaFile
-  # -Quiet：只寫 log 不回灌 stdout(省 Claude context)；非 Quiet 維持逐行 echo
-  & cmd.exe /d /s /c $inner | ForEach-Object { if (-not $Quiet) { $_ }; Add-Content -LiteralPath $log -Value $_ -Encoding utf8 }
-  $code = $LASTEXITCODE
-  if (Test-Path $errFile) {
-    Add-Content -LiteralPath $log -Value "===== STDERR =====" -Encoding utf8
-    [System.IO.File]::ReadAllText($errFile, (New-Object System.Text.UTF8Encoding $false)) | Add-Content -LiteralPath $log -Encoding utf8
+
+  # ══ native capture scope ══════════════════════════════════════════════════
+  # 唯一任務：把 codex 跑完、把退出碼與兩條 stream 完整帶出來。
+  # 在拿到退出碼之前，**任何**理由的提前中止都會讓 rc 契約塌成 1。
+  # 與 codex-consult.ps1 的同名段落逐字對應；理由與實測見那裡的註解與
+  # docs/exit-code-contract-plan-2026-08-19.md §2.1／§4.2。
+  # ⚠️ 這是 POSIX 版 `set +e` … `code=${PIPESTATUS[0]}` … `set -e` 的平台翻譯。
+  $prevEap = $ErrorActionPreference
+  try {
+    $ErrorActionPreference = 'Continue'
+    Set-Variable -Name 'PSNativeCommandUseErrorActionPreference' -Value $false -Scope 0
+
+    # -Quiet：只寫 log 不回灌 stdout(省 Claude context)；非 Quiet 維持逐行 echo
+    & cmd.exe /d /s /c $inner | ForEach-Object {
+      $line = [string]$_
+      if (-not $Quiet) { $line }
+      $stdoutLines.Add($line)
+      # ⚠️ 不可用 -ErrorAction Stop：中止 pipeline 就抓不到 $LASTEXITCODE，rc 又會塌成 1。
+      if ($transcriptErrors.Count -eq 0) {
+        try { Add-Content -LiteralPath $log -Value $line -Encoding utf8 -ErrorAction Stop }
+        catch { $transcriptErrors.Add("$_") }
+      }
+    }
+    $code = $LASTEXITCODE       # pipeline 完整結束後**立刻**擷取
   }
+  finally {
+    $ErrorActionPreference = $prevEap
+    Remove-Variable -Name 'PSNativeCommandUseErrorActionPreference' -Scope 0 -ErrorAction SilentlyContinue
+  }
+  # ══ capture scope 結束 ════════════════════════════════════════════════════
+
+  if (Test-Path -LiteralPath $errFile) {
+    try { $stderrText = [System.IO.File]::ReadAllText($errFile, (New-Object System.Text.UTF8Encoding $false)) }
+    catch { if ($transcriptErrors.Count -eq 0) { $transcriptErrors.Add("讀取 stderr 暫存檔失敗: $_") } }
+  }
+  try {
+    Add-Content -LiteralPath $log -Value "===== STDERR =====" -Encoding utf8 -ErrorAction Stop
+    Add-Content -LiteralPath $log -Value $stderrText -Encoding utf8 -ErrorAction Stop
+  }
+  catch { if ($transcriptErrors.Count -eq 0) { $transcriptErrors.Add("逐字稿 stderr 區段寫入失敗: $_") } }
 }
 finally {
   Remove-Item -LiteralPath $brief -Force -ErrorAction SilentlyContinue
@@ -110,8 +191,14 @@ finally {
 }
 
 if ($code -eq 0) {
+  # codex 成功但逐字稿寫壞 → 不得回報成功。派工的逐字稿是後續驗收的唯一依據。
+  if ($transcriptErrors.Count -gt 0) {
+    [Console]::Error.WriteLine("EXEC_TRANSCRIPT_FAILED: codex 成功 (exit 0)，但逐字稿寫入失敗 -- " +
+      $transcriptErrors[0] + " 。transcript(可能不完整): $log ; last message: $OutFile")
+    exit 46
+  }
   Write-Output "exec OK -- transcript: $log ; last message: $OutFile"
 } else {
-  [Console]::Error.WriteLine("codex-exec: codex exited [$code]. transcript: $log")
+  [Console]::Error.WriteLine("codex-exec: codex exited [$code]. transcript: $log" + (Get-TranscriptNote))
 }
 exit $code

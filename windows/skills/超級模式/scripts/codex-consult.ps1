@@ -33,22 +33,36 @@ param(
 )
 
 $codexCmd = "C:\npm\codex.cmd"
-# 測試接縫：讓整合測試能換掉 codex 本體。POSIX 兩支呼叫的是裸 `codex`(吃 PATH)，
-# 本來就能用 stub 目錄攔截；Windows 這支寫死絕對路徑，沒有這個 override 就完全測不到
-# 「codex 回了什麼 → 判準怎麼判 → 憑證寫不寫」這條新邏輯。
-# ⚠️ 只換「執行哪支程式」，不改任何判準或鑄造規則；正式使用不需要設它。
-if ($env:SUPER_MODE_CODEX_CMD) {
-  if (-not (Test-Path -LiteralPath $env:SUPER_MODE_CODEX_CMD)) {
-    throw "SUPER_MODE_CODEX_CMD 指向不存在的檔案: $($env:SUPER_MODE_CODEX_CMD)"
-  }
-  $codexCmd = (Resolve-Path -LiteralPath $env:SUPER_MODE_CODEX_CMD).Path
-}
 
 # $Dir / $SchemaFile 會拼進 cmd /c 字串執行 → 進 cmd 前必須擋注入面(fail-closed)。
 # cmd 即使在雙引號內也會展開 %VAR%(! 可能延遲展開；& | < > ^ 為運算子)；合法 repo/schema 路徑不含這些字元。
 function Assert-CmdSafePath([string]$value, [string]$name) {
   if ($value -match '[%!"&|<>^]') { throw ($name + ' 含 cmd 不安全字元(% ! " & | < > ^ 之一)，拒絕以防注入: ' + $value) }
 }
+
+# 測試接縫的解析器。⚠️ 只換「執行哪支程式」，不改任何判準或鑄造規則；正式使用不需要設它。
+# 為什麼要這麼嚴（2026-08-19 Codex 反方審查）：光用 Test-Path 會放行目錄、
+# 非 FileSystem provider 的路徑，以及含 cmd 運算子的路徑（後者會直接變成注入面，
+# 因為解析結果會被拼進 cmd /c 字串）。
+function Resolve-CodexOverride([string]$envName, [string]$rawValue) {
+  if ([string]::IsNullOrWhiteSpace($rawValue)) { return $null }
+  $ri = $null
+  try { $ri = Resolve-Path -LiteralPath $rawValue -ErrorAction Stop }
+  catch { throw ($envName + ' 指向無法解析的路徑: ' + $rawValue) }
+  if ($ri.Provider.Name -ne 'FileSystem') {
+    throw ($envName + ' 必須是檔案系統路徑，實得 provider=' + $ri.Provider.Name + ': ' + $rawValue)
+  }
+  $resolved = $ri.ProviderPath
+  if (-not (Test-Path -LiteralPath $resolved -PathType Leaf)) {
+    throw ($envName + ' 必須指向一個檔案(不是目錄): ' + $resolved)
+  }
+  Assert-CmdSafePath $resolved $envName   # 解析後的路徑會進 cmd /c 字串
+  return $resolved
+}
+
+$consultOverride = Resolve-CodexOverride 'SUPER_MODE_CODEX_CMD' $env:SUPER_MODE_CODEX_CMD
+if ($consultOverride) { $codexCmd = $consultOverride }
+
 
 # codex 輸出是 UTF-8：讓 PowerShell 正確解碼進 transcript
 try { [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding $false } catch {}
