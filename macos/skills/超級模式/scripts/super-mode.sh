@@ -18,7 +18,7 @@ case "${1:-status}" in
     if [ "${2:-}" = "--scope" ] || [ "${2:-}" = "-s" ]; then
       scope_in="${3:?need dir after --scope}"
       scope="$(cd "$scope_in" 2>/dev/null && pwd)" \
-        || { echo "Scope 路徑不存在: $scope_in（未啟用，避免誤靜默降級為全域強制）" >&2; exit 1; }
+        || { echo "Scope 路徑不存在: ${scope_in}（未啟用，避免誤靜默降級為全域強制）" >&2; exit 1; }
     fi
     printf '%s\n' "$scope" > "$flag"
     if [ -n "$scope" ]; then

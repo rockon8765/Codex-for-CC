@@ -39,11 +39,13 @@ $MANIFEST = @(
   @{ Name = 'exit-contract-7';       Exe = 'pwsh';        Args = @('exit-code-contract.tests.ps1', '-Shell', 'pwsh');       Marker = '(?m)^exit-code-contract \[pwsh\]: pass=\d+ fail=0 '; TimeoutMs = 900000 }
   @{ Name = 'exit-contract-51';      Exe = 'pwsh';        Args = @('exit-code-contract.tests.ps1', '-Shell', 'powershell'); Marker = '(?m)^exit-code-contract \[powershell\]: pass=\d+ fail=0 '; TimeoutMs = 900000 }
   @{ Name = 'codex-check';           Exe = 'powershell';  Args = @('codex-check.tests.ps1');                   Marker = '(?m)^TOTAL \d+ FAIL 0\r?$';                  TimeoutMs = 900000 }
+  # repo 層級的靜態規則（不在 skill payload 內，所以用相對路徑往上指）。
+  @{ Name = 'no-multibyte-varref';   Exe = 'node';        Args = @('..\..\..\..\tests\no-multibyte-varref.test.js'); Marker = '(?m)^RESULT_CODE=OK\r?$';        TimeoutMs = 120000 }
 )
 
 # 這個數字是**刻意寫死**的：manifest 被人不小心刪掉一列時要看得出來。
 # 改動 manifest 請一併改這裡（並在 commit 訊息說明改了什麼）。
-$EXPECTED_ENTRIES = 8
+$EXPECTED_ENTRIES = 9
 
 $results = @()
 $fail = 0

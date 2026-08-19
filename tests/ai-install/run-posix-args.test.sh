@@ -25,9 +25,9 @@ t() {
   local out rc
   out=$("$@" 2>&1); rc=$?
   local problems=""
-  [ "$rc" = "$want_rc" ] || problems="退出碼 $rc（預期 $want_rc）"
+  [ "$rc" = "$want_rc" ] || problems="退出碼 ${rc}（預期 ${want_rc}）"
   if [ -n "$want_msg" ] && ! printf '%s' "$out" | grep -qF "$want_msg"; then
-    problems="$problems${problems:+；}缺少訊息「$want_msg」"
+    problems="$problems${problems:+；}缺少訊息「${want_msg}」"
   fi
   if [ -z "$problems" ]; then
     pass=$((pass+1)); printf '  PASS  %s\n' "$name"

@@ -27,12 +27,14 @@ macOS / Linux（Linux 把 `macos/` 換成 `linux/`）:
 node "macos/skills/超級模式/tests/run-gate-tests.js"               # 這裡就 FAIL → repo 版本本身有問題，別安裝，回報使用者
 node "macos/skills/超級模式/tests/matcher-contract.test.js" --repo # hook 的工具清單 vs settings matcher 是否一致
 bash "macos/skills/超級模式/tests/exit-code-contract.smoke.sh"     # consult 的退出碼契約(42/46/原樣傳回)與配額判準
+node "tests/no-multibyte-varref.test.js"                           # 禁止 `$var` 緊接多位元組字元（bash 3.2 會併進變數名）
 ```
 Windows:
 ```powershell
 node ".\windows\skills\超級模式\tests\run-gate-tests.js"               # 這裡就 FAIL → 別安裝
 node ".\windows\skills\超級模式\tests\matcher-contract.test.js" --repo # hook 的工具清單 vs settings matcher 是否一致
 & ".\windows\skills\超級模式\tests\run-windows-suite.ps1" -Mode repo   # 全部 Windows 測試的單一入口；最後要看到 SUITE_RESULT=OK
+#   （已含 tests\no-multibyte-varref.test.js：禁止 $var 緊接多位元組字元）
 ```
 
 > ℹ️ **`run-windows-suite.ps1` 約需 3 分鐘**（含 codex-check 的 ~2 分鐘）。它用**顯式 manifest**
@@ -94,7 +96,7 @@ setbak=$setf.bak-$ts
 # 接著 `: > "$p"` 會**跟隨** symlink 把檔案建到它的目標（可能在備份區之外），
 # 而 marker 路徑本身仍是 symlink —— 1b 照樣印出 ts，回滾卻會因 marker 是 link 而中止。
 for p in "$hbak" "$hbak.absent" "$sbak" "$sbak.absent" "$setbak" "$setbak.absent"; do
-  if [ -e "$p" ] || [ -L "$p" ]; then echo "已存在 ts=$ts 的備份產物（$p），等一秒後重跑，中止"; exit 1; fi
+  if [ -e "$p" ] || [ -L "$p" ]; then echo "已存在 ts=$ts 的備份產物（${p}），等一秒後重跑，中止"; exit 1; fi
 done
 
 # 型別要對才算「有」或「沒有」：skill 必須是目錄、hook/settings 必須是一般檔案。
@@ -160,7 +162,7 @@ function Get-Entry($p) { Get-Item -LiteralPath $p -Force -ErrorAction SilentlyCo
 function Test-Reparse($e) { $null -ne $e -and (($e.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) }
 
 foreach ($p in @($hbak, "$hbak.absent", $sbak, "$sbak.absent", $setbak, "$setbak.absent")) {
-  if (Get-Entry $p) { throw "已存在 ts=$ts 的備份產物（$p），等一秒後重跑，中止" }
+  if (Get-Entry $p) { throw "已存在 ts=$ts 的備份產物（${p}），等一秒後重跑，中止" }
 }
 
 # 指紋涵蓋目錄與 link 狀態，不只檔案。只列檔案的話，空目錄與「junction 被複製成普通空目錄」
@@ -448,8 +450,8 @@ precheck() { # 名稱 備份 標記 型別(d|f)
   # symlink 一律中止，而且要先驗：`-d`／`-f` 會**跟隨**有效的 link，於是「指向別處的 link」
   # 會被當成合法備份／標記，還原時從錯誤目標複製 —— 但 live 已經先被刪掉了。
   # `-L` 對斷掉的 link 也為真，這一條同時涵蓋有效與斷掉兩種。
-  if [ -L "$b" ]; then echo "$n：ts=$ts 的備份是 symlink，中止（live 未變更）"; exit 1; fi
-  if [ -L "$a" ]; then echo "$n：ts=$ts 的 .absent 標記是 symlink，中止（live 未變更）"; exit 1; fi
+  if [ -L "$b" ]; then echo "${n}：ts=$ts 的備份是 symlink，中止（live 未變更）"; exit 1; fi
+  if [ -L "$a" ]; then echo "${n}：ts=$ts 的 .absent 標記是 symlink，中止（live 未變更）"; exit 1; fi
   # 先看「有沒有這個 directory entry」，再看型別對不對。
   # 順序很重要：若只比對「型別正確的存在」，當一邊有效、另一邊存在但型別錯時，
   # 兩個錯誤分支都不會觸發，於是走進「原本不存在」那條 —— live 被刪卻不還原。
@@ -458,10 +460,10 @@ precheck() { # 名稱 備份 標記 型別(d|f)
   if [ "$k" = d ]; then if [ -d "$b" ]; then okb=1; fi; else if [ -f "$b" ]; then okb=1; fi; fi
   if [ -f "$a" ]; then oka=1; fi
 
-  if [ "$eb" = 1 ] && [ "$okb" = 0 ]; then echo "$n：ts=$ts 的備份存在但型別不對，中止（live 未變更）"; exit 1; fi
-  if [ "$ea" = 1 ] && [ "$oka" = 0 ]; then echo "$n：ts=$ts 的 .absent 標記存在但型別不對，中止（live 未變更）"; exit 1; fi
-  if [ "$okb" = 1 ] && [ "$oka" = 1 ]; then echo "$n：備份與 .absent 同時存在，狀態不明，中止（live 未變更）"; exit 1; fi
-  if [ "$okb" = 0 ] && [ "$oka" = 0 ]; then echo "$n：找不到 ts=$ts 的有效備份或標記，中止（live 未變更）"; exit 1; fi
+  if [ "$eb" = 1 ] && [ "$okb" = 0 ]; then echo "${n}：ts=$ts 的備份存在但型別不對，中止（live 未變更）"; exit 1; fi
+  if [ "$ea" = 1 ] && [ "$oka" = 0 ]; then echo "${n}：ts=$ts 的 .absent 標記存在但型別不對，中止（live 未變更）"; exit 1; fi
+  if [ "$okb" = 1 ] && [ "$oka" = 1 ]; then echo "${n}：備份與 .absent 同時存在，狀態不明，中止（live 未變更）"; exit 1; fi
+  if [ "$okb" = 0 ] && [ "$oka" = 0 ]; then echo "${n}：找不到 ts=$ts 的有效備份或標記，中止（live 未變更）"; exit 1; fi
 }
 precheck skill    "$sbak"   "$sbak.absent"   d
 precheck hook     "$hbak"   "$hbak.absent"   f
@@ -479,7 +481,7 @@ done
 # 兩者之間沒有 manifest、也沒有完整性證明。所以這裡要重驗，兩棵樹都必須在任何 mutation 之前掃完。
 scan_no_link() { # 用途名 路徑
   local _lnk
-  # 路徑不存在＝「沒有子樹可掃」，**不是**掃描失敗。全新安裝只有 .absent、沒有 $sbak；
+  # 路徑不存在＝「沒有子樹可掃」，**不是**掃描失敗。全新安裝只有 .absent、沒有 ${sbak}；
   # live 也可能已被手動移除。把這兩種情況當成 fail-closed，會讓合法的回滾永遠失敗
   # ——那和它要防的資料損失是同一形狀的 bug，一起犯就一起修。
   [ -e "$2" ] || return 0
@@ -494,7 +496,7 @@ scan_no_link() { # 用途名 路徑
   fi
 }
 # ⚠️ **這道守衛的保證範圍**：它拒絕「掃描當下已存在」的內嵌 link，**不防同時修改**。
-# 兩次掃描（$sbak、live）與後續刪除之間仍有 TOCTOU 窗口：別的程序在掃完之後才把子樹換成
+# 兩次掃描（${sbak}、live）與後續刪除之間仍有 TOCTOU 窗口：別的程序在掃完之後才把子樹換成
 # link、或把備份整個移走，這裡看不到。這是複製貼上式安裝流程的固有限制，不是本次新增的回歸。
 # 所以**不要**把它讀成「回滾已經安全了」。
 # 另外 POSIX 這側用 `find -type l`，**抓不到掛載點**（它是目錄不是 symlink）——
@@ -514,7 +516,7 @@ else rm -f ~/.claude/hooks/super-mode-consult-gate.js; fi
 
 if [ -f "$setbak" ]; then cp "$setbak" "$setf"
 else rm -f "$setf"; fi
-echo "已回滾。備份保留在 ~/.claude/skills-backup/、~/.claude/hooks/*.bak-$ts、~/.claude/settings.json.bak-$ts，確認無誤後自行刪除"
+echo "已回滾。備份保留在 ~/.claude/skills-backup/、~/.claude/hooks/*.bak-${ts}、~/.claude/settings.json.bak-${ts}，確認無誤後自行刪除"
 ```
 Windows（settings 檔是 `settings.json`）:
 ```powershell
@@ -576,7 +578,7 @@ if (Test-Reparse (Get-Entry $setf))  { throw "live 端 $setf 是 link／reparse 
 # 1b 驗的是「建立備份當下」的 live；備份放在那裡到真正被使用之間可能已經漂移，
 # 兩者之間沒有 manifest、也沒有完整性證明。所以這裡要重驗，兩棵樹都必須在任何 mutation 之前掃完。
 function Assert-NoReparseUnder($name, $path) {
-  # 路徑不存在＝「沒有子樹可掃」，**不是**掃描失敗。全新安裝只有 .absent、沒有 $sbak；
+  # 路徑不存在＝「沒有子樹可掃」，**不是**掃描失敗。全新安裝只有 .absent、沒有 ${sbak}；
   # live 也可能已被手動移除。把這兩種情況當成 fail-closed，會讓合法的回滾永遠失敗
   # ——那和它要防的資料損失是同一形狀的 bug，一起犯就一起修。
   if (-not (Get-Entry $path)) { return }
@@ -584,7 +586,7 @@ function Assert-NoReparseUnder($name, $path) {
   $bad = Get-ChildItem -LiteralPath $path -Recurse -Force |
          Where-Object { ($_.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 } |
          Select-Object -First 1
-  if ($bad) { throw "$name（$path）底下有 link／reparse point（$($bad.FullName)），狀態不明，中止（live 未變更）" }
+  if ($bad) { throw "${name}（${path}）底下有 link／reparse point（$($bad.FullName)），狀態不明，中止（live 未變更）" }
 }
 # ⚠️ **這道守衛的保證範圍**：它拒絕「掃描當下已存在」的 link／reparse point，**不防同時修改**。
 # 兩次掃描與後續刪除之間仍有 TOCTOU 窗口，這是複製貼上式安裝流程的固有限制，
@@ -604,7 +606,7 @@ elseif (Get-Entry $hook) { Remove-Item -LiteralPath $hook -Force }
 
 if (Test-Path -LiteralPath $setbak -PathType Leaf) { Copy-Item -LiteralPath $setbak -Destination $setf -Force }
 elseif (Get-Entry $setf) { Remove-Item -LiteralPath $setf -Force }
-"已回滾。備份保留在 skills-backup\、hooks\*.bak-$ts、settings.json.bak-$ts，確認無誤後自行刪除"
+"已回滾。備份保留在 skills-backup\、hooks\*.bak-${ts}、settings.json.bak-${ts}，確認無誤後自行刪除"
 ```
 
 回滾後把失敗的測試輸出一併回報使用者，不要繼續下一步。

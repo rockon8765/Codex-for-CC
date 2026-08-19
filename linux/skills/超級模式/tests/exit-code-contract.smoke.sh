@@ -27,6 +27,13 @@ here="$(cd "$(dirname "$0")" && pwd)"
 SUT="${1:-$here/../scripts/codex-consult.sh}"
 [ -f "$SUT" ] || { echo "找不到受測腳本: $SUT" >&2; exit 2; }
 
+# ⚠️ SUT 的直譯器要能**獨立於 harness** 指定。
+#    原本這支用裸 `bash "$SUT"`（走 PATH），所以「換一支 bash 跑 harness」
+#    **完全沒有換到 SUT 的 bash** —— 想驗「bash 版本相依」時會得到恆真的結論。
+#    用法：SUT_BASH=/opt/homebrew/bin/bash /bin/bash exit-code-contract.smoke.sh
+SUT_BASH="${SUT_BASH:-bash}"
+command -v "$SUT_BASH" >/dev/null 2>&1 || { echo "SUT_BASH 不可執行: $SUT_BASH" >&2; exit 2; }
+
 # ⚠️ fail-closed，而且要驗到底：本檔是 `set -uo pipefail`（**沒有 -e**），
 #    mktemp 失敗時 $root 會是空字串，後面每一個 `rm -rf "$root/..."`／`chmod -R "$root"`
 #    就變成對**根目錄**動手。這不是理論風險，是把 / 底下的路徑當成暫存區在操作。
@@ -87,15 +94,21 @@ run() { # run <fake_exit> <stdout> <stderr> [lock]
   FAKE_LOCK_LOG="${4:-0}" \
   FAKE_EXIT="$1" FAKE_OUT="$2" FAKE_ERR="$3" \
   HOME="$root/home" PATH="$root/stub:$PATH" \
-    bash "$SUT" -d "$root/repo" -f "$root/brief.md" -n > "$root/o.txt" 2> "$root/e.txt"
+    "$SUT_BASH" "$SUT" -d "$root/repo" -f "$root/brief.md" -n > "$root/o.txt" 2> "$root/e.txt"
   RC=$?
   OUT="$(cat "$root/o.txt")"; ERR="$(cat "$root/e.txt")"
   RAN="$(grep -c RAN "$root/trace" 2>/dev/null)"; RAN="${RAN:-0}"
   chmod -R u+w "$root/home" 2>/dev/null || true
 }
 
-echo "SUT  = $SUT"
-echo "bash = $(bash --version | head -1)"
+# 三項 attestation：harness 的 bash、SUT 的 bash、以及 locale 的 charmap。
+# ⚠️ charmap 要印**實際值**，不要印 locale 名稱 —— 不存在的 locale 名稱會安靜地
+#    退回 US-ASCII（macOS 實測 `LC_ALL=zz_ZZ.UTF-8 locale charmap` → US-ASCII、rc 0），
+#    此時任何「UTF-8 回歸案」都會全綠而其實什麼都沒測到。
+echo "SUT          = $SUT"
+echo "harness bash = $(bash --version | head -1)"
+echo "SUT bash     = $("$SUT_BASH" --version | head -1)"
+echo "locale       = ${LC_ALL:-${LANG:-<unset>}}  charmap=$(locale charmap 2>/dev/null || echo '?')"
 
 echo "§1 一般失敗 → 原樣傳回退出碼"
 run 7 "some answer" "plain failure"
@@ -160,7 +173,7 @@ rm -rf "$root/home/.claude/super-mode-logs"
 : > "$root/trace"
 FAKE_TRACE="$root/trace" FAKE_EXIT=0 FAKE_OUT="x" FAKE_ERR="" \
   HOME="$root/home" PATH="$root/stub:$PATH" \
-  bash "$SUT" -d "$root/repo" -f "$root/brief.md" -n > "$root/o.txt" 2> "$root/e.txt"
+  "$SUT_BASH" "$SUT" -d "$root/repo" -f "$root/brief.md" -n > "$root/o.txt" 2> "$root/e.txt"
 RC=$?; ERR="$(cat "$root/e.txt")"
 RAN="$(grep -c RAN "$root/trace" 2>/dev/null)"; RAN="${RAN:-0}"
 chk  "5a preflight 失敗 → rc=46"  "$RC" "46"

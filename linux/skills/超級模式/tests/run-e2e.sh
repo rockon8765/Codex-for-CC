@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # 超級模式 consult-gate e2e stdin 測試：驗真實 stdin → exit code 的水管。
 # allow = exit 0 且無輸出；deny = exit 2 且 stderr 含「超級模式」。
-# 假 repo 路徑刻意不放 /tmp 或 $TMPDIR（會落入暫存豁免而測不到 gating）。
+# 假 repo 路徑刻意不放 /tmp 或 ${TMPDIR}（會落入暫存豁免而測不到 gating）。
 set -uo pipefail
 # SUT 解析：tests/../../../hooks 同時涵蓋 repo 佈局(<平台>/hooks) 與部署佈局(~/.claude/hooks)，
 # 一個「同樹」候選就夠。**刻意不 fallback 到 $HOME/.claude** —— 在裝過 skill 的機器上，那會讓本腳本

@@ -62,7 +62,7 @@ if [ "$DOC_FLAG_SET" -eq 1 ]; then
   # `DOC=` 與 `--doc` 同時存在且指到不同檔案 → 歧義，拒絕而不是默默選一邊。
   # 用上面捕捉的 `DOC_ENV_SET`／`DOC_ENV_VALUE`，**不要**再去比對「值是不是預設路徑」。
   if [ "$DOC_ENV_SET" -eq 1 ] && [ "$DOC_ENV_VALUE" != "$DOC_FLAG" ]; then
-    echo "FAIL: DOC 環境變數（$DOC_ENV_VALUE）與 --doc（$DOC_FLAG）不一致 —— 歧義，請只用一種" >&2
+    echo "FAIL: DOC 環境變數（${DOC_ENV_VALUE}）與 --doc（${DOC_FLAG}）不一致 —— 歧義，請只用一種" >&2
     exit 2
   fi
   DOC="$DOC_FLAG"
@@ -315,7 +315,7 @@ run "$B1B" "$H"; rc=$?
 # 若 1b 竟然採用了別的秒數，這一案就沒測到該測的東西——明確 FAIL，不可靜默通過
 GOT=$(get_ts "$LAST_OUT")
 if [ -n "$GOT" ] && [ "$GOT" != "$T10" ]; then
-  check '前置：斷鏈確實佔住 1b 採用的 ts' 1 "佈的是 $T10、1b 用了 $GOT（跨秒了，重跑本案）"
+  check '前置：斷鏈確實佔住 1b 採用的 ts' 1 "佈的是 ${T10}、1b 用了 ${GOT}（跨秒了，重跑本案）"
 else
   check '前置：斷鏈確實佔住 1b 採用的 ts' 0
 fi

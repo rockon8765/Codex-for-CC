@@ -82,7 +82,7 @@ node_exe="$(resolve_node)" || {
   exit 45
 }
 [ -f "$validator" ] || {
-  echo "CONSULT_VALIDATOR_UNAVAILABLE: 找不到判準模組: $validator。未鑄造憑證，**既有憑證未變**。" >&2
+  echo "CONSULT_VALIDATOR_UNAVAILABLE: 找不到判準模組: ${validator}。未鑄造憑證，**既有憑證未變**。" >&2
   exit 45
 }
 
@@ -101,7 +101,7 @@ fi
 run_validator "$_pf_bad"
 if [ "$VCODE" -ne 43 ]; then
   rm -f "$_pf_good" "$_pf_bad"
-  echo "CONSULT_VALIDATOR_UNAVAILABLE: 判準 preflight 失敗（壞樣本沒被擋，exit=$VCODE）—— 判準可能是空的或被替換。未鑄造憑證，**既有憑證未變**。" >&2
+  echo "CONSULT_VALIDATOR_UNAVAILABLE: 判準 preflight 失敗（壞樣本沒被擋，exit=${VCODE}）—— 判準可能是空的或被替換。未鑄造憑證，**既有憑證未變**。" >&2
   exit 45
 fi
 rm -f "$_pf_good" "$_pf_bad"
@@ -122,7 +122,7 @@ fi
 logdir="$HOME/.claude/super-mode-logs"
 # 逐字稿目錄建不出來 → 明講並用專屬 46 收場。原本在 set -e 之下是**靜默** rc 1。
 if ! mkdir -p "$logdir" 2>/dev/null; then
-  echo "CONSULT_TRANSCRIPT_UNAVAILABLE: 無法建立逐字稿目錄 $logdir。**尚未呼叫 codex**，未鑄造憑證。" >&2
+  echo "CONSULT_TRANSCRIPT_UNAVAILABLE: 無法建立逐字稿目錄 ${logdir}。**尚未呼叫 codex**，未鑄造憑證。" >&2
   exit 46
 fi
 # 去重後綴防同秒碰撞。⚠️ 2026-08-18：原本硬吃 uuidgen，缺它就整支 rc=127 掛掉
@@ -139,7 +139,7 @@ stamp="$(date +%Y%m%d_%H%M%S)_${rand6}"
 log="$logdir/codex_consult_${stamp}.txt"
 # 在呼叫 codex **之前**就把 log 建出來：此刻中止是安全的（還沒有退出碼要保）。
 if ! : > "$log" 2>/dev/null; then
-  echo "CONSULT_TRANSCRIPT_UNAVAILABLE: 無法建立逐字稿 $log。**尚未呼叫 codex**，未鑄造憑證。" >&2
+  echo "CONSULT_TRANSCRIPT_UNAVAILABLE: 無法建立逐字稿 ${log}。**尚未呼叫 codex**，未鑄造憑證。" >&2
   exit 46
 fi
 # 逐字稿寫入錯誤只記**第一個**，且**絕不中止**——中止就抓不到 codex 的退出碼。
@@ -270,7 +270,7 @@ rm -f "$ans_tmp"
 
 # 額度/認證 fail-fast：stderr 已併入 log 後才掃（樣式集中在這一條，codex 改字樣只改這裡）
 # ══ 配額/認證分類器（兩層）══════════════════════════════════════════════
-# 判準來源是記憶體裡的 stderr，不回頭讀 $log（與 Windows 對齊）。
+# 判準來源是記憶體裡的 stderr，不回頭讀 ${log}（與 Windows 對齊）。
 #
 # ⚠️ 為什麼不能在整段 stderr 找子字串（2026-08-19 實證，88 份真實逐字稿）：
 #    codex 把推理軌跡與工具輸出寫進 stderr，裡面充滿 grep 行號前綴（`…md:401:`）與
@@ -294,7 +294,7 @@ err_lines="$(grep -E "$err_line_re" <<< "$tail_txt" || true)"
 if grep -qiE "$quota_re" <<< "$err_lines"; then
   # head 也會提早關管線 → 一樣要 || true。
   first_err="$(grep -iE "$quota_re" <<< "$err_lines" | head -n 1 || true)"
-  echo "CONSULT_UNAVAILABLE_QUOTA: 疑似 codex 配額/認證失敗（未確證，exit $code）。判準：逐字稿尾端的 codex 錯誤行命中配額/認證字樣 -- $first_err 。停止重試諮詢，向使用者回報；經同意可跑 super-mode.sh off 降級為一般模式。transcript: $log$(transcript_note)" >&2
+  echo "CONSULT_UNAVAILABLE_QUOTA: 疑似 codex 配額/認證失敗（未確證，exit ${code}）。判準：逐字稿尾端的 codex 錯誤行命中配額/認證字樣 -- $first_err 。停止重試諮詢，向使用者回報；經同意可跑 super-mode.sh off 降級為一般模式。transcript: $log$(transcript_note)" >&2
   exit 42
 fi
 hint=""

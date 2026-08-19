@@ -46,14 +46,14 @@ fi
 
 logdir="$HOME/.claude/super-mode-logs"
 if ! mkdir -p "$logdir" 2>/dev/null; then
-  echo "EXEC_TRANSCRIPT_UNAVAILABLE: 無法建立逐字稿目錄 $logdir。**尚未呼叫 codex**。" >&2
+  echo "EXEC_TRANSCRIPT_UNAVAILABLE: 無法建立逐字稿目錄 ${logdir}。**尚未呼叫 codex**。" >&2
   exit 46
 fi
 stamp="$(date +%Y%m%d_%H%M%S)_$(uuidgen | tr 'A-Z' 'a-z' | tr -d '-' | cut -c1-6)"
 log="$logdir/codex_exec_${stamp}.txt"
 # 在呼叫 codex 之前先建 log：此刻中止安全，還沒有退出碼要保。
 if ! : > "$log" 2>/dev/null; then
-  echo "EXEC_TRANSCRIPT_UNAVAILABLE: 無法建立逐字稿 $log。**尚未呼叫 codex**。" >&2
+  echo "EXEC_TRANSCRIPT_UNAVAILABLE: 無法建立逐字稿 ${log}。**尚未呼叫 codex**。" >&2
   exit 46
 fi
 # 逐字稿寫入錯誤只記**第一個**，且**絕不中止**——中止就抓不到 codex 的退出碼。
