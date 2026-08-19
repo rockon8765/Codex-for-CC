@@ -1,4 +1,9 @@
-﻿# warning-exit-contract.tests.ps1 -- Windows 專屬：Write-Warning 會吃掉退出碼契約的回歸測試。
+﻿# warning-exit-contract.tests.ps1 -- Windows 專屬：退出碼契約的回歸測試。
+#
+# ⚠️ 本檔目前**只涵蓋兩條塌陷路徑中的第一條**（$WarningPreference='Stop'）。
+#    第二條（native 非零退出 ＋ $PSNativeCommandUseErrorActionPreference=$true ＋ EAP=Stop）
+#    尚未被覆蓋，產品端也還沒修 —— 見 docs/exit-code-contract-plan-2026-08-19.md。
+#    別把本檔全綠讀成「契約已經成立」。
 #
 # 守的是什麼（2026-08-19 修復）：
 #   codex-consult.ps1 / codex-exec.ps1 對呼叫端的契約是「哨兵訊息 + 專屬退出碼」：
@@ -15,9 +20,11 @@
 # ⚠️ 涵蓋範圍（別誤讀成「三支腳本都守住了」）：
 #   - 動態案例只跑 codex-consult.ps1：只有它有 SUPER_MODE_CODEX_CMD 測試接縫。
 #     codex-exec.ps1 把 codex 路徑硬寫死（無接縫），只能靠 §3 的靜態守衛。
-#   - codex-check.ps1 **不在**守衛範圍。它仍在用 Write-Warning，而且其 test runner 用
-#     `2>&1 | Out-String` 合流：改成真 stderr 會變成 NativeCommandError，在 EAP=Stop
-#     之下會炸掉整個 runner。那是獨立一批工作，見 docs/backlog.md。
+#   - codex-check.ps1 **不在**守衛範圍（它仍在用 Write-Warning，且有同型的 native rc 擷取問題）。
+#     ⚠️ 本註解原本寫的延後理由「改成真 stderr 會炸掉它的 test runner」**是錯的**：
+#     codex-check.tests.ps1:277-281 早就在呼叫 SUT 前把 EAP 降成 Continue 再還原。
+#     真正的理由是該 runner 把 SUT 的 host 寫死成 powershell.exe，要驗修正得先讓它能選 host。
+#     見 docs/backlog.md 的 CODEX-CHECK-WARNING。
 #
 # 受測 host 用 -Shell 切換（使用者的 PowerShell 工具用哪一支不由我們決定）。
 
