@@ -277,7 +277,7 @@ P0-6 的「stdout 含 `401:`、stderr 非配額」案，在 P0-14 修完之前**
 | High | 分類器仍會被 `ERROR: MCP quota-monitor failed to initialize` 這種**含 quota 字樣但與配額無關**的錯誤行誤判；反向地，真配額 ERROR 後若有超過 40 行清理訊息就漏判 | 沒有真配額樣本可校準，調任何閾值都是猜。列 backlog |
 | High | log 目錄建立與 temp brief 寫入仍在 transcript 的 catch 之外 ⇒ EAP=Stop ＋ 唯讀父目錄/滿碟時直接 rc 1，沒有 46 哨兵 | 未做 |
 | High | POSIX `codex-exec.sh` 的 `-q` 分支仍直接 `>> "$log"`，log 失敗時分不出 transport failure 與 codex rc，也不保證 drain | 未做 |
-| Blocker | **原生 macOS / Linux 驗證**（本機只有 Git Bash 5.3/Cygwin） | 這台機器做不到，需另外安排 |
+| Blocker | **原生 macOS 驗證：已完成（2026-08-19）**，見 [`HANDOFF-macos-exit-code-contract-2026-08-19.md`](HANDOFF-macos-exit-code-contract-2026-08-19.md)。bash 3.2.57 ＋ BSD userland：smoke 19/0、gate 117/117、`run-posix.sh` **95/0**（Windows 上的 30 個 symlink FAIL 全部消失 ⇒ 證實是環境天花板不是缺陷）、兩個 mutant 都照預期變紅 ⇒ 守衛在 3.2/BSD 下確有牙齒。⚠️ **但覆蓋矩陣仍缺一格：bash 5.x × BSD userland**（該機 PATH 的 bash 就是 /bin/bash，驗證者自己指出 B 區塊恆真、無獨立價值）。那不是假想組合——Homebrew bash 會排在 PATH 前面。⚠️ **原生 Linux 仍未驗**。 | 部分完成 |
 | Medium | Linux CI 只跑 `bash -n`，沒有真的執行測試 | 未做 |
 | Low | `Resolve-CodexOverride` 在 consult/exec 完整重複 | PowerShell 無共用 lib，與 `Assert-CmdSafePath` 同樣的既有取捨 |
 

@@ -110,3 +110,65 @@ git status --short   # 應該是乾淨的；不乾淨代表還原失敗，請 gi
 見規畫書 §9.2。摘要：分類器對「含 quota 字樣但與配額無關的錯誤行」仍會誤判
 （缺真配額樣本，無法校準）、log 目錄建立仍在 exit 46 契約之外、
 POSIX `codex-exec.sh` 的 `-q` 分支 transport 未修、Linux CI 只跑 `bash -n`。
+
+---
+
+## 驗證結果（2026-08-19，原生 macOS）
+
+### 環境 attestation
+
+```
+Darwin 25.6.0  arm64  (RELEASE_ARM64_T8132)
+/bin/bash : GNU bash, version 3.2.57(1)-release (arm64-apple-darwin25)
+PATH bash : /bin/bash   ← 與上面同一支二進位檔
+node      : v26.7.0
+grep      : /usr/bin/grep — BSD grep 2.6.0-FreeBSD
+tr / head / tee / chmod / sed：皆為 BSD 版
+```
+
+> ℹ️ 驗證者一開始把互動 shell 裡的 `grep` 函式（ugrep 7.5.0）誤認為系統 grep，
+> 隨後自行更正：測試在 `/bin/bash` 子行程中解析到的是 `/usr/bin/grep`（BSD grep），
+> **所以交接單假設的 BSD userland 確實有被實際測到**。這個更正很重要——
+> 若沒更正，整份驗證的前提就不成立。
+
+### A–D
+
+| 區塊 | 結果 | 判定 |
+|---|---|---|
+| A `/bin/bash` 3.2.57 smoke | `pass=19 fail=0` | 符合 |
+| B PATH `bash` smoke | `pass=19 fail=0` | 符合，**但無獨立價值**，見下 |
+| C1 `run-gate-tests.js` | `PASS 117/117` | 符合 |
+| C2 `matcher-contract --repo` | `RESULT_CODE=OK`（module sha256 `acbaeacf81c4f006`） | 符合 |
+| D `tests/ai-install/run-posix.sh` | **`PASS=95 FAIL=0`** | symlink 的環境性失敗**全部消失** |
+
+> **D 的對照值得留檔**：同一支測試臺在 Windows/Git Bash 上是 **65/30**，
+> 30 個 FAIL 全是 symlink 案（無管理員權限建不了 NTFS symlink）。
+> Mac 上 **95/0** ⇒ 直接證實那 30 個是**環境天花板、不是缺陷**。
+> 65 + 30 = 95，案數一致。
+
+### 變異注入（證明守衛在 3.2 ＋ BSD 下真的有作用）
+
+| Mutant | 期望 | 實得 | 判定 |
+|---|---|---|---|
+| M1 SIGPIPE 修法退回管線寫法 | 4h、4i 紅 | `pass=17 fail=2`；`4h`（實得 rc 7、期望 42）、`4i`（哨兵不見） | 完全照預期 |
+| M2 子 shell 重導向守衛退回複合命令 | 4b 紅 | `pass=18 fail=1`；`4b`（沒有逐字稿不完整診斷） | 完全照預期 |
+
+還原後 `git status --short` 空白、`HEAD=b92f7a1`、smoke 回到 `pass=19 fail=0`。
+
+### ⚠️ 驗證者提出、必須保留的限制
+
+**B 區塊沒有獨立的驗證價值。** 該機器上 `command -v bash` 就是 `/bin/bash`，
+A 與 B 跑的是同一支 3.2.57 二進位檔 ⇒ 「A 和 B 一致」是**恆真**的，
+**沒有**證明「無 bash 版本相依」。交接單設計 B 的用意是預期 PATH 上有 Homebrew 的
+bash 5.x，但那台沒有。
+
+⇒ **目前的覆蓋矩陣**：
+
+| | GNU-ish userland | BSD userland |
+|---|---|---|
+| bash 3.2 | — | ✅ 本次 |
+| bash 5.x | ✅ Git Bash 5.3（開發機） | ❌ **未涵蓋** |
+
+漏掉的格子**不是假想組合**：Homebrew 的 bash 會排在 PATH 前面，而本 repo 的腳本是
+`#!/usr/bin/env bash`、`AI-INSTALL` 也寫 `bash …/smoke.sh`
+⇒「brew bash 5 × BSD userland」是一部分 macOS 使用者的**實際生產路徑**。
