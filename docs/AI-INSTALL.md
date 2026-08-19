@@ -26,12 +26,18 @@ macOS / Linux（Linux 把 `macos/` 換成 `linux/`）:
 ```bash
 node "macos/skills/超級模式/tests/run-gate-tests.js"               # 這裡就 FAIL → repo 版本本身有問題，別安裝，回報使用者
 node "macos/skills/超級模式/tests/matcher-contract.test.js" --repo # hook 的工具清單 vs settings matcher 是否一致
+bash "macos/skills/超級模式/tests/exit-code-contract.smoke.sh"     # consult 的退出碼契約(42/46/原樣傳回)與配額判準
 ```
 Windows:
 ```powershell
 node ".\windows\skills\超級模式\tests\run-gate-tests.js"               # 這裡就 FAIL → 別安裝
 node ".\windows\skills\超級模式\tests\matcher-contract.test.js" --repo # hook 的工具清單 vs settings matcher 是否一致
+& ".\windows\skills\超級模式\tests\run-windows-suite.ps1"              # 全部 Windows 測試的單一入口；最後要看到 SUITE_RESULT=OK
 ```
+
+> ℹ️ **`run-windows-suite.ps1` 約需 3 分鐘**（含 codex-check 的 ~2 分鐘）。它用**顯式 manifest**
+> 逐支開新 process，並檢查每支的**成功 marker**——只看 exit code 會被「空輸出但 exit 0」騙過。
+> 它同時涵蓋 pwsh 7 與 WinPS 5.1 兩個 host。
 
 > ℹ️ **`--repo` 不是可選的。** 它明確指定「驗與該檔相鄰的 `settings.snippet.json` ＋ hook」，
 > 而這一步要驗的就是 repo 版本。不給旗標會走已淘汰的自動判斷並印 deprecation 警告；
@@ -372,13 +378,19 @@ hook 在啟用前是 fail-open 且停用的——安裝它不影響一般 sessio
 node ~/.claude/skills/超級模式/tests/run-gate-tests.js               # 應全數 PASS
 node ~/.claude/skills/超級模式/tests/matcher-contract.test.js --live # ★ 必跑，見下方說明
 bash ~/.claude/skills/超級模式/tests/run-e2e.sh                      # 應全數 passed（會印 GATE_UNDER_TEST 供核對）
+bash ~/.claude/skills/超級模式/tests/exit-code-contract.smoke.sh     # 退出碼契約；驗的是**剛安裝的那份** consult
 ```
 
 **Windows**
 ```powershell
 node "$env:USERPROFILE\.claude\skills\超級模式\tests\run-gate-tests.js"               # 應全數 PASS
 node "$env:USERPROFILE\.claude\skills\超級模式\tests\matcher-contract.test.js" --live # ★ 必跑，見下方說明
+& "$env:USERPROFILE\.claude\skills\超級模式\tests\run-windows-suite.ps1"              # 要看到 SUITE_RESULT=OK；驗的是**剛安裝的那份**
 ```
+
+> ⚠️ **這一步驗的是 live 副本，不是 repo。** 本 repo 的安裝是 `Copy-Item` 實體複製，
+> repo 與 `~/.claude` 之間沒有任何連動——「repo 改好」不等於「生效」。
+> （2026-08-19 就是被這個咬過：live 停在三個禮拜前的版本，早就修好的東西還在咬人。）
 
 > ★ **`matcher-contract` 是步驟 2 的驗收，不是可選項。** 另外兩支測試都是**直接呼叫** `decide()`，
 > 就算你把 `matcher` 合併錯或漏合併，它們照樣全綠 —— 但真實情況是 hook **根本不會被叫起**，
