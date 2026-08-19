@@ -102,7 +102,14 @@ if ($SchemaFile) {
 }
 
 $logDir = Join-Path $env:USERPROFILE ".claude\super-mode-logs"
-if (-not (Test-Path $logDir)) { New-Item -ItemType Directory -Path $logDir | Out-Null }
+# ⚠️ 同 codex-consult：建目錄失敗屬逐字稿不可用，走 46 不要讓 EAP=Stop 直接 rc 1。
+if (-not (Test-Path $logDir)) {
+  try { New-Item -ItemType Directory -Path $logDir -ErrorAction Stop | Out-Null }
+  catch {
+    [Console]::Error.WriteLine("EXEC_TRANSCRIPT_UNAVAILABLE: 無法建立逐字稿目錄 $logDir -- $_ 。**尚未呼叫 codex**。")
+    exit 46
+  }
+}
 $stamp = "{0}_{1}" -f (Get-Date -Format "yyyyMMdd_HHmmss"), ([guid]::NewGuid().ToString('N').Substring(0, 6))  # 加去重後綴，防同秒並行派工檔名碰撞
 $log = Join-Path $logDir ("codex_exec_{0}.txt" -f $stamp)
 if (-not $OutFile) { $OutFile = Join-Path $logDir ("codex_exec_{0}_last.txt" -f $stamp) }
@@ -136,7 +143,11 @@ Assert-CmdSafePath $Dir 'Dir'   # $Dir 也進 cmd /c 字串(既有注入面)，�
 # 正規化落地 UTF-8(無 BOM)暫存簡報，cmd `<` 重導向 → 位元組直達 codex
 $brief = Join-Path $env:TEMP ("codex_brief_{0}.txt" -f ([guid]::NewGuid().ToString('N')))
 $errFile = Join-Path $env:TEMP ("codex_err_{0}.txt" -f ([guid]::NewGuid().ToString('N')))
-[System.IO.File]::WriteAllText($brief, $p, (New-Object System.Text.UTF8Encoding $false))
+try { [System.IO.File]::WriteAllText($brief, $p, (New-Object System.Text.UTF8Encoding $false)) }
+catch {
+  [Console]::Error.WriteLine("EXEC_TRANSCRIPT_UNAVAILABLE: 無法寫入暫存簡報 $brief -- $_ 。**尚未呼叫 codex**。")
+  exit 46
+}
 try {
   # stderr 導到獨立檔(編號佔位符 {4})；不可用 2>&1(會回灌 stdout)。$LASTEXITCODE 仍是 codex 退出碼。
   # $schemaArg 為空時 {5} 不出現、多帶的 -f 參數無害；有值時併入 --output-schema "{5}"

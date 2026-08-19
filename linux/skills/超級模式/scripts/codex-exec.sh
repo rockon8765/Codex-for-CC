@@ -64,8 +64,16 @@ transcript_note() {
   fi
 }
 out="${outfile:-$logdir/codex_exec_${stamp}_last.txt}"
-brief_tmp="$(mktemp "${TMPDIR:-/tmp}/codex_brief_XXXXXX")"
-err_tmp="$(mktemp "${TMPDIR:-/tmp}/codex_err_XXXXXX")"
+# ⚠️ mktemp 失敗屬「逐字稿/輸入不可用」，走 46；原本在 set -e 之下是靜默 rc 1。
+mk_or_46() {  # mk_or_46 <label> <template>
+  _t="$(mktemp "$2" 2>/dev/null)" || {
+    echo "EXEC_TRANSCRIPT_UNAVAILABLE: 無法建立$1暫存檔（${TMPDIR:-/tmp} 不可寫？）。**尚未呼叫 codex**。" >&2
+    exit 46
+  }
+  printf '%s' "$_t"
+}
+brief_tmp="$(mk_or_46 '簡報' "${TMPDIR:-/tmp}/codex_brief_XXXXXX")"
+err_tmp="$(mk_or_46 'stderr' "${TMPDIR:-/tmp}/codex_err_XXXXXX")"
 printf '%s' "$p" > "$brief_tmp"
 
 # 簡報走 stdin(< file)；stderr 導獨立檔再併 log，絕不 2>&1。
@@ -77,8 +85,15 @@ if [ "$quiet" = "1" ]; then
   codex exec --sandbox workspace-write --skip-git-repo-check \
     -c memories.use_memories=false -c memories.generate_memories=false -C "$dir" \
     ${schema_args[@]+"${schema_args[@]}"} --output-last-message "$out" \
-    < "$brief_tmp" 2> "$err_tmp" >> "$log"
-  code=$?
+    < "$brief_tmp" 2> "$err_tmp" | tee -a "$log" > /dev/null
+  # ⚠️ quiet 分支原本是 `>> "$log"` 直送：log 開檔/寫入失敗時，失敗會**冒充成 codex 的
+  #    退出碼**（甚至 codex 根本沒被啟動），而且不保證 drain —— 與非 quiet 分支不等價。
+  #    改成同一條 pipeline + PIPESTATUS，兩個分支的 transport 語義才一致。
+  #    （2026-08-19 Codex 指出這是「建議的背景派工路徑，不是罕用旁支」，我接受。）
+  pipe_rc=("${PIPESTATUS[@]}")
+  code=${pipe_rc[0]}
+  log_tee_rc=${pipe_rc[1]:-0}
+  if [ "$log_tee_rc" -ne 0 ]; then transcript_error="逐字稿寫入失敗 (tee rc=$log_tee_rc)"; fi
 else
   codex exec --sandbox workspace-write --skip-git-repo-check \
     -c memories.use_memories=false -c memories.generate_memories=false -C "$dir" \

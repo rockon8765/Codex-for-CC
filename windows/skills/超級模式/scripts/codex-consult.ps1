@@ -211,7 +211,16 @@ if ($SchemaFile) {
 }
 
 $logDir = Join-Path $env:USERPROFILE ".claude\super-mode-logs"
-if (-not (Test-Path $logDir)) { New-Item -ItemType Directory -Path $logDir | Out-Null }
+# ⚠️ 建目錄失敗也屬於**逐字稿不可用**，要走 46 契約而不是讓 EAP=Stop 直接 rc 1。
+# （唯讀父目錄／無效 TEMP／滿碟都會走到這裡。2026-08-19 Codex 第六輪指出，我接受
+#  它的歸類：這**屬於退出碼契約本身**，不是另一個無關的失敗面。）
+if (-not (Test-Path $logDir)) {
+  try { New-Item -ItemType Directory -Path $logDir -ErrorAction Stop | Out-Null }
+  catch {
+    [Console]::Error.WriteLine("CONSULT_TRANSCRIPT_UNAVAILABLE: 無法建立逐字稿目錄 $logDir -- $_ 。**尚未呼叫 codex**，未鑄造憑證。")
+    exit 46
+  }
+}
 $log = Join-Path $logDir ("codex_consult_{0}_{1}.txt" -f (Get-Date -Format "yyyyMMdd_HHmmss"), ([guid]::NewGuid().ToString('N').Substring(0, 6)))  # 去重後綴防同秒碰撞
 
 # ── 逐字稿前置：在呼叫 codex **之前**就強制把 log 建出來 ──────────────
@@ -235,7 +244,12 @@ $errFile = Join-Path $env:TEMP ("codex_err_{0}.txt" -f ([guid]::NewGuid().ToStri
 # codex 的 **stdout 專用**副本，餵給判準用。⚠️ 不能拿 $log 代替：log 事後會被接上
 # "===== STDERR =====" 區段，把 stderr 一起送進判準會改變裁決（例如 schema 模式的 JSON 解析）。
 $answerFile = Join-Path $env:TEMP ("codex_answer_{0}.txt" -f ([guid]::NewGuid().ToString('N')))
-[System.IO.File]::WriteAllText($brief, $p, (New-Object System.Text.UTF8Encoding $false))
+# ⚠️ 暫存簡報寫不出去 = codex 根本收不到輸入，同樣屬「尚未呼叫 codex」的 46。
+try { [System.IO.File]::WriteAllText($brief, $p, (New-Object System.Text.UTF8Encoding $false)) }
+catch {
+  [Console]::Error.WriteLine("CONSULT_TRANSCRIPT_UNAVAILABLE: 無法寫入暫存簡報 $brief -- $_ 。**尚未呼叫 codex**，未鑄造憑證。")
+  exit 46
+}
 # 逐行捕捉的 codex stdout；裁決一律只看這裡，不回頭讀 $log。
 $stdoutLines = New-Object System.Collections.Generic.List[string]
 # 逐字稿寫入錯誤只記**第一個**（後續多半是同一個原因刷屏），且絕不中止 pipeline。

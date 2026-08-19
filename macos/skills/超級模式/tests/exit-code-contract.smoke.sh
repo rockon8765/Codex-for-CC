@@ -91,7 +91,7 @@ if [ -n "$missing" ]; then
 fi
 
 pass=0; fail=0; failed=""
-EXPECTED_CHECKS=22   # 只證明「沒少跑案」，不證明案子有牙齒
+EXPECTED_CHECKS=27   # 只證明「沒少跑案」，不證明案子有牙齒
 
 chk() {
   if [ "$2" = "$3" ]; then pass=$((pass+1)); else
@@ -244,7 +244,7 @@ if [ -z "$trigger_locale" ]; then
     # ⚠️ **不要**補假的 PASS 讓尾行維持 22/0 —— 自動化入口只讀摘要，補了就分不出
     #    「跑完 22 案」與「跳過 locale 維度」。改成降低期望案數，並在**摘要行**留標記。
     locale_skipped=1
-    EXPECTED_CHECKS=19
+    EXPECTED_CHECKS=24
   else
     echo "  FAIL  找不到 charmap 非 ASCII 的 locale ⇒ locale 維度無法驗證。"
     echo "        這是 hard fail 而不是 skip：靜靜略過會讓「全綠」失去意義。"
@@ -262,6 +262,49 @@ else
   chk  "6c 觸發 locale 下一般失敗仍原樣傳回 7" "$RC" "7"
   RUN_LC="${LC_ALL:-${LANG:-C}}"
 fi
+
+echo "§7 preflight：暫存目錄不可寫 → 呼叫 codex 之前就停（rc 46）"
+# 守的是 mk_or_46：原本 `brief_tmp="$(mktemp …)"` 在 set -e 之下失敗會**靜默 rc 1**，
+# 沒有任何哨兵，呼叫端分不出「環境壞掉」與「codex 回了 1」。
+safe_root || exit 2
+# ⚠️ 注入方式用「TMPDIR 指向一個**檔案**」而不是「唯讀目錄」：
+# 實測 Cygwin 對目錄的 chmod a-w **擋不住** mktemp 建檔 ⇒ 那樣注入會靜靜失效、
+# 案子看似通過其實沒測到（本批第三次踩到「故障注入自己沒生效」）。
+ro_tmp="$root/tmpdir-is-a-file"
+rm -rf "$ro_tmp"; : > "$ro_tmp"
+: > "$root/trace"
+printf '%s' "x" > "$root/fake-out.txt"; : > "$root/fake-err.txt"
+TMPDIR="$ro_tmp" FAKE_TRACE="$root/trace" FAKE_EXIT=0 \
+  FAKE_OUT_FILE="$root/fake-out.txt" FAKE_ERR_FILE="$root/fake-err.txt" \
+  HOME="$root/home" PATH="$root/stub:$PATH" LC_ALL="$RUN_LC" \
+  "$SUT_BASH" "$SUT" -d "$root/repo" -f "$root/brief.md" -n > "$root/o.txt" 2> "$root/e.txt"
+RC=$?; ERR="$(cat "$root/e.txt")"
+RAN="$(grep -c RAN "$root/trace" 2>/dev/null)"; RAN="${RAN:-0}"
+rm -f "$ro_tmp" 2>/dev/null || true
+chk  "7a 暫存目錄不可寫 → 精確 rc 46"      "$RC" "46"
+chkm "7b 有 TRANSCRIPT_UNAVAILABLE 哨兵"   "$ERR" "CONSULT_TRANSCRIPT_UNAVAILABLE" 1
+chk  "7c codex 根本不該被呼叫"             "$RAN" "0"
+
+echo "§8 靜態規則：產品腳本不得有未經 mk_or_46 的 mktemp"
+# ⚠️ §7 只打得到**執行順序最前面**那一處 mktemp（實測：把 brief_tmp 退回裸 mktemp，
+#    §7 仍全綠，因為更早的 preflight fixture 先攔下了）。動態案只證明它真的走過的那一行，
+#    其餘同型站點只能靠這條原始碼層級的規則守 —— 與 no-multibyte-varref 同一種證據型別。
+for _sut in "$here/../scripts/codex-consult.sh" "$here/../scripts/codex-exec.sh"; do
+  _name="$(basename "$_sut")"
+  if [ ! -f "$_sut" ]; then
+    chk "8-${_name} 檔案存在" "no" "yes"
+    continue
+  fi
+  # 排除 mk_or_46 自己那一行（它就是唯一允許呼叫 mktemp 的地方）
+  # mk_or_46 本體是唯一允許呼叫 mktemp 的地方，它的特徵是用位置參數 \ 當模板。
+  # 規則：**非註解行**中，呼叫 mktemp 而不是走 mk_or_46 的，一律違規。
+  # ⚠️ 要排除兩種東西，少排一種就會有假紅：
+  #   (1) 註解行 —— 本檔與腳本自己都會在註解裡提到 mktemp（第一版就踩到）。
+  #   (2) mk_or_46 本體那一行 —— 它就是唯一允許呼叫 mktemp 的地方，特徵是用位置參數當模板。
+  _bare="$(sed 's/^[[:space:]]*//' "$_sut" | grep -v '^#' | grep 'mktemp ' | grep -vc 'mktemp "[$]2"' || true)"
+  _bare="${_bare:-0}"
+  chk "8-${_name} 無裸 mktemp（0 處）" "$_bare" "0"
+done
 
 ran=$((pass+fail))
 if [ "$ran" -ne "$EXPECTED_CHECKS" ]; then

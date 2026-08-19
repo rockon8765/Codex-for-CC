@@ -58,9 +58,17 @@ resolve_node() {
 }
 
 # 一律以 argv 呼叫（不拼字串、不過 eval）。回：VOUT / VERR / VCODE
+# ⚠️ mktemp 失敗也屬「逐字稿/輸入不可用」，走 46；原本在 set -e 之下是靜默 rc 1。
+mk_or_46() {  # mk_or_46 <label> <template>
+  _t="$(mktemp "$2" 2>/dev/null)" || {
+    echo "CONSULT_TRANSCRIPT_UNAVAILABLE: 無法建立$1暫存檔（${TMPDIR:-/tmp} 不可寫？）。**尚未呼叫 codex**，未鑄造憑證。" >&2
+    exit 46
+  }
+  printf '%s' "$_t"
+}
 run_validator() {
-  _vout="$(mktemp "${TMPDIR:-/tmp}/consult_v_out_XXXXXX")"
-  _verr="$(mktemp "${TMPDIR:-/tmp}/consult_v_err_XXXXXX")"
+  _vout="$(mk_or_46 '判準 stdout' "${TMPDIR:-/tmp}/consult_v_out_XXXXXX")"
+  _verr="$(mk_or_46 '判準 stderr' "${TMPDIR:-/tmp}/consult_v_err_XXXXXX")"
   set +e
   "$node_exe" "$validator" --answer-file "$1" ${2:+$2} ${3:+$3} > "$_vout" 2> "$_verr"
   VCODE=$?
@@ -88,8 +96,8 @@ node_exe="$(resolve_node)" || {
 
 # preflight：在燒掉一次諮詢**之前**就確認判準跑得動，而且不是「永遠放行」或「永遠拒絕」。
 # 兩個探針缺一不可——只驗好樣本會放過 always-OK 的空模組，只驗壞樣本會放過 always-43。
-_pf_good="$(mktemp "${TMPDIR:-/tmp}/consult_pf_g_XXXXXX")"
-_pf_bad="$(mktemp "${TMPDIR:-/tmp}/consult_pf_b_XXXXXX")"
+_pf_good="$(mk_or_46 'preflight 正例' "${TMPDIR:-/tmp}/consult_pf_g_XXXXXX")"
+_pf_bad="$(mk_or_46 'preflight 負例' "${TMPDIR:-/tmp}/consult_pf_b_XXXXXX")"
 printf 'ALLOW: preflight\n%s\n' "$(printf 'x%.0s' $(seq 60))" > "$_pf_good"
 printf 'hi' > "$_pf_bad"
 run_validator "$_pf_good"
@@ -149,11 +157,11 @@ transcript_note() {
     printf ' 逐字稿不完整（%s）。' "$transcript_error"
   fi
 }
-brief_tmp="$(mktemp "${TMPDIR:-/tmp}/codex_brief_XXXXXX")"
-err_tmp="$(mktemp "${TMPDIR:-/tmp}/codex_err_XXXXXX")"
+brief_tmp="$(mk_or_46 '簡報' "${TMPDIR:-/tmp}/codex_brief_XXXXXX")"
+err_tmp="$(mk_or_46 'stderr' "${TMPDIR:-/tmp}/codex_err_XXXXXX")"
 # codex 的 **stdout 專用**副本，餵給判準用。⚠️ 不能拿 $log 代替：log 事後會被接上
 # "===== STDERR =====" 區段，把 stderr 一起送進判準會改變裁決（schema 模式的 JSON 解析尤其）。
-ans_tmp="$(mktemp "${TMPDIR:-/tmp}/codex_answer_XXXXXX")"
+ans_tmp="$(mk_or_46 'answer' "${TMPDIR:-/tmp}/codex_answer_XXXXXX")"
 printf '%s' "$p" > "$brief_tmp"
 
 # 簡報走 stdin(< file)避開引號/長度/word-split；stderr 導獨立檔再併 log，絕不 2>&1。
