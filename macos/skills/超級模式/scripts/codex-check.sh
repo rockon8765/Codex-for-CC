@@ -149,13 +149,18 @@ collect_capability_snapshot() {
   # 的 hook——read-only 沙箱心智模型之外的執行面。本地檔自控格式：檔不存在＝真的無 hooks
   # （OK 空、非 EMPTY 歧義）。唯讀讀 config.toml，不改任何檔。
   cap_hooks_items=""; cap_hooks_status="OK"
-  cfg="$HOME/.codex/config.toml"
+  # CODEX_HOME 可整個改寫 config/state 根目錄(2026-08-28)；未設定才退回 ~/.codex。
+  cfg="${CODEX_HOME:-$HOME/.codex}/config.toml"
   if [ -f "$cfg" ]; then
     if cfg_raw="$(cat "$cfg" 2>/dev/null)"; then
-      # hooks ID 截斷：vendor:suffix 取 [0]（suffix 疑為 volatile hash，保留截斷防常態漂移）
-      cap_hooks_items="$(printf '%s\n' "$cfg_raw" | tr -d '\r' | sed -nE 's/^\[hooks\.state\."([^"]+)"\].*$/\1/p' | cut -d: -f1 | LC_ALL=C sort -u)"
-      # config 內有 hooks.state 段但一筆都解析不到（如 TOML 改用單引號/裸鍵序列化）→ UNPARSEABLE，
-      # 不可當成「無 hooks」寫進 baseline（hooks 是 read-only 心智模型外的執行面，洗白代價最高）。
+      # full key 是 opaque identity(<source>:<event>:<group>:<handler>)——不得截斷(2026-08-28)：
+      # 舊版截斷在 Windows 會把 "C:\...\hooks.json:pre_tool_use:0:0" 折成 "C"，同一磁碟所有
+      # hook 碰撞成一筆 → 新增/改動 hook 完全不漂移。hash 在 trusted_hash 的 value，不在 key suffix。
+      cap_hooks_items="$(printf '%s\n' "$cfg_raw" | tr -d '\r' | sed -nE 's/^\[hooks\.state\."([^"]+)"\].*$/\1/p' | LC_ALL=C sort -u)"
+      # config 內有 hooks.state 段但一筆都解析不到 → UNPARSEABLE。
+      # 語義是「無法證明為空」，不是「解析失敗」：TOML 是語意樹，子表可用單引號/裸鍵/點號空白書寫、
+      # 也可出現在父表之前，逐行文字掃描一律認不得。且本檢查只讀 base user config——hooks 另可來自
+      # hooks.json / project .codex / profile / managed / plugin / -c 覆寫。一律不得寫成「無 hooks」。
       if [ -z "$cap_hooks_items" ]; then
         case "$cfg_raw" in *"hooks.state"*) cap_hooks_status="UNPARSEABLE" ;; esac
       fi
@@ -225,7 +230,7 @@ show_capability_surface() {
   fi
 
   if [ "$cap_hooks_status" = "FAILED" ]; then echo "受信任 hooks: (解析失敗)"
-  elif [ "$cap_hooks_status" = "UNPARSEABLE" ]; then echo "受信任 hooks: (UNPARSEABLE -- config 有 hooks.state 段但解析 0 筆，疑序列化格式變更，請人工確認)"
+  elif [ "$cap_hooks_status" = "UNPARSEABLE" ]; then echo "受信任 hooks: (UNPARSEABLE -- 本檢查無法證明有效 hook 集合為空；只讀了 base user config，hooks 另可來自 hooks.json/project/profile/managed/plugin/-c 覆寫。請人工確認)"
   elif [ -n "$cap_hooks_items" ]; then
     n="$(count_list "$cap_hooks_items")"
     echo "受信任 hooks (${n}): $(join_list "$cap_hooks_items" ', ')"

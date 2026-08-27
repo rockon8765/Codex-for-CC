@@ -140,17 +140,24 @@ function Get-CapabilitySnapshot {
   # （OK 空、非 EMPTY 歧義）。唯讀讀 config.toml，不改任何檔。
   $h = @{ Items = @(); Status = 'OK' }
   try {
-    $cfg = Join-Path $env:USERPROFILE ".codex\config.toml"
+    # CODEX_HOME 可整個改寫 config/state 根目錄(2026-08-28)；未設定才退回 ~/.codex。
+    $codexHome = if ($env:CODEX_HOME) { $env:CODEX_HOME } else { Join-Path $env:USERPROFILE ".codex" }
+    $cfg = Join-Path $codexHome "config.toml"
     $cfgRaw = ''
     if (Test-Path $cfg) {
       $cfgRaw = [string](Get-Content -LiteralPath $cfg -Raw)
+      # full key 是 opaque identity(<source>:<event>:<group>:<handler>)——不得截斷(2026-08-28)：
+      # 舊版截斷在 Windows 會把 "C:\...\hooks.json:pre_tool_use:0:0" 折成 "C"，同一磁碟所有
+      # hook 碰撞成一筆 → 新增/改動 hook 完全不漂移。hash 在 trusted_hash 的 value，不在 key suffix。
       foreach ($ln in ($cfgRaw -split "`r?`n")) {
-        if ($ln -match '^\[hooks\.state\."([^"]+)"\]') { $h.Items += (($Matches[1] -split ':')[0]) }
+        if ($ln -match '^\[hooks\.state\."([^"]+)"\]') { $h.Items += $Matches[1] }
       }
     }
     $h.Items = @($h.Items | Select-Object -Unique | Sort-Object)
-    # config 內有 hooks.state 段但一筆都解析不到（如 TOML 改用單引號/裸鍵序列化）→ UNPARSEABLE，
-    # 不可当成「無 hooks」寫進 baseline（hooks 是 read-only 心智模型外的執行面，洗白代價最高）。
+    # config 內有 hooks.state 段但一筆都解析不到 → UNPARSEABLE。
+    # 語義是「無法證明為空」，不是「解析失敗」：TOML 是語意樹，子表可用單引號/裸鍵/點號空白書寫、
+    # 也可出現在父表之前，逐行文字掃描一律認不得。且本檢查只讀 base user config——hooks 另可來自
+    # hooks.json / project .codex / profile / managed / plugin / -c 覆寫。一律不得寫成「無 hooks」。
     if ($h.Items.Count -eq 0 -and $cfgRaw -match 'hooks\.state') { $h.Status = 'UNPARSEABLE' }
   } catch { $h.Status = 'FAILED' }
   $snap['hooks'] = $h
@@ -204,7 +211,7 @@ function Show-CapabilitySurface {
 
   $h = $snap['hooks']
   if ($h.Status -eq 'FAILED') { Write-Output "受信任 hooks: (解析失敗)" }
-  elseif ($h.Status -eq 'UNPARSEABLE') { Write-Output "受信任 hooks: (UNPARSEABLE -- config 有 hooks.state 段但解析 0 筆，疑序列化格式變更，請人工確認)" }
+  elseif ($h.Status -eq 'UNPARSEABLE') { Write-Output "受信任 hooks: (UNPARSEABLE -- 本檢查無法證明有效 hook 集合為空；只讀了 base user config，hooks 另可來自 hooks.json/project/profile/managed/plugin/-c 覆寫。請人工確認)" }
   elseif ($h.Items.Count) { Write-Output ("受信任 hooks ({0}): {1}" -f $h.Items.Count, ($h.Items -join ', ')) }
 
   # skill 依賴旗標探測：升級後旗標從 exec --help 消失＝consult/exec 腳本可能已不相容，要大聲講。
