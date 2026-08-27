@@ -136,3 +136,29 @@ ECC 蓋掉」，那個理由已被推翻：躲進不會被載入的檔案只是�
 審查型派工帶 `-s references/review-output.schema.json`（路徑相對 skill 根目錄，跨目錄派工改傳絕對路徑），收工用 JSON 解析驗收 findings；驗證失敗 fallback 讀全文。
 
 **模型與 effort — 為什麼是「靜默繼承」**（規則在 SKILL §5，此處只講理由）：session 的模型與 effort 是**使用者依任務自己調的旋鈕**，skill 在派工時自行分層，等於覆蓋掉使用者當下的判斷。而「唯讀階段就降一階省額度」是錯的直覺——**唯讀 ≠ 低風險**：安全與架構審查一旦降階，漏判率就上升，省下的額度遠不夠賠。所以預設一律繼承，降階要有具體理由。
+
+
+## §5.1 官方 codex plugin 的審查指令（超級模式內）
+
+前提：`/codex:rescue`、`/codex:transfer`、`--enable-review-gate` 一律禁用（條文在 SKILL §5）。本節只講**審查類**指令怎麼用。
+
+**選哪支**（2026-08-28 讀 v1.0.6 原始碼核對，勿憑 README 推測）：
+
+| | `/codex:review` | `/codex:adversarial-review` |
+|---|---|---|
+| 走哪條路 | Codex **內建 reviewer**（`review/start`） | 一般 `turn/start` ＋ 自訂 prompt |
+| focus 文字 | **不收**，給了直接丟 Error（`codex-companion.mjs:271`） | 收，原樣傳入 |
+| 輸出 | 原始散文 `reviewText`，**無** outputSchema | 掛 `review-output.schema.json`，結構化 findings |
+
+→ 要**指向本里程碑 AC** 的重點審查用 `/codex:adversarial-review`；`/codex:review` 只當通用缺陷掃描。
+
+**四條操作規則：**
+
+1. **一律 `--wait` 前景跑。** 背景跑之後要 `/codex:status` 取結果會再撞 gate＝為一次純查詢再燒一次諮詢。超過工具 10 分鐘上限會自動轉背景並通知，仍不必碰 `/codex:status`。
+2. **審查前先確認 `codex-exec` 真的 exit、測試已跑完。** plugin 的 read-only 只代表 reviewer 不寫檔，**不凍結 working tree**；還在寫就會審到不存在於任何單一時間點的混合快照。另注意 `/codex:status` 只看 plugin 自己的 job ledger、**看不到** `codex-exec`——「沒有 active job」≠ 沒人在寫。
+3. **spec／AC 驗收不外包。** diff reviewer 判不出「整項 AC 完全漏做」——沒有 changed line 可指，schema 又強制 `file`／`line`，最可能的結果是**漏報後 approve**。AC → PASS／FAIL／UNVERIFIED 對照表由 Claude 維護，這格不給 Codex。
+4. **不要每個里程碑都 review。** consult＋exec＋review＝三次 Codex 呼叫／里程碑，會先燒爆 Codex 額度。觸發門檻沿用 §5 的升級清單：安全敏感（auth／支付／個資／secret／crypto）、刪除／migration／schema／public API、installer／hook／跨平台、測試跑不動或 flaky、diff 跨 ≥3 個 production 檔。低風險里程碑聚合 2–3 個一次審，並擺在 merge／push／deploy 前，而非每個本機 commit 前。
+
+**背景 job 不跨 session**：SessionEnd 會關 broker 並清掉該 session 的 plugin job（`session-lifecycle-hook.mjs:104`），結果要在同一 session 內收。plugin 的 state 落在 `%TEMP%/codex-companion/` 或 `$CLAUDE_PLUGIN_DATA`，不污染 repo、與 `~/.claude/super-mode-logs/` 無衝突。
+
+> 一般模式（超級模式 OFF）不受本節限制，plugin 全部可用。但全域「Codex 討論夥伴」規則不變：決策型輸出仍走 `codex-consult -NoCredential`——它吃 brief（審**還沒動手**的決策），plugin 吃 git state（審**已寫出**的碼），互相取代不了。
