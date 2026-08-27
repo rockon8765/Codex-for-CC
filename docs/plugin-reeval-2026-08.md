@@ -172,7 +172,12 @@ Codex 開的「省 ≥25% Claude 用量、完成率 +20pp、每月維護 < 2 小
 - [ ] **A1** 安裝官方 plugin：`/plugin marketplace add openai/codex-plugin-cc` → `/plugin install codex@openai-codex` → `/codex:setup`。**`--enable-review-gate` 永不開。**
 - [ ] **A2** 一般模式自由使用 `/codex:review`、`/codex:adversarial-review`、`/codex:status`、`/codex:result`、`/codex:cancel`。
 - [ ] **A3** 超級模式期間**只禁** `rescue`／`transfer`（違反單一 writer 與子代理禁 Codex 鐵則）；**不得** blanket-deny 整支 `codex-companion.mjs`。同時修掉 [`plugin-learnings-plan-2026-07.md`](plugin-learnings-plan-2026-07.md) 附錄 A 第 3／5 條的自相矛盾。
-- [ ] **A4** 移植 `gpt-5-4-prompting/references/`（prompt-blocks／recipes／antipatterns）進自家 brief 範本。純文字資產、零維護。
+- [x] **A4** 移植 `gpt-5-4-prompting/references/` 進自家 brief 範本 —— **2026-08-28 完成，但範圍比原文窄，記錄如下**（原文「純文字資產、零維護」的前提不成立：執行時發現 `orchestration.md` §2／§3 三平台已漂移，順帶修掉）：
+  - **已移植**（進 `references/orchestration.md` §3 固定核心）：decision boundary、action safety、completeness contract、tool persistence，以及 4 條 antipattern 改寫成「寫 brief 時的自我 lint」。
+  - **改寫而非照搬**：官方 `default_follow_through_policy` 授權 worker 在「低風險歧義」時自行續行 → 照搬等於授權它解讀規格契約，收緊為「只有 AC 可觀察結果等價才可裁量」；且 `codex exec` 是單輪背景任務，缺脈絡的正確語義是回 `BLOCKED` 而非「停下來問 Claude」。
+  - **未移植**：5 份 recipe 全文（檔頭「診斷／修復類預設 write mode」與 §1 spec-first 相衝）、`progress_updates`；`research_mode`／`citation_rules` 降為任務型選配。
+  - **未採用**：全面 XML 化。`codex-exec` 走 stdin 純文字、路徑上無 XML parser；官方 prompt 指南本身也主張 Markdown 表階層、XML 只圈大段附件。要改需先做固定變因的 eval。
+  - Codex 對抗式諮詢逐字稿：`~/.claude/super-mode-logs/codex_consult_20260828_031217_ddf9d5.txt`（反對初判 1／4，已採納）。
 - [ ] **A5** 把 SKILL.md 與 hook 訊息中的 `ALLOW`／`BLOCK` 授權語彙改為「諮詢收據」語彙（§5-b）。
 - [ ] **A6** 修 §4.2：逐字稿保留政策改為與超級模式開關解耦。
 - [ ] **A7** 停止投資清單：installer rewrite、credential v2、POSIX backlog、broker、job control 移植。寫入 [`docs/backlog.md`](backlog.md) 標為 `FROZEN`。
