@@ -201,7 +201,16 @@ fi
 # ⚠️ 先把 raw stderr 讀進變數，**之後**才准刪 temp。裁決只吃這份副本，不回頭讀 $log
 #    ——把「分類正確性」綁在磁碟寫入成功上，正是最需要正確分類時最會失手的設計。
 stderr_text=""
-if [ -f "$err_tmp" ]; then stderr_text="$(cat "$err_tmp" 2>/dev/null || true)"; fi
+if [ -f "$err_tmp" ]; then
+  # ⚠️ cat 失敗不得靜默吞掉（2026-08-28）：讀不到 stderr ⇒ (a) 配額分類器看不到訊息、
+  #    會回原始 rc 而不是 42；(b) code=0 時仍會鑄證，違反「逐字稿壞掉不得鑄證」。
+  #    Windows 版一直有 catch（→ transcriptErrors → 不鑄證），POSIX 這側原本沒有＝三平台不等價。
+  #    用 `if !` 取代 `|| true`：條件語境不觸發 set -e，又能真的看見失敗。
+  if ! stderr_text="$(cat "$err_tmp" 2>/dev/null)"; then
+    stderr_text=""
+    [ -n "$transcript_error" ] || transcript_error="讀取 stderr 暫存檔失敗"
+  fi
+fi
 # 逐字稿的 stderr 區段：best-effort。原本這一行在 set -e 之下失敗就中止，
 # 而它就在擷取 code 之後、裁決之前 → rc 塌成 1、哨兵消失（與 Windows 同型）。
 # ⚠️ 必須用子 shell：`{ ...; } >> file` 在**重導向失敗**時複合命令的退出碼仍是 0，

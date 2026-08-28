@@ -111,7 +111,16 @@ else
 fi
 set -e
 stderr_text=""
-if [ -f "$err_tmp" ]; then stderr_text="$(cat "$err_tmp" 2>/dev/null || true)"; fi
+if [ -f "$err_tmp" ]; then
+  # ⚠️ cat 失敗不得靜默吞掉（2026-08-28）：讀不到 stderr ⇒ (a) 配額分類器看不到訊息、
+  #    會回原始 rc 而不是 42；(b) code=0 時仍會鑄證，違反「逐字稿壞掉不得鑄證」。
+  #    Windows 版一直有 catch（→ transcriptErrors → 不鑄證），POSIX 這側原本沒有＝三平台不等價。
+  #    用 `if !` 取代 `|| true`：條件語境不觸發 set -e，又能真的看見失敗。
+  if ! stderr_text="$(cat "$err_tmp" 2>/dev/null)"; then
+    stderr_text=""
+    [ -n "$transcript_error" ] || transcript_error="讀取 stderr 暫存檔失敗"
+  fi
+fi
 # 原本這一行在 set -e 之下失敗就中止，而它在擷取 code 之後、裁決之前 → rc 塌成 1。
 # ⚠️ 必須用子 shell：`{ ...; } >> file` 在**重導向失敗**時複合命令的退出碼仍是 0，
 #    守衛會變成永遠不觸發的空殼（bash 5.3 實測）。`( ... )` 才會回非零。
