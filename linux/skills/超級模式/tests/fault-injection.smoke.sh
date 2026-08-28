@@ -230,5 +230,12 @@ if [ "$ran" -ne "$EXPECTED_CHECKS" ]; then
 fi
 [ -n "$failed" ] && printf '\n失敗案：%s\n' "$failed"
 echo
-echo "fault-injection.smoke: pass=$pass fail=$fail [sut-bash=$("$SUT_BASH" --version | head -1 | sed -E 's/.*version ([^ ]+).*/\1/') locale=$RUN_LC]$suffix"
+# ⚠️ 取 SUT bash 版本必須用 `-c 'echo ${BASH_VERSION}'`，**不可**用 `--version | sed 's/.*version …/'`。
+#    後者比對的是**英文字面 "version"**，在非英文 locale 下 bash 會印「版本」／「versió」，
+#    sed 不匹配就把**整行原樣**塞進摘要行（2026-08-28 原生 macOS 抓到：
+#    `[sut-bash=GNU bash，版本 5.3.15(1)-release (…) locale=C]`）。值仍誠實，但摘要行是
+#    坑 #4 指定的「唯一可信來源」、也是 CI grep 的對象，一個會隨 locale 變形的欄位不合格。
+#    exit-code-contract.smoke.sh:327 早就是這樣寫的，本檔當初沒沿用，屬於我的疏忽。
+sut_ver="$("$SUT_BASH" -c 'echo ${BASH_VERSION}' 2>/dev/null || echo '?')"
+echo "fault-injection.smoke: pass=$pass fail=$fail [sut-bash=${sut_ver} locale=${RUN_LC}]$suffix"
 [ "$fail" -eq 0 ]
