@@ -11,7 +11,7 @@ SKILL.md 的 §2 / §3 / §3.5 / §5 的詳細範本與程序。用到才讀。
 
 ## §2 AGENTS.md 生成（共用規範層 → Codex）
 
-第一次要派 Codex 時，從共用規範層**單向生成** repo 根目錄的 `AGENTS.md`（不要雙向手抄，必 drift）。只放精選共用規範，不是 125 個 skill。
+第一次要派 Codex 時，從共用規範層**單向生成** repo 根目錄的 `AGENTS.md`（不要雙向手抄，必 drift）。只放精選共用規範，不是整包 skill。
 **若 repo 已有 AGENTS.md**：不要整檔覆蓋 — 只維護 `<!-- SUPER-MODE:START -->` … `<!-- SUPER-MODE:END -->` 標記區塊，其餘內容原封不動。範本：
 
 ```markdown
@@ -31,25 +31,49 @@ SKILL.md 的 §2 / §3 / §3.5 / §5 的詳細範本與程序。用到才讀。
 <type: description；attribution 是否關閉>
 
 ## 限制
-- 不得做架構決策；有疑慮回報 Claude，不要自行假設。
-- 只動任務簡報指定的檔案。
+- 不得做架構決策，也不得改寫 spec／AC／非目標。
+- **只動任務簡報「目標檔案」列出的路徑**；需要動別的檔案 → 回 `BLOCKED:`，不得自行擴張。
+- 缺脈絡先用唯讀工具查；查不到且會影響上述契約 → 回 `BLOCKED: <缺的那一個決定>`，不要自行假設。
+- 未經任務簡報明確授權，不得 commit／push／deploy／publish、刪資料、跑 migration、全域安裝或對外發送。
 <!-- SUPER-MODE:END -->
 ```
 
 ## §3 任務簡報格式（派工）
 
-每個交給 Codex 的步驟，產一份**自足**簡報：
+每個交給 Codex 的步驟，產一份**自足**簡報。下面是**固定核心** —— 寫入範圍、決策邊界、動作安全、AC、完成判準、驗證這幾格不可省略：
 
 ```
 ## 任務：<步驟名>
-- 規格依據：<spec 檔:章節>
-- 目標檔案：<明確路徑清單>
-- 要做什麼：<具體、可驗收>
-- 驗收條件：<測試通過 / 行為符合 / lint 乾淨>
-- 限制：不得做架構決策；有疑慮回報 Claude，不要自行假設。
-- 輸出合約：回報分「已驗證事實」與「推論/假設」兩段；驗收條件逐條自評 PASS/FAIL。
+- 規格依據：<spec 檔:章節>——唯一權源，本簡報不得與它牴觸
+- 目標檔案（寫入範圍）：<明確路徑清單>——**只准改這些**；需要動別的檔案 → 回 BLOCKED，不得自行擴張
+- 要做什麼：<具體、可驗收的終態>
+- 驗收條件（逐條編號 AC-1、AC-2…）：<測試通過 / 行為符合 / lint 乾淨>；完成後 Codex 自審 + 跑測試 + lint，並回報自審結論
+- 決策邊界：不得改寫 spec／AC／非目標；不得自行決定公開行為、API/schema、資料格式、依賴、migration、安全邊界或架構。
+- 授權內裁量：只有當各選項對**全部 AC 的可觀察結果等價**、且都在寫入範圍內，才可自選並繼續——取「鄰近程式慣例 + 最小 diff + 不引入新依賴」者，並在回報註明選了哪個。其餘一律 BLOCKED。
+- 缺少脈絡：repo 事實先用唯讀工具查；查不到且會影響上述契約 → 回 `BLOCKED: <缺的那一個決定>`（單一、具體）。
+- 動作安全：改動限縮在本任務；**不得順手重構／改名／清理無關程式碼**。未經本簡報明確授權，不得 commit／push／deploy／publish、刪資料、跑 migration、全域安裝或對外發送 → 遇到回 BLOCKED，不是「先講再做」。
+- 工具持續性：在上述 spec／寫入範圍／安全限制內，只要再一次工具呼叫能實質推進某條 AC 或降低必要的不確定性就繼續；拿到空白或部分結果換一種策略重試。不得藉此擴大需求，也不得原樣無限重試。
+- 完成判準：逐條 AC 回報 PASS / FAIL / UNVERIFIED / BLOCKED ＋證據；**全部明列 AC 為 PASS 才可宣稱完成**。不要去找 AC 以外的新工作。
+- 輸出合約：回報分「已驗證事實」與「推論/假設」兩段，最高價值的結論放最前面。
 - 收工前自驗：跑本次任務指定的測試/lint 指令，把輸出末尾貼進回報；沒跑＝未完成。
 ```
+（驗收條件內建「Codex 自審」→ 第一道審查花 Codex 額度、不花 Claude。）
+
+**選配欄位**（依任務型態加掛；上面的固定核心不可改成選配）：
+
+| 任務型態 | 加掛 |
+|---|---|
+| 純診斷（唯讀，不派 workspace-write） | 「不得寫檔」＋「列出至少兩個競爭假設，並說明哪個證據能區分它們」 |
+| 動到外部 API／依賴升級／安全公告 | 「分開列出：觀察到的事實／推論／未決」＋「重要主張附出處，優先一手來源」 |
+| 要貼大段 context（spec 全文、log、外部文件） | **只有這種情況**才用 XML 圈起來（`<spec>…</spec>`）；短欄位維持 Markdown |
+
+**寫 brief 時自己 lint 這四條：**
+1. **一次只派一件事**——不相關的工作拆成多次派工，別把「審查＋修＋更新文件」塞同一份。
+2. **沒有輸出合約＝沒有驗收**——「調查一下再回報」是最常見的失敗簡報。
+3. **別用「想仔細一點／think harder」代替更好的合約**——要提品質先收緊 AC 與驗證規則，不是加 reasoning。
+4. **有 placeholder ≠ 任務明確**——`<要做什麼>` 填成「處理一下 X」照樣是 vague task。
+
+> **出處與改寫**（2026-08-28，[`docs/plugin-reeval-2026-08.md`](../../../docs/plugin-reeval-2026-08.md) A4）：決策邊界／授權內裁量／動作安全／工具持續性／完成判準，選擇性移植自官方 plugin 的 `gpt-5-4-prompting` skill（v1.0.6）。最重要的改寫是官方的 `default_follow_through_policy`——原文授權 worker 在「低風險歧義」時自行續行，照搬等於授權它**解讀規格契約**，故收緊成「只有 AC 可觀察結果等價才可裁量」。另外 `codex exec` 是**單輪背景任務**，沒有「停下來問 Claude」這回事，所以缺脈絡的正確語義是回 `BLOCKED` 而非提問。**未移植**：`progress_updates`（背景執行＋逐字稿落地已覆蓋）、5 份 recipe 全文（其檔頭「診斷／修復類預設 write mode」與 SKILL §1 spec-first 相衝）；`research_mode`／`citation_rules` 降為上表選配。**全面 XML 化亦未採用**——`codex-exec` 走 stdin 純文字、路徑上沒有 XML parser，官方 prompt 指南本身也主張 Markdown 表階層、XML 只圈大段附件。
 
 派工方式（擇一）：
 1. **Codex CLI 可用** → 先確認有 20 分鐘內諮詢憑證（exec 受 gate 攔，沒憑證會被擋）。用 Write 工具把簡報寫進 scratchpad（gate 豁免路徑），用 PowerShell 工具 `scripts/codex-exec.ps1 -Dir <repo> -PromptFile <brief>`，**`run_in_background: true` 跑**（重任務常超過工具 10 分鐘上限）。逐字輸出存 `~/.claude/super-mode-logs/codex_exec_<ts>.txt`，最終回覆落地 `codex_exec_<ts>_last.txt`（`--output-last-message`，可用 `-OutFile` 改位置）。收回後 Claude 用 `git diff` 審查。
@@ -105,3 +129,29 @@ SKILL.md 的 §2 / §3 / §3.5 / §5 的詳細範本與程序。用到才讀。
 審查型派工帶 `-SchemaFile references/review-output.schema.json`（路徑相對 skill 根目錄，跨目錄派工改傳絕對路徑），收工用 JSON 解析驗收 findings；驗證失敗 fallback 讀全文。
 
 **模型與 effort — 為什麼是「靜默繼承」**（規則在 SKILL §5，此處只講理由）：session 的模型與 effort 是**使用者依任務自己調的旋鈕**，skill 在派工時自行分層，等於覆蓋掉使用者當下的判斷。而「唯讀階段就降一階省額度」是錯的直覺——**唯讀 ≠ 低風險**：安全與架構審查一旦降階，漏判率就上升，省下的額度遠不夠賠。所以預設一律繼承，降階要有具體理由。
+
+
+## §5.1 官方 codex plugin 的審查指令（超級模式內）
+
+前提：`/codex:rescue`、`/codex:transfer`、`--enable-review-gate` 一律禁用（條文在 SKILL §5）。本節只講**審查類**指令怎麼用。
+
+**選哪支**（2026-08-28 讀 v1.0.6 原始碼核對，勿憑 README 推測）：
+
+| | `/codex:review` | `/codex:adversarial-review` |
+|---|---|---|
+| 走哪條路 | Codex **內建 reviewer**（`review/start`） | 一般 `turn/start` ＋ 自訂 prompt |
+| focus 文字 | **不收**，給了直接丟 Error（`codex-companion.mjs:271`） | 收，原樣傳入 |
+| 輸出 | 原始散文 `reviewText`，**無** outputSchema | 掛 `review-output.schema.json`，結構化 findings |
+
+→ 要**指向本里程碑 AC** 的重點審查用 `/codex:adversarial-review`；`/codex:review` 只當通用缺陷掃描。
+
+**四條操作規則：**
+
+1. **一律 `--wait` 前景跑。** 背景跑之後要 `/codex:status` 取結果會再撞 gate＝為一次純查詢再燒一次諮詢。超過工具 10 分鐘上限會自動轉背景並通知，仍不必碰 `/codex:status`。
+2. **審查前先確認 `codex-exec` 真的 exit、測試已跑完。** plugin 的 read-only 只代表 reviewer 不寫檔，**不凍結 working tree**；還在寫就會審到不存在於任何單一時間點的混合快照。另注意 `/codex:status` 只看 plugin 自己的 job ledger、**看不到** `codex-exec`——「沒有 active job」≠ 沒人在寫。
+3. **spec／AC 驗收不外包。** diff reviewer 判不出「整項 AC 完全漏做」——沒有 changed line 可指，schema 又強制 `file`／`line`，最可能的結果是**漏報後 approve**。AC → PASS／FAIL／UNVERIFIED 對照表由 Claude 維護，這格不給 Codex。
+4. **不要每個里程碑都 review。** consult＋exec＋review＝三次 Codex 呼叫／里程碑，會先燒爆 Codex 額度。觸發門檻沿用 §5 的升級清單：安全敏感（auth／支付／個資／secret／crypto）、刪除／migration／schema／public API、installer／hook／跨平台、測試跑不動或 flaky、diff 跨 ≥3 個 production 檔。低風險里程碑聚合 2–3 個一次審，並擺在 merge／push／deploy 前，而非每個本機 commit 前。
+
+**背景 job 不跨 session**：SessionEnd 會關 broker 並清掉該 session 的 plugin job（`session-lifecycle-hook.mjs:104`），結果要在同一 session 內收。plugin 的 state 落在 `%TEMP%/codex-companion/` 或 `$CLAUDE_PLUGIN_DATA`，不污染 repo、與 `~/.claude/super-mode-logs/` 無衝突。
+
+> 一般模式（超級模式 OFF）不受本節限制，plugin 全部可用。但全域「Codex 討論夥伴」規則不變：決策型輸出仍走 `codex-consult -NoCredential`——它吃 brief（審**還沒動手**的決策），plugin 吃 git state（審**已寫出**的碼），互相取代不了。

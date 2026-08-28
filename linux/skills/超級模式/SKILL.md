@@ -60,6 +60,7 @@ description: 重型工程協作工作流的「明確開關」——spec-first �
 ultracode 開啟時：理解 / 設計 / 審查階段用 Workflow 多代理（唯讀分析），派工仍走 `codex exec`。對照分工見 `references/orchestration.md`。
 **鐵則：每步只有一個 worker pool 寫檔。** 預設 Codex 寫程式，Claude 的 Workflow agents 只做不寫檔的研究／規劃／審查。
 **鐵則：Workflow / subagent 一律禁止呼叫 `codex-consult.sh` / `codex-exec.sh`。** 子代理被 gate 擋下時**回報 orchestrator（主 Claude）就停手**，由主線統一諮詢與派工；子代理要跑 build / verify（如 `npm run build`）也交給主線。（各自諮詢的代價見 `references/orchestration.md` §5。）
+**鐵則：超級模式期間禁用官方 codex plugin 的 `/codex:rescue` 與 `/codex:transfer`（若有安裝）。** `codex:codex-rescue` 是「會呼叫 Codex 的子代理」、description 標了 proactive（主線可能不待你開口就派它），且預設帶 `--write`＝workspace-write 卻沒有 spec／brief／驗收條件——同時違反上一條鐵則與 §1 spec-first。官方的 Stop review gate（`/codex:setup --enable-review-gate`）一律不開——它 fail-closed、本 gate fail-open，兩套語義相反且都叫 Codex。**不得**把 `codex-companion.mjs` 加進 gate 白名單繞路（`status` 與 `task --write` 只差參數尾巴，前綴白名單＝提權）。**審查類 `/codex:review`／`/codex:adversarial-review` 則可用**：在諮詢憑證窗內直接跑、**不必**關超級模式（2026-08-28 訂正：本檔原寫「要用 `/codex:review` 請先跑 `-Off`」，與 `docs/plugin-reeval-2026-08.md` A3「只禁 rescue／transfer」矛盾，故改）；一律 `--wait`、且 spec／AC 驗收不外包——選哪支、操作規則與觸發門檻見 `references/orchestration.md` §5.1。
 > 新一代模型（Opus 5 起）比前代**更傾向主動派子代理**。fan-out 只用在**真正獨立**的工作分支（多檔平行調查、彼此無依賴的研究線）；能在主線幾個工具呼叫內做完的事別外包——N 個平行子代理各自撞 gate、各自回報，只會拖慢主線。
 
 **模型與 effort（本機姿態：靜默繼承、不指定）**
