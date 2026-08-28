@@ -218,7 +218,11 @@ echo "§6 locale 維度：判準不得隨 locale 漂移"
 # ⚠️ 動態選 locale 並**驗 charmap**，不寫死名稱。
 #    macOS 實測 `LC_ALL=zz_ZZ.UTF-8 locale charmap` → US-ASCII、rc 0
 #    ⇒ 寫死一個該機不存在的名稱會**安靜退回 ASCII**，UTF-8 回歸案全綠卻什麼都沒測到。
-# ⚠️ 這一節守的是 macOS bash 3.2 的 multibyte var-ref 缺陷：某些 locale 下
+# ⚠️ **訂正（2026-08-28）：這不是 bash 3.2 專屬的缺陷。** 原生 macOS 的最小重現顯示
+#    Homebrew bash 5.3.15 一模一樣會塌。已重現的組合＝{3.2.57, 5.3.15} × {ca_AD.UTF-8,
+#    en_US.ISO8859-1}；其他 5.x 版本尚未驗證，故也不宜反過來宣稱「所有版本皆然」。
+#    重點是：**不可據此對「PATH 上是 brew bash」的使用者放寬規則** —— 同一個塌陷會重演。
+# ⚠️ 這一節守的是 multibyte var-ref 缺陷：某些 locale 下
 #    雙引號字串裡的變數若**緊接**多位元組字元，該字元的首位元組會被併進變數名 → set -u → 中止 → 退出碼塌成 1、哨兵不印。
 #    2026-08-19 於 macOS 3.2.57 + ca_AD.UTF-8 實測：注入 mutant 後 pass=13 fail=6，
 #    而同一個 mutant 在 LC_ALL=C 下 pass=19 fail=0 ⇒ 紅必須是「mutant × locale」的交集。

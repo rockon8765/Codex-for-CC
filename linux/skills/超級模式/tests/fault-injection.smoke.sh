@@ -158,7 +158,7 @@ mutate() {
   MUT_FIND="$2" MUT_REPL="$3" perl -0pi -e 'my $f=$ENV{MUT_FIND}; my $r=$ENV{MUT_REPL}; s/\Q$f\E/$r/;' "$1" || {
     echo "MUTANT-PERL-FAILED" >&2; exit 2; }
   after="$(_count_lit "$2" "$1")"
-  [ "$after" -eq 0 ] || { echo "MUTANT-NOT-INJECTED: 替換後目標字串仍在（$before -> $after）" >&2; exit 2; }
+  [ "$after" -eq 0 ] || { echo "MUTANT-NOT-INJECTED: 替換後目標字串仍在（${before} -> ${after}）" >&2; exit 2; }
 }
 
 echo "SUT          = $SUT"

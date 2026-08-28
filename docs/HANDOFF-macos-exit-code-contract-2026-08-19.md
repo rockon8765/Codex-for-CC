@@ -109,7 +109,18 @@ cp /tmp/m2.bak macos/skills/超級模式/scripts/codex-consult.sh
 echo
 echo "===== M3: 把 dollar-brace-code 退回 dollar-code（期望：只在觸發 locale 下變紅）====="
 # 這個 mutant 專門驗 macOS bash 3.2 的 multibyte var-ref 缺陷。
-# **兩格都要跑**：LC_ALL=C 那格必須仍綠，否則分不出「locale 造成的」還是「我改壞了」。
+# **兩格都要跑**。⚠️ **驗收準則已於 2026-08-28 訂正：看具名失敗集合，不看 aggregate 綠燈。**
+#   原因：現行 27 案 harness 的 §6 會在**測試內部**把 SUT 的 locale 換成觸發 locale
+#   （`smoke.sh` 的 `RUN_LC="$trigger_locale"`），所以外層 `LC_ALL=C` 那格在 M3 之下
+#   **必然**是 `pass=25 fail=2`。舊準則「C 格必須 aggregate 全綠」是 §6（`52ee3fd`）
+#   加入之前寫的，照舊準則判會把測試結構變動誤讀成產品缺陷。
+#   ⇒ 現行 27 案 harness 的期望：
+#        無 mutant 的基準四格   → 27/0
+#        M3 ＋ 外層 LC_ALL=C    → fail=2，失敗集合**恰為** {6a, 6b}
+#        M3 ＋ 外層觸發 locale  → fail=8，失敗集合**恰為** {3a,3b,4c,4g,4h,4i,6a,6b}
+#   ⇒ 若要重現本節原本那個「只有一格紅」的乾淨 2×2，用寫下該準則時的 19 案 harness：
+#        git show fa549cb:macos/skills/超級模式/tests/exit-code-contract.smoke.sh
+#      （2026-08-28 原生 macOS 實測：基準兩格皆 19/0；M3 下 C 格 19/0、觸發 locale 格 13/6。）
 TRIG="$(for L in $(locale -a); do case "$L" in *[Uu][Tt][Ff]*|*8859*)
   cm="$(LC_ALL=$L locale charmap 2>/dev/null)";
   case "$cm" in US-ASCII|ANSI_X3.4-1968|"") ;; *) echo "$L"; break;; esac;; esac; done)"

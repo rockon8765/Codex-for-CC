@@ -94,8 +94,10 @@ if (violations.length > 0) {
     console.log(`  ${v.rel}:${v.line}  ${v.frag}   → 改成 \${${v.frag.replace(/^\$/, '').slice(0, -1)}}`);
   }
   console.log('');
-  console.log('理由：macOS bash 3.2 在部分 locale 下會把多位元組字元的首位元組併進變數名，');
+  console.log('理由：bash 在部分 locale 下會把多位元組字元的首位元組併進變數名，');
   console.log('      set -u 之下就是 unbound variable → 整支中止。加大括號即可。');
+  console.log('      ⚠️ 不是 bash 3.2 專屬（2026-08-28 訂正）：3.2.57 與 Homebrew 5.3.15');
+  console.log('      在 ca_AD.UTF-8 / en_US.ISO8859-1 下都已實測重現，故本規則不分版本一律適用。');
 }
 
 if (failed) {

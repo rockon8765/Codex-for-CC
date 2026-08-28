@@ -27,7 +27,8 @@ macOS / Linux（Linux 把 `macos/` 換成 `linux/`）:
 node "macos/skills/超級模式/tests/run-gate-tests.js"               # 這裡就 FAIL → repo 版本本身有問題，別安裝，回報使用者
 node "macos/skills/超級模式/tests/matcher-contract.test.js" --repo # hook 的工具清單 vs settings matcher 是否一致
 bash "macos/skills/超級模式/tests/exit-code-contract.smoke.sh"     # consult 的退出碼契約(42/46/原樣傳回)與配額判準
-node "tests/no-multibyte-varref.test.js"                           # 禁止 `$var` 緊接多位元組字元（bash 3.2 會併進變數名）
+bash "macos/skills/超級模式/tests/fault-injection.smoke.sh"        # cat/rm/mktemp 故障注入 ＋ 三個 mutant（上一支沒刺激到的三條路）
+node "tests/no-multibyte-varref.test.js"                           # 禁止 `$var` 緊接多位元組字元（部分 locale 下 bash 會併進變數名）
 ```
 Windows:
 ```powershell
@@ -381,6 +382,7 @@ node ~/.claude/skills/超級模式/tests/run-gate-tests.js               # 應�
 node ~/.claude/skills/超級模式/tests/matcher-contract.test.js --live # ★ 必跑，見下方說明
 bash ~/.claude/skills/超級模式/tests/run-e2e.sh                      # 應全數 passed（會印 GATE_UNDER_TEST 供核對）
 bash ~/.claude/skills/超級模式/tests/exit-code-contract.smoke.sh     # 退出碼契約；驗的是**剛安裝的那份** consult
+bash ~/.claude/skills/超級模式/tests/fault-injection.smoke.sh        # 故障注入 ＋ mutant；同樣驗**剛安裝的那份**
 ```
 
 **Windows**
