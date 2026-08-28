@@ -112,6 +112,43 @@ SKILL.md 的 §2 / §3 / §3.5 / §5 的詳細範本與程序。用到才讀。
 - **內建工具是 pathless（刻意）**：`Artifact` 的 `file_path` 常在 scratchpad、`ScheduleWakeup` 根本沒路徑 → 憑證對這些工具**只做時間綁定、不做 repo 綁定**（與 MCP 的 pathless-allow 同語義）。也就是說 repo A 的憑證會放行 repo B 的 Artifact —— 這是取捨不是漏洞，別誤讀成 repo-bound。
 - **防殘留**：旗標超過 8 小時視為上個 session 忘了關，hook 自動解除。**fail-open**：沒旗標或任何錯誤一律放行（一般模式不受影響）。退出時必跑 `super-mode.ps1 -Off`。
 
+**先天限制（設計上，別誤以為滴水不漏）：**
+- Bash／PowerShell 動作分類是**啟發式**（curated 清單）；做窄會漏、做寬會煩，按需自行增修。
+- 只綁 repo + TTL；憑證的 `session` 欄只當 audit（consult 端讀不到 Claude Code 的 session id）。
+- **擋不到 Codex 子程序自己寫的檔**——`codex-exec.ps1` 一放行，Codex CLI 之後的檔案改動不逐一經過 Claude Code hook。
+
+**註冊（部署）**：把下面合併進 `~/.claude/settings.json`（hook 設定變更下個 session 才生效）。
+⚠️ **合併的完整步驟照 Codex-for-CC checkout 裡的 `docs/AI-INSTALL.md` 步驟 2 做，這裡刻意不複述**
+（skill 裝到 `~/.claude/` 後不含 `docs/`，要回 checkout 看）。那一節有兩道 probe，動手前與合併後各一次；
+**兩者各自的理由寫在那一節，本檔刻意不複述**（先前在 macOS 側抄過一份，共用模組上線後就過時了——那正是不該複述的原因）。
+⚠️ **Windows 用的就是 `~/.claude/settings.json`**，不是 `settings.local.json`。macOS／Linux 那條
+「家目錄的 local 檔不是 user scope」的坑**在 Windows 不適用**（見 [`docs/verify-settings-scope.md`](../../../docs/verify-settings-scope.md)，
+該檔 §「Windows 已經用 settings.json，不受影響」）。但**任何工具改動過該檔之後**（包含 Claude Code 自己的
+plugin manager——它同樣寫這個檔），都要重跑
+`node ~/.claude/skills/超級模式/tests/matcher-contract.test.js --live`
+——它找不到已註冊的 hook 會 FAIL。
+
+```json
+{
+  "hooks": {
+    "PreToolUse": [
+      { "matcher": "Edit|Write|MultiEdit|NotebookEdit|Bash|PowerShell|Monitor|RemoteTrigger|PushNotification|CronCreate|CronDelete|Artifact|ScheduleWakeup|EnterWorktree|ExitWorktree|mcp__.*",
+        "hooks": [ { "type": "command", "command": "node C:/Users/user/.claude/hooks/super-mode-consult-gate.js" } ] }
+    ]
+  }
+}
+```
+路徑改成你的家目錄——**JSON 內用正斜線最省事**，寫反斜線要逃逸成 `\`。若 `node` 不在系統 PATH
+（例如可攜式安裝），`command` 開頭的 `node` 也要換成絕對路徑，否則 hook 會**靜默不跑、gate 形同虛設**。
+
+然後每次工作用 `super-mode.ps1 -On -Scope <dir>` 開、`super-mode.ps1 -Off` 關。
+**測試**：完整入口是 `tests/run-windows-suite.ps1`（`-Mode repo` 驗 repo 樹、`-Mode live` 驗已安裝副本；
+顯式 manifest，每列都釘檔名／host／timeout／成功 marker，marker 沒出現就算 FAIL）。
+若安裝副本早於 2026-08-19、`tests/` 裡沒有這支，就分別跑
+`node ~/.claude/skills/超級模式/tests/run-gate-tests.js`（案例回歸）與
+`node ~/.claude/skills/超級模式/tests/matcher-contract.test.js --live`（hook 清單 vs settings matcher 一致性）。
+改 hook 前先在 `tests/gate-cases.json` 加會 fail 的新案例，改完全綠才算數。
+
 ## §5 Ultracode 疊用分工
 
 | 階段 | 用 ultracode (Workflow)? | 用法 |
