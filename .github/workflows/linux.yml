@@ -185,6 +185,26 @@ jobs:
           printf '%s' "$out" | grep -qE '^exit-code-contract\.smoke: pass=[0-9]+ fail=0 \[sut-bash=' \
             || { echo "::error::找不到乾淨的成功摘要行"; exit 1; }
 
+      # 2026-08-28 新增。⚠️ 為什麼一定要接進 CI：這支已被列進 `docs/AI-INSTALL.md` 的
+      #   canonical 必跑清單（repo 與 live 兩張），而 README 宣稱 Linux CI 跑「完整回歸」。
+      #   只加進文件卻不接 CI，未來 F1/F2/F3 的回歸會在 CI 上假綠 —— 正是本 repo 反覆栽的那類坑。
+      - name: 故障注入 smoke（cat/rm/mktemp ＋ mutant）
+        run: |
+          set +e
+          out="$(bash "linux/skills/超級模式/tests/fault-injection.smoke.sh" 2>&1)"
+          rc=$?
+          set -e
+          printf '%s\n' "$out"
+          if [ "$rc" -ne 0 ]; then echo "::error::fault-injection 失敗 rc=$rc"; exit 1; fi
+          # ⚠️ 只看退出碼不夠：mutate 的自檢（MUTANT-NOT-APPLICABLE／NOT-INJECTED）會 exit 2，
+          #    而「注入根本沒進去」看起來就像「守衛沒牙齒」。這兩個字串出現即視為失敗。
+          if printf '%s' "$out" | grep -qE 'MUTANT-(NOT-APPLICABLE|NOT-INJECTED|PERL-FAILED)'; then
+            echo "::error::mutant 沒有真的注入進去（守衛的牙齒未被證明）"
+            exit 1
+          fi
+          printf '%s' "$out" | grep -qE '^fault-injection\.smoke: pass=[0-9]+ fail=0 \[sut-bash=' \
+            || { echo "::error::找不到乾淨的成功摘要行"; exit 1; }
+
       # 這條規則守的缺陷在 `bash -n` 下完全看不出來，而且只在特定 bash 版本 × locale
       # 才發作（開發機 bash 5.3 重現不出來）⇒「本機全綠」對它沒有證明力，只能靜態擋。
       - name: 禁止 $var 緊接多位元組字元
