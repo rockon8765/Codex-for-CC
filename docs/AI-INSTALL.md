@@ -311,6 +311,17 @@ if (Test-Path -LiteralPath $stale) { throw "安裝驗證失敗：FIX-PLAN.md 未
 > **B（重複註冊）三平台通用**，Windows 使用者照樣走那一節——它的備份步驟
 > （`node tools/backup-settings.js`）也是三平台同一條指令。
 >
+> ⚠️ **probe 的範圍：它驗「有沒有註冊、有沒有重複」，不驗 matcher 的「內容」**（2026-08-28 實例）。
+> 所以**升級既有安裝**時，`OK_NORMAL` **不等於**「什麼都不用做」——它只代表沒有缺漏或重複註冊。
+> 若 skill 版本新增了受攔工具名（例如 `09340e3` 加的 `Monitor`／`Artifact`／`ScheduleWakeup`／
+> `EnterWorktree`／`ExitWorktree`），舊 settings 的 matcher 會**少那幾個名字而 probe 照樣 OK_NORMAL**，
+> 而那些工具在 runtime 下**根本不會叫起 hook** ⇒ 攔截等於沒生效。
+> **抓得到這件事的是步驟 3 的 `matcher-contract.test.js --live`**（它會回 `MATCHER_DRIFT` 並列出缺哪幾個）。
+> ⇒ **升級既有安裝的正確做法**：跑 probe 確認沒有重複／缺漏後，**另外**用 `--live` 對照，
+> 若 `MATCHER_DRIFT` 就把既有那一筆的 matcher **就地換成** snippet 的新值
+> （**是替換字串，不是再 append 一筆** —— append 會變成兩筆 gate handler）。
+> 2026-08-28 實例：某台 macOS 的 settings 自 2026-07-26 起就少那 5 個名字，probe 一路 `OK_NORMAL`。
+>
 > ⚠️ **這裡刻意不複述判定矩陣。** 唯一的矩陣在 `MIGRATION` 第 1 節，而 probe 直接印結論。
 > 2026-08-08 的合併前審查抓到：本節先前自己抄了一份簡化矩陣，把「`settings.json`=0、
 > `local`≥1」（**受影響的舊安裝者，正是 MIGRATION 存在的理由**）誤導向純減法分支
