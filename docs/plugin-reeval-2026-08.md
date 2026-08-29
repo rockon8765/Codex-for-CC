@@ -162,8 +162,36 @@ Codex 主張移除以免造成錯誤安全感。此點資訊不足：`SKILL.md` 
 
 Codex 開的「省 ≥25% Claude 用量、完成率 +20pp、每月維護 < 2 小時」量不出來，會變成另一個假指標（正是本 repo 已犯過的「假綠」病）。
 
-**改採單一可觀察門檻**：
-> 若 `fix/exit-code-contract-2026-08-19-pending-native-macos` **至 2026-09-30 仍未合併**，即視為「三平台 parity 已不可維持」的實證 → 砍掉 `macos/` 與 `linux/`，回到 Windows-only。
+~~**改採單一可觀察門檻**：若 `fix/exit-code-contract-2026-08-19-pending-native-macos` 至 2026-09-30 仍未合併，即視為「三平台 parity 已不可維持」的實證 → 砍掉 `macos/` 與 `linux/`，回到 Windows-only。~~
+
+> ⚠️ **2026-08-29 改寫（原門檻已作廢，理由有二）**
+>
+> **(a) 觸發條件消失。** 該分支的收尾線已於 2026-08-29 promote 進 main（merge `42635bc`），
+> 而且是**全綠**進的：P0-16 兩平台皆達成（Windows `SUITE_RESULT=OK`；macOS live 五項全綠），
+> 原生 macOS 驗證共四輪。所以「至 9/30 仍未合併」永遠不會成立——門檻自己失效了。
+>
+> **(b) 更重要：原門檻本身有缺陷，是我寫的時候沒想清楚。** Codex 在 2026-08-28 的諮詢中指出，
+> 我同時是「寫門檻的人」與「決定分支去留的人」，而「分支有沒有被合併」是**我可以直接操弄的流程變數**，
+> 不是平台 parity 的量測。具體的失效方式有三：
+> 為了不觸發砍平台，可能勉強合併未充分驗證的東西，壞 merge 反而「通過門檻」；
+> 改名／squash／重新實作會讓功能成功卻判定失敗；
+> 讓分支持續停滯又會變成自我實現的證據。**我接受這個批評。**
+> 另外，「Mac 無法驗證」最多直接證明 **macOS** 維護能力不足，**不自動證明 Linux 也不可維持**——
+> 把兩者綁在一起是產品政策，不該包裝成實證。
+
+**新門檻（branch-independent、平台各自裁決）**：
+
+> **至 2026-09-30**，若**沒有**具名的人員或可重跑的 runner，能在指定的 release-candidate SHA 上
+> 執行退出碼契約套件（含 `fault-injection.smoke.sh` 的 mutant），在該平台留下**可重現**的結果，
+> 並以 mutation control 證明測試會**正確轉紅**，則**對缺少該能力的那個平台**停止 parity 承諾。
+> **分支名稱、合併方式、封存狀態皆不列入判準。**
+>
+> - **macOS 與 Linux 分開裁決。** 若要綁在一起，明講那是產品政策，不得包裝成實證。
+> - **判定人**：由非本文件作者、或至少一次獨立審查認定 PASS／FAIL，降低 Goodhart 與自證偏誤。
+> - **目前狀態（2026-08-29）**：macOS **已滿足**（四輪原生驗證，最後一輪五項 live 全綠，
+>   M1/M2/M3 具名失敗集合逐條相符 —— 見 [`ACCEPTANCE-p0-16-live-macos-2026-08-29.md`](ACCEPTANCE-p0-16-live-macos-2026-08-29.md)）；
+>   Linux **部分滿足**（`ubuntu-latest` CI 每次 push／PR 跑 repo 層，含 smoke 與
+>   fault-injection 的 mutant 守衛，但**沒有 live 部署驗收**）。
 
 ---
 
@@ -181,7 +209,7 @@ Codex 開的「省 ≥25% Claude 用量、完成率 +20pp、每月維護 < 2 小
 - [ ] **A5** 把 SKILL.md 與 hook 訊息中的 `ALLOW`／`BLOCK` 授權語彙改為「諮詢收據」語彙（§5-b）。
 - [ ] **A6** 修 §4.2：逐字稿保留政策改為與超級模式開關解耦。
 - [ ] **A7** 停止投資清單：installer rewrite、credential v2、POSIX backlog、broker、job control 移植。寫入 [`docs/backlog.md`](backlog.md) 標為 `FROZEN`。
-- [ ] **A8** 2026-09-30 檢查 §5-c 門檻。
+- [ ] **A8** 2026-09-30 檢查 §5-c 門檻（**2026-08-29 已改寫成 branch-independent 版本**，macOS／Linux 分開裁決；檢查的是「有沒有具名的人員／runner 能在該平台重跑並讓 mutant 轉紅」，不是「分支合了沒」）。
 
 **保留不動**：SKILL.md 政策層、`codex-exec.ps1`、`codex-check` 漂移偵測、逐字稿落地。
 
