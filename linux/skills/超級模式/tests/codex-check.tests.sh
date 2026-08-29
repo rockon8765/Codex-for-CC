@@ -34,7 +34,7 @@ t_offline_unknown() {   # C3 回歸：離線 → UNKNOWN、絕無 OUTDATED
 t_fake_pass_rejected() {  # C2 回歸：只有 prompt echo、無回覆、exit 0 → 判失敗（SUPPORTS=0 走 legacy 路徑）
   setup; echo stale > "$fake_home/.claude/.codex-check-last"
   run_check CODEX_STUB_MODE=echo-only CODEX_STUB_SUPPORTS_LASTMSG=0 CODEX_STUB_LASTMSG=
-  if [ "$rc" -eq 1 ]; then assert fake_pass_rejected "exit 1" 0; else assert fake_pass_rejected "exit 1（實際 $rc）" 1; fi
+  if [ "$rc" -eq 1 ]; then assert fake_pass_rejected "exit 1" 0; else assert fake_pass_rejected "exit 1（實際 ${rc}）" 1; fi
   if [ ! -f "$fake_home/.claude/.codex-check-last" ]; then assert fake_pass_rejected "快取已刪" 0; else assert fake_pass_rejected "快取已刪" 1; fi
 }
 t_ansi_stripped() {       # C2 回歸：marker/回覆包 ANSI 仍認得（legacy 路徑）
@@ -124,11 +124,11 @@ t_h2_exact_ok() {    # 支援 -o：lastmsg 檔 == CODEX_OK → OK（transcript �
 }
 t_h2_not_ok_rejected() {  # lastmsg 為 NOT_CODEX_OK → substring 假通過要擋
   setup; run_check CODEX_STUB_LASTMSG=NOT_CODEX_OK
-  if [ "$rc" -eq 1 ]; then assert h2_not_ok "exit 1" 0; else assert h2_not_ok "exit 1（實際 $rc）" 1; fi
+  if [ "$rc" -eq 1 ]; then assert h2_not_ok "exit 1" 0; else assert h2_not_ok "exit 1（實際 ${rc}）" 1; fi
 }
 t_h2_refusal_rejected() { # lastmsg 是含 CODEX_OK 的句子 → 非精確 → 擋
   setup; run_check "CODEX_STUB_LASTMSG=I cannot reply CODEX_OK"
-  if [ "$rc" -eq 1 ]; then assert h2_refusal "exit 1" 0; else assert h2_refusal "exit 1（實際 $rc）" 1; fi
+  if [ "$rc" -eq 1 ]; then assert h2_refusal "exit 1" 0; else assert h2_refusal "exit 1（實際 ${rc}）" 1; fi
 }
 t_h2_no_flag_when_unsupported() {  # help 無旗標 → 絕不傳 -o（argv trace 佐證）、走 marker 路徑成功
   setup; tracef="$fake_home/argv.trace"

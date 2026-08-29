@@ -71,7 +71,7 @@ ultracode 開啟時：理解 / 設計 / 審查階段用 Workflow 多代理（唯
 ## 收尾
 一輪結束回報：完成了哪些步驟 / 改了哪些檔、md 規格升到哪版、還有哪些未決 / 下一步、**是否該退出超級模式**（任務收斂則建議退出）。退出時**必跑** `scripts/super-mode.sh off`（清旗標與憑證、順手清 14 天前舊 log；忘了跑會殘留擋到之後的 session，hook 的 8 小時自動解除只是最後保險）。
 
-**Codex 額度耗盡 runbook**：若 `codex-consult.sh` 印出 `CONSULT_UNAVAILABLE_QUOTA`（或 exit 42），代表 Codex 配額 / 認證失效。**立即停手、不要重試諮詢**，向使用者回報現況與選項；經使用者同意可跑 `scripts/super-mode.sh off` 降級為一般模式，由 Claude 自行完成剩餘工作。連續諮詢失敗 ≥2 次也一律回報使用者，勿在額度最稀缺時空轉。
+**Codex 疑似額度/認證失敗 runbook**：判準是 **tuple —— exit 42 **且** stderr 出現 `CONSULT_UNAVAILABLE_QUOTA`**，兩者缺一不可。⚠️ **只看到 exit 42 而沒有哨兵，那是 codex 自己的退出碼，不是配額訊號**，照一般失敗處理即可（`exit 42` 的命名空間本來就會撞）。⚠️ 命中 tuple 也**只代表「疑似、未確證」**：判準是「逐字稿尾端的 codex 錯誤行命中配額/認證字樣」，我們手上沒有真正的配額失敗樣本可以校準它 —— **不要對使用者斷言「額度用盡」**，把哨兵訊息與逐字稿路徑原樣轉述。命中時：**立即停手、不要重試諮詢**，向使用者回報現況與選項；經使用者同意可跑 `scripts/super-mode.sh off` 降級為一般模式，由 Claude 自行完成剩餘工作。連續諮詢失敗 ≥2 次也一律回報使用者，勿在額度最稀缺時空轉。（另有 `exit 46` = 逐字稿不可用/寫壞：諮詢可能真的發生過但沒有稽核痕跡，**不會鑄證**，屬環境問題不是額度問題。）
 
 ---
 **本機備註（macOS）：** Codex CLI 經 Homebrew 的 npm global 安裝，直接在 PATH 上（`codex`），不需指定路徑。腳本已封裝的坑：簡報一律落地暫存檔後用 `< file` 餵 stdin ＋ `--skip-git-repo-check`（否則卡讀 stdin / 報「Not inside a trusted directory」）；stderr 導獨立檔併入 log（絕不 `2>&1` 回灌 stdout）。沙箱：諮詢用 `--sandbox read-only --ephemeral`、派工用 `--sandbox workspace-write`。落後更新：`npm install -g @openai/codex@latest`（先問使用者）。

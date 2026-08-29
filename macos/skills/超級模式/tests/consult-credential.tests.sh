@@ -130,7 +130,7 @@ check "3b 過短 → stderr 有 UNUSABLE" "$(printf '%s' "$ERR" | grep -q 'CONSU
 check "3c 既有憑證內容未變" "$([ "$(cksum < "$token")" = "$before_sum" ] && echo 0 || echo 1)" "憑證內容被動過"
 after_mt="$(mtime_of "$token")" || { echo "取不到 mtime，中止" >&2; exit 2; }
 check "3d 既有憑證 mtime 未變" "$([ "$after_mt" = "$before_mt" ] && echo 0 || echo 1)" \
-  "mtime $before_mt -> $after_mt（gate 只看 mtime，這等於偷偷續期）"
+  "mtime $before_mt -> ${after_mt}（gate 只看 mtime，這等於偷偷續期）"
 
 echo ""
 echo "§4 空回覆 / 無裁決"

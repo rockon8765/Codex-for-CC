@@ -156,6 +156,60 @@ jobs:
       - name: consult-schema
         run: bash "linux/skills/超級模式/tests/consult-schema.tests.sh"
 
+      # ── 退出碼契約（2026-08-19）──────────────────────────────────────────
+      # 為什麼一定要在真 Linux 跑：這支測的東西全部是 shell／userland 語義 ——
+      # PIPESTATUS 的重設時機、`{ } >> file` 重導向失敗時複合命令的退出碼、
+      # `printf | grep -q` 在 pipefail 下的 SIGPIPE、以及 locale 對變數名剖析的影響。
+      # 開發機（Windows/Git Bash）與 macOS 都各自漏掉過其中一項，靠對方才抓到。
+      #
+      # ⚠️ 這支自己會做兩件事，不要因為它「全綠」就以為都涵蓋了：
+      #   1. PREREQ-MISSING：缺 node 就 exit 3 並印一句話（不是吐十幾個假失敗）。
+      #   2. §6 locale 維度：動態找 charmap 非 ASCII 的 locale，**找不到就 hard fail**。
+      #      摘要行若出現 LOCALE-DIMENSION-NOT-COVERED，代表那一維沒驗到。
+      # 下面的 grep 就是在守這兩件事——只看退出碼會漏掉「跳過 locale 維度」那種情況。
+      - name: 退出碼契約 smoke（含 locale 維度）
+        run: |
+          # ⚠️ GitHub 的 shell 是 `bash -e`：`out=$(...)` 一非零就當場中止，
+          #    連下面的 printf 都跑不到 ⇒ 失敗時 log 裡什麼都沒有。
+          #    這正是本批一直在修的同型毛病（報告機制自己先中止），所以先關 errexit。
+          set +e
+          out="$(bash "linux/skills/超級模式/tests/exit-code-contract.smoke.sh" 2>&1)"
+          rc=$?
+          set -e
+          printf '%s\n' "$out"
+          if [ "$rc" -ne 0 ]; then echo "::error::smoke 失敗 rc=$rc"; exit 1; fi
+          if printf '%s' "$out" | grep -q 'LOCALE-DIMENSION-NOT-COVERED'; then
+            echo "::error::locale 維度沒被涵蓋（runner 上找不到 charmap 非 ASCII 的 locale）"
+            exit 1
+          fi
+          printf '%s' "$out" | grep -qE '^exit-code-contract\.smoke: pass=[0-9]+ fail=0 \[sut-bash=' \
+            || { echo "::error::找不到乾淨的成功摘要行"; exit 1; }
+
+      # 2026-08-28 新增。⚠️ 為什麼一定要接進 CI：這支已被列進 `docs/AI-INSTALL.md` 的
+      #   canonical 必跑清單（repo 與 live 兩張），而 README 宣稱 Linux CI 跑「完整回歸」。
+      #   只加進文件卻不接 CI，未來 F1/F2/F3 的回歸會在 CI 上假綠 —— 正是本 repo 反覆栽的那類坑。
+      - name: 故障注入 smoke（cat/rm/mktemp ＋ mutant）
+        run: |
+          set +e
+          out="$(bash "linux/skills/超級模式/tests/fault-injection.smoke.sh" 2>&1)"
+          rc=$?
+          set -e
+          printf '%s\n' "$out"
+          if [ "$rc" -ne 0 ]; then echo "::error::fault-injection 失敗 rc=$rc"; exit 1; fi
+          # ⚠️ 只看退出碼不夠：mutate 的自檢（MUTANT-NOT-APPLICABLE／NOT-INJECTED）會 exit 2，
+          #    而「注入根本沒進去」看起來就像「守衛沒牙齒」。這兩個字串出現即視為失敗。
+          if printf '%s' "$out" | grep -qE 'MUTANT-(NOT-APPLICABLE|NOT-INJECTED|PERL-FAILED)'; then
+            echo "::error::mutant 沒有真的注入進去（守衛的牙齒未被證明）"
+            exit 1
+          fi
+          printf '%s' "$out" | grep -qE '^fault-injection\.smoke: pass=[0-9]+ fail=0 \[sut-bash=' \
+            || { echo "::error::找不到乾淨的成功摘要行"; exit 1; }
+
+      # 這條規則守的缺陷在 `bash -n` 下完全看不出來，而且只在特定 bash 版本 × locale
+      # 才發作（開發機 bash 5.3 重現不出來）⇒「本機全綠」對它沒有證明力，只能靜態擋。
+      - name: 禁止 $var 緊接多位元組字元
+        run: node "tests/no-multibyte-varref.test.js"
+
       # ── 憑證鑄造判準（2026-08-18）────────────────────────────────────────
       # 三支缺一不可，分工不同，別以為跑一支就夠：
       #   fixtures  = 判準本體的行為對不對

@@ -44,13 +44,41 @@ if [ -n "$schema" ]; then
   schema_args=(--output-schema "$schema")
 fi
 
-logdir="$HOME/.claude/super-mode-logs"; mkdir -p "$logdir"
+logdir="$HOME/.claude/super-mode-logs"
+if ! mkdir -p "$logdir" 2>/dev/null; then
+  echo "EXEC_TRANSCRIPT_UNAVAILABLE: 無法建立逐字稿目錄 ${logdir}。**尚未呼叫 codex**。" >&2
+  exit 46
+fi
 stamp="$(date +%Y%m%d_%H%M%S)_$(uuidgen | tr 'A-Z' 'a-z' | tr -d '-' | cut -c1-6)"
 log="$logdir/codex_exec_${stamp}.txt"
+# 在呼叫 codex 之前先建 log：此刻中止安全，還沒有退出碼要保。
+if ! : > "$log" 2>/dev/null; then
+  echo "EXEC_TRANSCRIPT_UNAVAILABLE: 無法建立逐字稿 ${log}。**尚未呼叫 codex**。" >&2
+  exit 46
+fi
+# 逐字稿寫入錯誤只記**第一個**，且**絕不中止**——中止就抓不到 codex 的退出碼。
+transcript_error=""
+transcript_note() {
+  if [ -n "$transcript_error" ]; then
+    printf ' 逐字稿不完整（%s）。' "$transcript_error"
+  fi
+}
 out="${outfile:-$logdir/codex_exec_${stamp}_last.txt}"
-brief_tmp="$(mktemp "${TMPDIR:-/tmp}/codex_brief_XXXXXX")"
-err_tmp="$(mktemp "${TMPDIR:-/tmp}/codex_err_XXXXXX")"
-printf '%s' "$p" > "$brief_tmp"
+# ⚠️ mktemp 失敗屬「逐字稿/輸入不可用」，走 46；原本在 set -e 之下是靜默 rc 1。
+mk_or_46() {  # mk_or_46 <label> <template>
+  _t="$(mktemp "$2" 2>/dev/null)" || {
+    echo "EXEC_TRANSCRIPT_UNAVAILABLE: 無法建立$1暫存檔（${TMPDIR:-/tmp} 不可寫？）。**尚未呼叫 codex**。" >&2
+    exit 46
+  }
+  printf '%s' "$_t"
+}
+brief_tmp="$(mk_or_46 '簡報' "${TMPDIR:-/tmp}/codex_brief_XXXXXX")"
+err_tmp="$(mk_or_46 'stderr' "${TMPDIR:-/tmp}/codex_err_XXXXXX")"
+# ⚠️ 同 codex-consult：寫入失敗屬「尚未呼叫 codex」的 46，不是靜默 rc 1。
+if ! printf '%s' "$p" > "$brief_tmp" 2>/dev/null; then
+  echo "EXEC_TRANSCRIPT_UNAVAILABLE: 無法寫入暫存簡報 ${brief_tmp}。**尚未呼叫 codex**。" >&2
+  exit 46
+fi
 
 # 簡報走 stdin(< file)；stderr 導獨立檔再併 log，絕不 2>&1。
 # 注意 bash 3.2：set -u 下空陣列要用 ${arr[@]+"${arr[@]}"} 展開。
@@ -61,22 +89,58 @@ if [ "$quiet" = "1" ]; then
   codex exec --sandbox workspace-write --skip-git-repo-check \
     -c memories.use_memories=false -c memories.generate_memories=false -C "$dir" \
     ${schema_args[@]+"${schema_args[@]}"} --output-last-message "$out" \
-    < "$brief_tmp" 2> "$err_tmp" >> "$log"
-  code=$?
+    < "$brief_tmp" 2> "$err_tmp" | tee -a "$log" > /dev/null
+  # ⚠️ quiet 分支原本是 `>> "$log"` 直送：log 開檔/寫入失敗時，失敗會**冒充成 codex 的
+  #    退出碼**（甚至 codex 根本沒被啟動），而且不保證 drain —— 與非 quiet 分支不等價。
+  #    改成同一條 pipeline + PIPESTATUS，兩個分支的 transport 語義才一致。
+  #    （2026-08-19 Codex 指出這是「建議的背景派工路徑，不是罕用旁支」，我接受。）
+  pipe_rc=("${PIPESTATUS[@]}")
+  code=${pipe_rc[0]}
+  log_tee_rc=${pipe_rc[1]:-0}
+  if [ "$log_tee_rc" -ne 0 ]; then transcript_error="逐字稿寫入失敗 (tee rc=$log_tee_rc)"; fi
 else
   codex exec --sandbox workspace-write --skip-git-repo-check \
     -c memories.use_memories=false -c memories.generate_memories=false -C "$dir" \
     ${schema_args[@]+"${schema_args[@]}"} --output-last-message "$out" \
     < "$brief_tmp" 2> "$err_tmp" | tee -a "$log"
-  code=${PIPESTATUS[0]}
+  # ⚠️ 同一語句整包複製 PIPESTATUS —— 賦值本身會重設它（見 codex-consult.sh 同段註解）。
+  pipe_rc=("${PIPESTATUS[@]}")
+  code=${pipe_rc[0]}
+  log_tee_rc=${pipe_rc[1]:-0}
+  if [ "$log_tee_rc" -ne 0 ]; then transcript_error="逐字稿寫入失敗 (tee rc=$log_tee_rc)"; fi
 fi
 set -e
-{ echo "===== STDERR ====="; cat "$err_tmp"; } >> "$log"
-rm -f "$brief_tmp" "$err_tmp"
+stderr_text=""
+if [ -f "$err_tmp" ]; then
+  # ⚠️ cat 失敗不得靜默吞掉（2026-08-28）：讀不到 stderr ⇒ (a) 配額分類器看不到訊息、
+  #    會回原始 rc 而不是 42；(b) code=0 時仍會鑄證，違反「逐字稿壞掉不得鑄證」。
+  #    Windows 版一直有 catch（→ transcriptErrors → 不鑄證），POSIX 這側原本沒有＝三平台不等價。
+  #    用 `if !` 取代 `|| true`：條件語境不觸發 set -e，又能真的看見失敗。
+  if ! stderr_text="$(cat "$err_tmp" 2>/dev/null)"; then
+    stderr_text=""
+    [ -n "$transcript_error" ] || transcript_error="讀取 stderr 暫存檔失敗"
+  fi
+fi
+# 原本這一行在 set -e 之下失敗就中止，而它在擷取 code 之後、裁決之前 → rc 塌成 1。
+# ⚠️ 必須用子 shell：`{ ...; } >> file` 在**重導向失敗**時複合命令的退出碼仍是 0，
+#    守衛會變成永遠不觸發的空殼（bash 5.3 實測）。`( ... )` 才會回非零。
+if ! ( { echo "===== STDERR ====="; printf '%s\n' "$stderr_text"; } >> "$log" ) 2>/dev/null; then
+  [ -n "$transcript_error" ] || transcript_error="逐字稿 stderr 區段寫入失敗"
+fi
+# ⚠️ 收尾一律 `|| true`：從擷取退出碼到裁決之間**不得有任何可以中止的裸指令**，
+#    而逐行判斷「這行在 capture 前還是後」正是本批反覆出錯的來源，所以一致套用。
+#    TMPDIR 中途失去刪除權限就會讓 rm 非零 → set -e 中止 → rc 塌成 1、哨兵被吞。
+#    （2026-08-19 Codex 第七輪抓到。）
+rm -f "$brief_tmp" "$err_tmp" || true
 
 if [ "$code" -eq 0 ]; then
+  # codex 成功但逐字稿寫壞 → 不得回報成功：派工的逐字稿是後續驗收的唯一依據。
+  if [ -n "$transcript_error" ]; then
+    echo "EXEC_TRANSCRIPT_FAILED: codex 成功 (exit 0)，但逐字稿寫入失敗 -- $transcript_error transcript(可能不完整): $log ; last message: $out" >&2
+    exit 46
+  fi
   echo "exec OK -- transcript: $log ; last message: $out"
 else
-  echo "codex-exec: codex exited [$code]. transcript: $log" >&2
+  echo "codex-exec: codex exited [$code]. transcript: $log$(transcript_note)" >&2
 fi
 exit "$code"

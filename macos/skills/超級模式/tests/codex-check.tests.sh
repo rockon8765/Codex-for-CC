@@ -41,12 +41,12 @@ t_offline_unknown() {   # C3 回歸：離線 → UNKNOWN、絕無 OUTDATED
 t_fake_pass_rejected() {  # C2 回歸：只有 prompt echo、無回覆、exit 0 → 判失敗（SUPPORTS=0 走 legacy 路徑）
   setup; echo stale > "$fake_home/.claude/.codex-check-last"
   run_check CODEX_STUB_MODE=echo-only CODEX_STUB_SUPPORTS_LASTMSG=0 CODEX_STUB_LASTMSG=
-  if [ "$rc" -eq 1 ]; then assert fake_pass_rejected "exit 1" 0; else assert fake_pass_rejected "exit 1（實際 $rc）" 1; fi
+  if [ "$rc" -eq 1 ]; then assert fake_pass_rejected "exit 1" 0; else assert fake_pass_rejected "exit 1（實際 ${rc}）" 1; fi
   if [ ! -f "$fake_home/.claude/.codex-check-last" ]; then assert fake_pass_rejected "快取已刪" 0; else assert fake_pass_rejected "快取已刪" 1; fi
   # 雙 marker 變體：CODEX_OK 只在第一個 codex marker 後、最後一段是雜訊 → 必須判失敗
   # （鏡像 PS -split parts[-1] 語義；取第一段的舊行為會誤判通過，2026-07-16 對抗審查抓到）
   run_check CODEX_STUB_MODE=two-markers CODEX_STUB_SUPPORTS_LASTMSG=0 CODEX_STUB_LASTMSG=
-  if [ "$rc" -eq 1 ]; then assert fake_pass_rejected "雙 marker 末段無 sentinel 判失敗" 0; else assert fake_pass_rejected "雙 marker 末段無 sentinel 判失敗（實際 $rc）" 1; fi
+  if [ "$rc" -eq 1 ]; then assert fake_pass_rejected "雙 marker 末段無 sentinel 判失敗" 0; else assert fake_pass_rejected "雙 marker 末段無 sentinel 判失敗（實際 ${rc}）" 1; fi
 }
 t_ansi_stripped() {       # C2 回歸：marker/回覆包 ANSI 仍認得（legacy 路徑）
   setup; run_check CODEX_STUB_MODE=ansi CODEX_STUB_SUPPORTS_LASTMSG=0 CODEX_STUB_LASTMSG=
@@ -138,11 +138,11 @@ t_h2_exact_ok() {    # 支援 -o：lastmsg 檔 == CODEX_OK → OK（transcript �
 }
 t_h2_not_ok_rejected() {  # lastmsg 為 NOT_CODEX_OK → substring 假通過要擋
   setup; run_check CODEX_STUB_LASTMSG=NOT_CODEX_OK
-  if [ "$rc" -eq 1 ]; then assert h2_not_ok "exit 1" 0; else assert h2_not_ok "exit 1（實際 $rc）" 1; fi
+  if [ "$rc" -eq 1 ]; then assert h2_not_ok "exit 1" 0; else assert h2_not_ok "exit 1（實際 ${rc}）" 1; fi
 }
 t_h2_refusal_rejected() { # lastmsg 是含 CODEX_OK 的句子 → 非精確 → 擋
   setup; run_check "CODEX_STUB_LASTMSG=I cannot reply CODEX_OK"
-  if [ "$rc" -eq 1 ]; then assert h2_refusal "exit 1" 0; else assert h2_refusal "exit 1（實際 $rc）" 1; fi
+  if [ "$rc" -eq 1 ]; then assert h2_refusal "exit 1" 0; else assert h2_refusal "exit 1（實際 ${rc}）" 1; fi
 }
 t_h2_no_flag_when_unsupported() {  # help 無旗標 → 絕不傳 -o（argv trace 佐證）、走 marker 路徑成功
   setup; tracef="$fake_home/argv.trace"
@@ -237,7 +237,7 @@ t_b_query_fail_unknown_update_refused() {  # 查詢失敗段 → UNKNOWN；--upd
   invoke_check update CODEX_STUB_CAP_FAIL=features CODEX_STUB_PLUGINS=alpha,beta
   printf '%s' "$out" | grep -q '查詢失敗'; assert b_fail_refused "報查詢失敗" $?
   printf '%s' "$out" | grep -q '拒絕更新 baseline'; assert b_fail_refused "拒絕更新" $?
-  if [ "$rc" -eq 2 ]; then assert b_fail_refused "mutation 被拒 exit 2" 0; else assert b_fail_refused "mutation 被拒 exit 2（實際 $rc）" 1; fi
+  if [ "$rc" -eq 2 ]; then assert b_fail_refused "mutation 被拒 exit 2" 0; else assert b_fail_refused "mutation 被拒 exit 2（實際 ${rc}）" 1; fi
   grep -q '^plugins=alpha$' "$bl"; assert b_fail_refused "baseline 未被失敗盤點蓋掉" $?
   setup; run_check CODEX_STUB_CAP_FAIL=plugin   # 全新 home：查詢失敗＋無 baseline → 不產檔
   printf '%s' "$out" | grep -q '查詢失敗'; assert b_fail_refused "報查詢失敗(首跑)" $?
@@ -250,7 +250,7 @@ t_b_unparseable_blocks_update() {  # rc=0 有輸出但解析 0 筆 → UNPARSEAB
   if printf '%s' "$out" | grep -qF 'plugins -: alpha'; then assert b_unparseable "不當 removed 漂移" 1; else assert b_unparseable "不當 removed 漂移" 0; fi
   assert b_unparseable "exit 0（警示非閘門）" "$rc"
   invoke_check update CODEX_STUB_PLUGINS_GARBAGE=1
-  if [ "$rc" -eq 2 ]; then assert b_unparseable "解析失真拒更新 exit 2" 0; else assert b_unparseable "解析失真拒更新 exit 2（實際 $rc）" 1; fi
+  if [ "$rc" -eq 2 ]; then assert b_unparseable "解析失真拒更新 exit 2" 0; else assert b_unparseable "解析失真拒更新 exit 2（實際 ${rc}）" 1; fi
   grep -q '^plugins=alpha$' "$bl"; assert b_unparseable "baseline 未被失真盤點洗白" $?
 }
 t_b_corrupt_baseline() {   # baseline 檔格式壞 → 警示、不自動覆寫；--update-baseline 才能重建
@@ -290,11 +290,11 @@ t_b_cache_version_mismatch_miss() {  # 快取 <24h 但版本已變 → 當 miss 
   invoke_check noforce CODEX_STUB_VERSION=0.145.0 CODEX_STUB_TRACE="$tracef"
   printf '%s' "$out" | grep -q '跳過'; assert b_cache_vermiss "同版本回歸命中" $?
   n="$(grep -c '^exec --help' "$tracef" 2>/dev/null || true)"
-  if [ "$n" = "1" ]; then assert b_cache_vermiss "exec --help 恰呼叫一次(hit)" 0; else assert b_cache_vermiss "exec --help 恰呼叫一次(hit)（實際 $n）" 1; fi
+  if [ "$n" = "1" ]; then assert b_cache_vermiss "exec --help 恰呼叫一次(hit)" 0; else assert b_cache_vermiss "exec --help 恰呼叫一次(hit)（實際 ${n}）" 1; fi
   tracef="$fake_home/trace.full"  # 全檢路徑也要恰一次（防 merge 復活 smoke 段的第二次抓取）
   invoke_check force CODEX_STUB_TRACE="$tracef"
   n="$(grep -c '^exec --help' "$tracef" 2>/dev/null || true)"
-  if [ "$n" = "1" ]; then assert b_cache_vermiss "exec --help 恰呼叫一次(full)" 0; else assert b_cache_vermiss "exec --help 恰呼叫一次(full)（實際 $n）" 1; fi
+  if [ "$n" = "1" ]; then assert b_cache_vermiss "exec --help 恰呼叫一次(full)" 0; else assert b_cache_vermiss "exec --help 恰呼叫一次(full)（實際 ${n}）" 1; fi
 }
 t_b_probe_stderr_immune() {  # 升級後子命令印 stderr 噪音 → 盤點不得炸成 FAILED（4c3d477 同型地雷回歸案）
   setup; invoke_check update CODEX_STUB_PLUGINS=alpha CODEX_STUB_LIST_STDERR=1 CODEX_STUB_HELP_STDERR=1
@@ -321,7 +321,7 @@ t_b_mcp_drift_and_fail() {  # mcp 段：正常解析、漂移偵測、查詢失�
 t_b_mcp_all_unknown_unparseable() {  # mcp state 全 '?' ＝格式失真 → UNPARSEABLE、拒更新 exit 2
   setup; invoke_check update CODEX_STUB_MCP=srv1:enabled
   invoke_check update CODEX_STUB_MCP=srv1:weird,srv2:strange
-  if [ "$rc" -eq 2 ]; then assert b_mcp_unk "全 ? 拒更新 exit 2" 0; else assert b_mcp_unk "全 ? 拒更新 exit 2（實際 $rc）" 1; fi
+  if [ "$rc" -eq 2 ]; then assert b_mcp_unk "全 ? 拒更新 exit 2" 0; else assert b_mcp_unk "全 ? 拒更新 exit 2（實際 ${rc}）" 1; fi
   printf '%s' "$out" | grep -q 'UPDATE_BASELINE=REFUSED'; assert b_mcp_unk "報 REFUSED" $?
   grep -q '^mcp=srv1\[enabled\]$' "$bl"; assert b_mcp_unk "baseline 未被失真盤點洗白" $?
 }
@@ -337,7 +337,7 @@ t_b_hooks_unparseable() {  # config 有 hooks.state 但序列化格式變（單�
   run_check CODEX_STUB_PLUGINS=alpha
   printf '%s' "$out" | grep -qF '受信任 hooks: (UNPARSEABLE'; assert b_hooks_unp "hooks 報 UNPARSEABLE" $?
   invoke_check update CODEX_STUB_PLUGINS=alpha
-  if [ "$rc" -eq 2 ]; then assert b_hooks_unp "hooks 失真拒更新 exit 2" 0; else assert b_hooks_unp "hooks 失真拒更新 exit 2（實際 $rc）" 1; fi
+  if [ "$rc" -eq 2 ]; then assert b_hooks_unp "hooks 失真拒更新 exit 2" 0; else assert b_hooks_unp "hooks 失真拒更新 exit 2（實際 ${rc}）" 1; fi
 }
 t_b_flag_incompat_cache_not_trusted() {  # 命中側對稱守衛：本次盤點旗標不相容 → 舊綠快取不採信
   setup; invoke_check force
