@@ -1,6 +1,7 @@
 # codex-plugin-cc 重評與超級模式定位裁決（2026-08）
 
-> 版本：v1.0（2026-08-28）｜狀態：**已裁決，待執行**
+> 版本：v1.1（2026-08-29）｜狀態：**已裁決，治理收尾已執行**（A1–A4／A7 完成；A5／A6 經覆核後改為不做；A8 待 9/30）
+> ⛔ **產品層已凍結**——規則的唯一真相在根目錄 [`AGENTS.md`](../AGENTS.md)「產品凍結中」段。
 > 前案：[`docs/plugin-learnings-plan-2026-07.md`](plugin-learnings-plan-2026-07.md)（2026-07-06 對 v1.0.5 的裁決＝「暫不裝，只移植做法」）
 > 本案處理的問題：**那份 7 週前的裁決在官方 v1.0.6 之後還站得住嗎？**
 > 語言慣例：說明繁中；程式碼／指令／檔名英文。
@@ -197,19 +198,19 @@ Codex 開的「省 ≥25% Claude 用量、完成率 +20pp、每月維護 < 2 小
 
 ## 6. 行動清單（按成本排序）
 
-- [ ] **A1** 安裝官方 plugin：`/plugin marketplace add openai/codex-plugin-cc` → `/plugin install codex@openai-codex` → `/codex:setup`。**`--enable-review-gate` 永不開。**
-- [ ] **A2** 一般模式自由使用 `/codex:review`、`/codex:adversarial-review`、`/codex:status`、`/codex:result`、`/codex:cancel`。
-- [ ] **A3** 超級模式期間**只禁** `rescue`／`transfer`（違反單一 writer 與子代理禁 Codex 鐵則）；**不得** blanket-deny 整支 `codex-companion.mjs`。同時修掉 [`plugin-learnings-plan-2026-07.md`](plugin-learnings-plan-2026-07.md) 附錄 A 第 3／5 條的自相矛盾。
+- [x] **A1**（2026-08-28 完成，`/codex:setup` 全綠：Node/npm/CLI/Auth 皆 ✓、Review gate `disabled`）安裝官方 plugin：`/plugin marketplace add openai/codex-plugin-cc` → `/plugin install codex@openai-codex` → `/codex:setup`。**`--enable-review-gate` 永不開。**
+- [x] **A2**（**這不是一次性動作，是常駐政策**）一般模式自由使用 `/codex:review`、`/codex:adversarial-review`、`/codex:status`、`/codex:result`、`/codex:cancel`。
+- [ ] **A3** 超級模式期間**只禁** `rescue`／`transfer`（違反單一 writer 與子代理禁 Codex 鐵則）；**不得** blanket-deny 整支 `codex-companion.mjs`。**2026-08-28 完成**（`556c691`；並由後續 `fb347f6` 訂正：審查類指令**不必**關超級模式，另補 §5.1）。<br>⚠️ **原文「同時修掉 `plugin-learnings-plan-2026-07.md` 附錄 A 第 3／5 條的自相矛盾」已改做法**：該檔是**已簽核史料**，不改寫原始內容，改為在附錄 A 前加 dated erratum 指向現行規則（2026-08-29 完成）。
 - [x] **A4** 移植 `gpt-5-4-prompting/references/` 進自家 brief 範本 —— **2026-08-28 完成，但範圍比原文窄，記錄如下**（原文「純文字資產、零維護」的前提不成立：執行時發現 `orchestration.md` §2／§3 三平台已漂移，順帶修掉）：
   - **已移植**（進 `references/orchestration.md` §3 固定核心）：decision boundary、action safety、completeness contract、tool persistence，以及 4 條 antipattern 改寫成「寫 brief 時的自我 lint」。
   - **改寫而非照搬**：官方 `default_follow_through_policy` 授權 worker 在「低風險歧義」時自行續行 → 照搬等於授權它解讀規格契約，收緊為「只有 AC 可觀察結果等價才可裁量」；且 `codex exec` 是單輪背景任務，缺脈絡的正確語義是回 `BLOCKED` 而非「停下來問 Claude」。
   - **未移植**：5 份 recipe 全文（檔頭「診斷／修復類預設 write mode」與 §1 spec-first 相衝）、`progress_updates`；`research_mode`／`citation_rules` 降為任務型選配。
   - **未採用**：全面 XML 化。`codex-exec` 走 stdin 純文字、路徑上無 XML parser；官方 prompt 指南本身也主張 Markdown 表階層、XML 只圈大段附件。要改需先做固定變因的 eval。
   - Codex 對抗式諮詢逐字稿：`~/.claude/super-mode-logs/codex_consult_20260828_031217_ddf9d5.txt`（反對初判 1／4，已採納）。
-- [ ] **A5** 把 SKILL.md 與 hook 訊息中的 `ALLOW`／`BLOCK` 授權語彙改為「諮詢收據」語彙（§5-b）。
-- [ ] **A6** 修 §4.2：逐字稿保留政策改為與超級模式開關解耦。
-- [ ] **A7** 停止投資清單：installer rewrite、credential v2、POSIX backlog、broker、job control 移植。寫入 [`docs/backlog.md`](backlog.md) 標為 `FROZEN`。
-- [ ] **A8** 2026-09-30 檢查 §5-c 門檻（**2026-08-29 已改寫成 branch-independent 版本**，macOS／Linux 分開裁決；檢查的是「有沒有具名的人員／runner 能在該平台重跑並讓 mutant 轉紅」，不是「分支合了沒」）。
+- [~] **A5 取消（2026-08-29）**。核心語義**早已達成**：[`README.md`](../README.md) 已明文「憑證是**諮詢收據**不是動作授權」，現行 SKILL.md 與 `lib/consult-answer.js` 一致。而 literal 的 `ALLOW:`／`BLOCK:` 是**首行裁決的 wire protocol**（`codex-consult` 與 hook 之間的格式契約），不是授權語彙——改它會動到 parser、哨兵、caller 與測試，屬產品變更，邊際收益低、回歸面中高。⇒ **不做**。若日後仍覺得措辭誤導，最多把散文裡的「Codex 裁決為 BLOCK」收窄成「Codex **建議**為 BLOCK」，保留 token 本身。
+- [~] **A6 不產品化（2026-08-29）**。原文把它當文件工作，**錯了**：清理實作在 `super-mode.ps1` 的 `-Off` 路徑，且**沒有檔名白名單**（`Get-ChildItem -File` ＋ 14 天門檻 ＋ `Remove-Item -Force -ErrorAction SilentlyContinue`），錯誤被靜默吞掉。搬成「每次 consult 都跑」會**提高誤刪頻率**，屬有資料刪除風險的產品變更 ⇒ 凍結期間不做。<br>**實測現況（2026-08-29）**：154 檔／54MB／最舊 2026-08-07；超過名義 14 天的 67 個、超過 60 天的 0 個。⇒ 問題的本質是**「宣稱的政策沒有生效」**，不是磁碟或隱私危機。**兩條比寫程式便宜的路**（由使用者擇一）：手動清一次；或把文件裡的「14 天」改成符合現實的說法。
+- [x] **A7 完成（2026-08-29），但做法比原文強**。原文只要求「寫進 backlog 標 `FROZEN`」——Codex 指出那會是**假凍結**：下一個 session 撿工作時仍會看到一堆 🔴🟡，而 `FROZEN` 既沒有定義例外、也沒有解除條件。實際做法：<br>（a）**freeze contract 放進根目錄 [`AGENTS.md`](../AGENTS.md)**（agent 會自動讀，槓桿高於 backlog），明列「在途／P0／parity／已投入很多／只是測試」**都不構成例外**，唯一例外是**已出貨**的 security／資料遺失／上游 breakage，且須在 commit 明示 `UNFREEZE <ID>` 四行；<br>（b）**狀態標籤拆成四種**（`FROZEN`／`REJECTED`／`ACCEPTED_RISK`／`UNSUPPORTED`）——先前四種全寫「未做」，於是**已裁決不採的 broker** 與**真的該做的 `WINDOWS-CI`** 在表上長得一樣；<br>（c）**明文開放「唯讀驗收」**（部署既有版本、跑既有套件、記錄結果），但**不得 fix-forward**——這條同時解掉 A7 與 A8 的循環（見 A8）。
+- [ ] **A8** 2026-09-30 檢查 §5-c 門檻（**2026-08-29 已改寫成 branch-independent 版本**，macOS／Linux 分開裁決；檢查的是「有沒有具名的人員／runner 能在該平台重跑並讓 mutant 轉紅」，不是「分支合了沒」）。<br>⚠️ **與 A7 的循環已解（2026-08-29）**：若凍結禁止一切 POSIX 動作，就不會有人去做 Linux 的 live 驗收，A8 對 Linux 的判定等於**被政策預先決定**。解法是 freeze contract 明文允許**「只驗不 fix-forward」**的唯讀驗收——紅燈就降級支援宣稱並回報，不開修復分支。
 
 **保留不動**：SKILL.md 政策層、`codex-exec.ps1`、`codex-check` 漂移偵測、逐字稿落地。
 

@@ -293,6 +293,24 @@ T7 首版 hook 派工完成後，Claude 逐行審＋2 個唯讀對抗審子代�
 
 ## 附錄 A — 若未來要安裝 plugin（條件性，本次不執行）
 
+> ### ⚠️ ERRATUM 2026-08-29 —— 本附錄已被取代，**不要照它做**
+>
+> **現行規則的唯一真相**：三份 `SKILL.md` 的 §5／§5.1，以及
+> [`docs/plugin-reeval-2026-08.md`](plugin-reeval-2026-08.md) 的 A2／A3。
+>
+> **兩件已經不成立的事**（原文保留在下方，供理解「當時為什麼這樣決定」，**不作為現行指引**）：
+>
+> 1. **前提變了**：本附錄寫於「決定**不裝** plugin」的前提下（2026-07-06）。
+>    2026-08-28 的重評已改判**要裝**（只用 review／job 觀測面），plugin 也已實際安裝。
+> 2. **第 3 條與第 5 條互相矛盾**：第 3 條允許 `/codex:review`，第 5 條卻要 gate
+>    **明文 deny 整支 `codex-companion.mjs`** —— 而 `/codex:review` 就走那支 dispatcher，
+>    照第 5 條做會把第 3 條允許的東西一起殺掉。
+>    **現行裁決**：超級模式期間**只禁** `rescue`／`transfer`；審查類指令可用、
+>    且**不必**關超級模式；**不得** blanket-deny `codex-companion.mjs`
+>    （`status` 與 `task --write` 只差參數尾巴，前綴白名單＝提權）。
+>
+> 依本檔「合併後即為史料」的慣例，**原文不改寫**——錯誤本身是有價值的紀錄。
+
 1. 永不啟用 `--enable-review-gate`。2. 超級模式期間禁用 `/codex:rescue`、`/codex:transfer`。3. `/codex:review` 僅純 code review，不替代討論夥伴。4. **永不**把 `codex-companion.mjs` 加入 gate 白名單。5. 硬化：gate 明文 deny `codex-companion.mjs`＋測試 ×3。
 
 ## 附錄 B — 不採項目與理由

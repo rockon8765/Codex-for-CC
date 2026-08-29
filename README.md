@@ -32,7 +32,7 @@
 | Codex CLI 位置 | `C:\npm\codex.cmd`（寫死） | `PATH` 上的 `codex`（Homebrew npm global） | `PATH` 上的 `codex`（npm global） |
 | Gate 拒絕機制 | `permissionDecision` / exit 2 | stderr + exit 2 | stderr + exit 2 |
 | 接 hook 的設定檔 | `settings.json` | `settings.json` | `settings.json` |
-| 驗證覆蓋 | 人工原生驗證（**無 CI**）；維護基準 | 人工原生驗證（**無 CI**） | 每次 push／PR 由 `ubuntu-latest` CI 跑完整回歸 |
+| 驗證覆蓋 | 人工原生驗證（**無 CI**）；維護基準。**live 驗收 2026-08-28 通過**（`SUITE_RESULT=OK`） | 人工原生驗證（**無 CI**）。**live 驗收 2026-08-29 五項全綠** | `ubuntu-latest` CI 每次 push／PR 跑 **repo 層**回歸。⚠️ **從未做過 live 部署驗收** → 支援宣稱已降級，見下 |
 | 修復／平台紀錄 | [`docs/history/FIX-PLAN-windows-2026-07-02.md`](docs/history/FIX-PLAN-windows-2026-07-02.md) | [`docs/history/FIX-PLAN-macos-2026-07-03.md`](docs/history/FIX-PLAN-macos-2026-07-03.md) | [`docs/linux-platform-notes.md`](docs/linux-platform-notes.md)（現行參考，非史料） |
 
 > **驗證覆蓋不等於設計等價（as-of 2026-08-18）。** 三平台**設計上等價**，但驗證方式與時間點都不同。
@@ -46,6 +46,13 @@
 
 - **Linux 版 `codex-check` 的能力面盤點與 baseline diff 尚未移植**（Windows／macOS 已有）。**不要**把 macOS 版的 `codex-check.sh` 直接當 Linux 版的等價物拿來抄或替換。移植規格見 [`docs/handoff-capability-baseline-port.md`](docs/handoff-capability-baseline-port.md) 與 [`docs/handoff-0143-capability-surface-port.md`](docs/handoff-0143-capability-surface-port.md)（⚠️ 後者的可貼上片段已過時，只當背景讀）。
 - **實際派工的 `codex-exec` 只有 macOS 固定帶 `--disable remote_plugin`**（Windows／Linux 沒有；`codex-check` 三平台都只印提示、不帶旗標）。這不是 Linux 落後，是 macOS 端單方面硬化；維護者已明確**暫緩**收緊 `--disable`，要改請三平台一起改。
+- **⚠️ Linux 的支援宣稱已於 2026-08-29 降級為 `UNSUPPORTED`（live 面）。** 三件事分開講：
+  （a）**repo 層有 CI**（`ubuntu-latest`，每次 push／PR，含 smoke 與 fault-injection 的 mutant 守衛）；
+  （b）**live 面從未由維護者驗收過** —— CI 刻意不碰 `~/.claude`，所以「repo 全綠」**不能**推論 live 生效。
+  macOS 已經實際發生過反例：repo 全綠，而 live hook 與 settings matcher 各自漂移了一個月，
+  那五個工具的攔截在 runtime 下等於沒生效（見 [`docs/ACCEPTANCE-p0-16-live-macos-2026-08-29.md`](docs/ACCEPTANCE-p0-16-live-macos-2026-08-29.md)）；
+  （c）**POSIX 回滾有已接受的資料遺失風險**（下方限制第 2 條的掛載點問題）。
+  ⇒ 在 Linux 上使用前請自行做 live 驗收；不要把 CI 綠燈當成 live 保證。
 - 其餘功能三平台目前一致；差在**驗證覆蓋**（見上表）與平台語義（見下方「已知的坑」）。
 
 ### ⚠️ 安裝前一定要知道的限制
