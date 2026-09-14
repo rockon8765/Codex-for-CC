@@ -96,13 +96,14 @@ SKILL.md 的 §2 / §3 / §3.5 / §5 的詳細範本與程序。用到才讀。
   3. <風險 / 審查重點：…>
 請：逐題指出我漏掉或高估的點、各給單一排序建議、明說你和我哪裡不同。
 反方規則：(a) 攻擊面優先——往「昂貴失敗」找：資料遺失、權限/認證、競態、rollback 不可行、空狀態、版本/介面漂移；不挑 style。(b) 每個 finding 必答四問：什麼會壞？為何此路徑脆弱？影響多大？具體怎麼改？(c) 校準——一個強 finding 勝過多個弱的；判斷安全就直說，不准硬湊反對。(d) 事實紀律——推論要標注「推論」；勿把我方敘述當已驗證證據，以 repo 現況為準。
+你的最終回覆第一行必須是 `ALLOW: <20 字內理由>` 或 `BLOCK: <20 字內理由>`，之前不得有任何字元。
 ```
 簡報**一律用 Write 工具寫進 scratchpad**，理由有三，都是實際會被擋的路徑：
 1. **為什麼是 scratchpad**：它在 gate 豁免路徑內；shell 寫檔**不在**豁免內，用 shell 產簡報會被擋成繞圈。
 2. **為什麼不能用 Bash 包 `powershell -Command` 呼叫腳本**：腳本放行是「錨定在指令開頭」判定的，Bash-wrapper 不符合這個形狀，一樣會被擋。
 3. **為什麼不用 inline `-Prompt`**：簡報含 `;` `|` `&` 等標點時，會被 gate 的指令解析誤判成串接指令。`-Prompt` 已 deprecated（stage 1：仍可跑但出警告；同時給 `-Prompt` 與 `-PromptFile` 直接報錯），一律用 `-PromptFile`。用 PowerShell 工具跑 `scripts/codex-consult.ps1 -Dir <repo> -PromptFile <brief.txt>`（read-only，工具 timeout 360000ms）。Claude 統合後決定；逐字稿自動存 `~/.claude/super-mode-logs/codex_consult_<ts>.txt`。
 
-**不可逆動作前諮詢的簡報變體**：不可逆動作（commit/push/deploy/刪除）前的諮詢，簡報末尾必加一句：「你的最終回覆第一行必須是 `ALLOW: <20 字內理由>` 或 `BLOCK: <20 字內理由>`，之前不得有任何字元。」
+**首行裁決是鑄證契約，不只是不可逆動作的變體**（2026-09-14 訂正 9/6 D1）：超級模式的每一次里程碑諮詢都會鑄造憑證，而鑄證判準（`lib/consult-answer.js`）強制回覆第一行是 `ALLOW:` 或 `BLOCK:`——沒有這行就 exit 43、不鑄證、整趟諮詢白跑（9/6 親踩一次）。所以上面的範本已固定含那一句；**討論模式（`-NoCredential`）與 `-SchemaFile` 模式可省略**（前者只驗非空，後者只驗 strict JSON）。不可逆動作（commit/push/deploy/刪除）前的諮詢語義照舊：`BLOCK` 就不做並回報使用者。
 
 **硬性強制（consult-gate v3）**：超級模式啟用時（`scripts/super-mode.ps1 -On [-Scope <專案根>]`），PreToolUse hook（`~/.claude/hooks/super-mode-consult-gate.js`）的規則：
 - **範圍**：帶 `-Scope` 時只攔該路徑底下的**檔案工具/shell**（檔案看 file_path、shell 看 cwd）；不帶則全域攔。**MCP 寫入類與外發內建工具沒有路徑可綁，故無論 scope 一律受攔**（fail-closed）。
@@ -117,7 +118,7 @@ SKILL.md 的 §2 / §3 / §3.5 / §5 的詳細範本與程序。用到才讀。
 - 只綁 repo + TTL；憑證的 `session` 欄只當 audit（consult 端讀不到 Claude Code 的 session id）。
 - **擋不到 Codex 子程序自己寫的檔**——`codex-exec.ps1` 一放行，Codex CLI 之後的檔案改動不逐一經過 Claude Code hook。
 
-**註冊（部署）**：把下面合併進 `~/.claude/settings.json`（hook 設定變更下個 session 才生效）。
+**註冊（部署）**：把下面合併進 `~/.claude/settings.json`（官方 settings 文件稱檔案變更會即時載入、每次變更觸發 `ConfigChange` hook；本 repo 未實測，仍以重跑 `matcher-contract --live` 為準——2026-09-14 訂正，原文寫「下個 session 才生效」）。
 ⚠️ **合併的完整步驟照 Codex-for-CC checkout 裡的 `docs/AI-INSTALL.md` 步驟 2 做，這裡刻意不複述**
 （skill 裝到 `~/.claude/` 後不含 `docs/`，要回 checkout 看）。那一節有兩道 probe，動手前與合併後各一次；
 **兩者各自的理由寫在那一節，本檔刻意不複述**（先前在 macOS 側抄過一份，共用模組上線後就過時了——那正是不該複述的原因）。

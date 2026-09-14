@@ -46,7 +46,7 @@
 **本段是各平台實作狀態的唯一真相**——三平台的 `references/orchestration.md` 與 [`docs/backlog.md`](docs/backlog.md) 都指向這裡，請不要在別處另記一份。
 
 - **Linux 版 `codex-check` 的能力面盤點與 baseline diff 尚未移植**（Windows／macOS 已有）。**不要**把 macOS 版的 `codex-check.sh` 直接當 Linux 版的等價物拿來抄或替換。移植規格見 [`docs/handoff-capability-baseline-port.md`](docs/handoff-capability-baseline-port.md) 與 [`docs/handoff-0143-capability-surface-port.md`](docs/handoff-0143-capability-surface-port.md)（⚠️ 後者的可貼上片段已過時，只當背景讀）。
-- **實際派工的 `codex-exec` 只有 macOS 固定帶 `--disable remote_plugin`**（Windows／Linux 沒有；`codex-check` 三平台都只印提示、不帶旗標）。這不是 Linux 落後，是 macOS 端單方面硬化；維護者已明確**暫緩**收緊 `--disable`，要改請三平台一起改。
+- **實際派工的 `codex-exec` 只有 macOS 固定帶 `--disable remote_plugin`**（Windows／Linux 沒有；`codex-check` 三平台都只印提示、不帶旗標）。這不是 Linux 落後，是 macOS 端單方面硬化；維護者已明確**暫緩**收緊 `--disable`，要改請三平台一起改。⚠️ **2026-09-14 訂正**：`--disable remote_plugin` 只關**遠端外掛目錄**（上游 openai/codex #28443），關不掉已裝外掛與帳號 connector，稱它「硬化」屬高估；在註冊面真正有效的是 `--disable apps --disable plugins`（[驗收紀錄](docs/ACCEPTANCE-capability-boundary-2026-09-14.md)：`codex_apps` 與 plugin 提供的 MCP 消失），但要不要採用仍是凍結中的提案。
 - **⚠️ Linux 的支援宣稱已於 2026-08-29 降級為 `UNSUPPORTED`（live 面）。** 三件事分開講：
   （a）**repo 層有 CI**（`ubuntu-latest`，每次 push／PR，含 smoke 與 fault-injection 的 mutant 守衛）；
   （b）**live 面從未由維護者驗收過** —— CI 刻意不碰 `~/.claude`，所以「repo 全綠」**不能**推論 live 生效。
@@ -184,7 +184,7 @@ linux/                           # bash 版（GNU userland；每次 push 由 ubu
 4. **派工** — 寫一份自足的任務簡報，在背景跑 `codex-exec.sh -q`；由 Codex 寫程式。
 5. **審查** — Claude 審 `_last.txt` + `git diff`；不合格就退回重派。
 6. **里程碑回寫** — 勾掉 spec md 的項目，然後 commit（commit 會把憑證降到剩 3 分鐘，逼下一個里程碑重新諮詢）。
-7. **關閉** — `super-mode.sh off`（清掉旗標 + 憑證，並清除超過 14 天的 log）。hook 也會自癒：超過 8 小時的旗標會被視為殘留並自動移除。
+7. **關閉** — `super-mode.sh off`（清掉旗標 + 憑證，並**名義上**清除超過 14 天的頂層 log 檔——⚠️ 這個清理只在 `off` 路徑觸發，日常「討論夥伴」諮詢從不觸發，所以 `~/.claude/super-mode-logs/` 實際會一直累積；見 [`docs/backlog.md`](docs/backlog.md)「逐字稿清理」列）。hook 也會自癒：超過 8 小時的旗標會被視為殘留並自動移除。
 
 **設計上就是 fail-open：** 沒有旗標、或 hook 出任何錯 / 輸入異常時，gate 一律放行 — 一般（非超級模式）的 session 絕不會被卡住。
 

@@ -45,7 +45,7 @@
 |---|---|---|
 | `codex-check.sh` 的能力面盤點與 baseline diff **尚未移植到 Linux**（macOS 549 行 vs Linux 123 行；`capability`/`baseline` 關鍵字 macOS 25/58 處、Linux 0/0） | 進行中 | [`linux-platform-notes.md`](linux-platform-notes.md) §1 |
 | Linux 版 live 端到端（I8 中文簡報實跑一輪真 codex） | 未跑 | [`linux-platform-notes.md`](linux-platform-notes.md) §4.2 |
-| `--disable remote_plugin` 三平台不一致（macOS 有，Windows/Linux 沒有）。這不是 Linux 落後，是 Mac 端單方面硬化（`8bbd43f`），維護者已明確**暫緩**收緊 `--disable`。要改請三平台一起改 | 暫緩 | [`linux-platform-notes.md`](linux-platform-notes.md) §1 |
+| `--disable remote_plugin` 三平台不一致（macOS 有，Windows/Linux 沒有）。這不是 Linux 落後，是 Mac 端單方面硬化（`8bbd43f`），維護者已明確**暫緩**收緊 `--disable`。要改請三平台一起改。⚠️ 2026-09-14 訂正：`--disable remote_plugin` 只關遠端外掛目錄（#28443），不是硬化；註冊面有效的是 `--disable apps --disable plugins`（見 [`ACCEPTANCE-capability-boundary-2026-09-14.md`](ACCEPTANCE-capability-boundary-2026-09-14.md) 與 `CONNECTOR-EXPOSURE`） | 暫緩 | [`linux-platform-notes.md`](linux-platform-notes.md) §1 |
 
 ## 已評估後暫緩的項目
 
@@ -124,13 +124,13 @@
 
 | 項目 | 說明 |
 |---|---|
-| **D1 `orchestration.md` §3.5 里程碑諮詢範本缺首行裁決要求**（9/6 D1，high） | 鑄證判準（`lib/consult-answer.js`）強制首行 `ALLOW:`／`BLOCK:`，照範本寫會 exit 43（9/6 親踩一次；「每次都白燒」是未量化推論）。修法：只在**會鑄證**的範本結尾固定加首行契約，**明確排除 `-NoCredential` 討論模式與 `-SchemaFile` 模式**；改前唯讀核對 parser 實際要求。三平台。 |
-| **D2 事實半邊：「360000ms 前景跑」在長諮詢下不成立**（9/6 D2） | 事實：超時會被工具自動轉背景；**進行中逐字稿 0 bytes 屬正常**（stdout 只承載最終回覆），勿以空檔判失敗。只改事實敘述；「一律背景跑」是流程變更＝`E13`。 |
-| **D9 `--disable remote_plugin` 被稱「硬化」屬高估**（9/6 D9） | 它只關遠端目錄，關不掉已裝外掛與 connector（上游 #28443）。README:48、本檔上方「平台功能落差」表、`linux-platform-notes.md:21` 的例子改成 `--disable apps --disable plugins`；`codex-check.ps1:227`／`codex-check.sh:248` 內的文案屬產品碼，只記不改。 |
-| **D5 SKILL 本機備註寫 `codex.ps1`，實作是 `codex.cmd` 經 `cmd.exe /d /s /c`**（9/6 D5） | 三平台 SKILL.md 末段。 |
+| **✅ 已做（2026-09-14）D1 `orchestration.md` §3.5 里程碑諮詢範本缺首行裁決要求**（9/6 D1，high；範本補首行契約、明寫 `-NoCredential`／`-n` 與 schema 模式可省略，三平台） | 鑄證判準（`lib/consult-answer.js`）強制首行 `ALLOW:`／`BLOCK:`，照範本寫會 exit 43（9/6 親踩一次；「每次都白燒」是未量化推論）。修法：只在**會鑄證**的範本結尾固定加首行契約，**明確排除 `-NoCredential` 討論模式與 `-SchemaFile` 模式**；改前唯讀核對 parser 實際要求。三平台。 |
+| **✅ 已做（2026-09-14）D2 事實半邊：「360000ms 前景跑」在長諮詢下不成立**（9/6 D2；三平台 SKILL §3 與本機 `~/.claude/CLAUDE.md` 補事實，流程半邊仍為 `E13`） | 事實：超時會被工具自動轉背景；**進行中逐字稿 0 bytes 屬正常**（stdout 只承載最終回覆），勿以空檔判失敗。只改事實敘述；「一律背景跑」是流程變更＝`E13`。 |
+| **✅ 已做（2026-09-14）D9 `--disable remote_plugin` 被稱「硬化」屬高估**（9/6 D9；README、本檔「平台功能落差」表、`linux-platform-notes.md` 加訂正；`.ps1`／`.sh` 內文案未動） | 它只關遠端目錄，關不掉已裝外掛與 connector（上游 #28443）。README:48、本檔上方「平台功能落差」表、`linux-platform-notes.md:21` 的例子改成 `--disable apps --disable plugins`；`codex-check.ps1:227`／`codex-check.sh:248` 內的文案屬產品碼，只記不改。 |
+| **✅ 已做（2026-09-14）D5 SKILL 本機備註寫 `codex.ps1`，實作是 `codex.cmd` 經 `cmd.exe /d /s /c`**（9/6 D5） | 只有 windows SKILL.md 末段有此誤寫，已訂正；macOS／Linux 的本機備註本來就沒寫錯。 |
 | **D4 Windows `orchestration.md` §3.5 低報 hook 實際強制面**（9/6 D4） | 缺：自動執行檔名不豁免、唯讀 runner 指向暫存或 `~/.claude` 仍要憑證、憑證 JSON 含 repo 綁定、安全關鍵檔清單少 `.codex-check-baseline`；linux 版缺最後一點。CANDIDATE，改前逐行核對 hook。 |
-| **D8 其他過時敘述**（9/6 D8） | SKILL「Opus 5 起」「Sonnet 可／Haiku 不可」加 as-of；README「PowerShell 5.1」補「pwsh 7 為主要呼叫 host」不刪 5.1；linux orchestration 五態／`.codex-check-baseline`；windows orchestration「v3」vs hook 自標 v2；hook :121 註解矛盾（產品碼，只記）；「hook 設定下個 session 才生效」改「官方稱即時載入、本 repo 未實測」；本檔 `WINDOWS-CI` 列「POSIX 已有」**已於 9/14 改正**；resume 結論加版本註；README:186「14 天」改成實際觸發條件（見下一列）。 |
-| **逐字稿清理「14 天」政策未生效**（[`plugin-reeval-2026-08.md`](plugin-reeval-2026-08.md) A6） | 清理只在 `super-mode -Off` 路徑觸發，日常討論從不觸發；且無檔名白名單、錯誤靜默。**不手動清**（會刪掉 `CONNECTOR-EXPOSURE`／`EXEC-NO-SUBAGENTS` 的驗收證據，進行中檔可能 0 bytes）；先把 README:186 與 SKILL 的敘述改成實際觸發條件，產品化留 9/30。 |
+| **D8 其他過時敘述**（9/6 D8；**2026-09-14 已做三條**：SKILL「Opus 5 起」「Sonnet 可／Haiku 不可」加 as-of、「hook 設定下個 session 才生效」改「官方稱即時載入、本 repo 未實測」、README「14 天」改成實際觸發條件；本檔 `WINDOWS-CI` 列亦已改） | **仍未做**（整潔度，可放著）：README「PowerShell 5.1」補「pwsh 7 為主要呼叫 host」不刪 5.1；linux orchestration 五態／`.codex-check-baseline`；windows orchestration「v3」vs hook 自標 v2；hook :121 註解矛盾（產品碼，只記）；resume 結論加版本註。 |
+| **逐字稿清理「14 天」政策未生效**（[`plugin-reeval-2026-08.md`](plugin-reeval-2026-08.md) A6） | 清理只在 `super-mode -Off` 路徑觸發，日常討論從不觸發；且無檔名白名單、錯誤靜默。**不手動清**（會刪掉 `CONNECTOR-EXPOSURE`／`EXEC-NO-SUBAGENTS` 的驗收證據，進行中檔可能 0 bytes）。README 的敘述**已於 2026-09-14 改成實際觸發條件**；SKILL 未提 14 天；產品化留 9/30。 |
 | **B9 一句：exec 回 46＝「結果不明，先查狀態」**（9/6 B9） | `codex-exec` exit 46 時 worker 可能已改檔；SKILL §3「派工失敗＝退回重派」要補「非零碼一律先核 `_last.txt`、`git status`／diff 與外部狀態，不自動重派」。三平台。 |
 | **D3 本機 `~/.claude/CLAUDE.md` 與 repo `CLAUDE-global-rule.md` snippet 的規則同步**（9/6 D3） | 本機版有 `paused_unknown`／`disabled_quota` 三態與 9/14 新增的具名非配額原因；repo snippet 缺「四問」句與三態。屬**規則同步**，由使用者單獨決定方向（回灌 repo 或以 repo 為準）。 |
 | <a id="LTS-DECISION-MEMO"></a>**9/30 決策備忘**（ID：`LTS-DECISION-MEMO`；9/14 Codex 排序第 3） | 題目：永久封存 vs 最低成本 LTS。要寫：LTS 最低支援的平台／版本、負責人、投入上限、退出條件；`WINDOWS-CI` 為必要非充分；「凍結禁 CI、解凍先要 CI」死結的解法（若選 LTS，明確授權一段有限的 CI 建置期；現在只設計與估算、不實作）。 |

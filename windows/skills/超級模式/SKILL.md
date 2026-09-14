@@ -39,7 +39,7 @@ description: 重型工程協作工作流的「明確開關」——spec-first �
 - 同步 = 單向生成 repo 根目錄的 `AGENTS.md`（只放精選共用規範，不是整包 skill）；第一次派工時才生成。範本見 `references/orchestration.md`。
 
 ## 3. 指揮 Codex CLI（執行層）
-- **逾時與長跑（重要）**：`codex-consult.ps1` / `codex-check.ps1` 前景跑，工具 `timeout` 設 **360000ms（6 分鐘）**。`codex-exec.ps1` 派工一律 **`run_in_background: true`**（重任務常超過工具 10 分鐘上限，跑完會自動通知）。逐字輸出與最終回覆自動落地 `~/.claude/super-mode-logs/`。
+- **逾時與長跑（重要）**：`codex-consult.ps1` / `codex-check.ps1` 前景跑，工具 `timeout` 設 **360000ms（6 分鐘）**。（2026-09-14 事實訂正：gpt-6-astra／effort `high` 下 consult 實測 8–30 分鐘，6 分鐘常不夠——超時時工具會自動轉背景、完成後通知，照常等通知即可；**進行中的逐字稿是 0 bytes 屬正常**，stdout 只承載最終回覆，勿以空檔判失敗。是否改成一律背景跑＝提案 E13，留 9/30。）`codex-exec.ps1` 派工一律 **`run_in_background: true`**（重任務常超過工具 10 分鐘上限，跑完會自動通知）。逐字輸出與最終回覆自動落地 `~/.claude/super-mode-logs/`。
 - **派工前先確認 Codex 版本與能力面**：跑 `scripts/codex-check.ps1`。**「有新版」是中性情報、不是更新指令**——更新屬選擇性系統變更、可能造成參數/外掛/行為漂移 → **先問使用者**。漂移警示屬提醒非閘門（姿態 A）。快取與 `-Force`／`-UpdateBaseline` 的判讀、各平台實作狀態見 `references/orchestration.md` §3。
 - **派工也要先諮詢**：`codex-exec.ps1` 是 workspace-write 執行者，會實際改檔 → gate **不再無條件放行**，派工前必須有 20 分鐘內憑證（先做 §3.5 諮詢）。每步產一份**自足**任務簡報，**用 Write 工具寫進 scratchpad**，再用 PowerShell 工具跑 `scripts/codex-exec.ps1 -Dir <repo> -PromptFile <brief> -Quiet`。**第一次派工前必讀 `references/orchestration.md` §2（生成 AGENTS.md）與 §3（簡報格式與自驗合約）**——簡報少了驗收條件或輸出合約，Codex 交回的東西就無法機器驗收。
 - Codex 交回後 **Claude 一定要 review**（正確性 / 符合 spec / 安全），不合格退回重做，別照單全收。**收工後只讀 `_last.txt`（最終回覆）＋ `git diff`**；逐字稿 log 只在退回重做 / 除錯時抽段讀（省 Claude context）。審查依 orchestration.md §5 分級：預設單線 diff，安全敏感 / 架構才開三鏡頭。Codex 派工失敗＝退回重派或回報使用者；Claude 不得未經使用者同意接手實作（額度耗盡 runbook 的一般化）。
@@ -61,11 +61,11 @@ ultracode 開啟時：理解 / 設計 / 審查階段用 Workflow 多代理（唯
 **鐵則：每步只有一個 worker pool 寫檔。** 預設 Codex 寫程式，Claude 的 Workflow agents 只做不寫檔的研究／規劃／審查。
 **鐵則：Workflow / subagent 一律禁止呼叫 `codex-consult.ps1` / `codex-exec.ps1`。** 子代理被 gate 擋下時**回報 orchestrator（主 Claude）就停手**，由主線統一諮詢與派工；子代理要跑 build/verify 也交給主線。（各自諮詢的代價見 `references/orchestration.md` §5。）
 **鐵則：超級模式期間禁用官方 codex plugin 的 `/codex:rescue` 與 `/codex:transfer`（若有安裝）。** `codex:codex-rescue` 是「會呼叫 Codex 的子代理」、description 標了 proactive（主線可能不待你開口就派它），且預設帶 `--write`＝workspace-write 卻沒有 spec／brief／驗收條件——同時違反上一條鐵則與 §1 spec-first。官方的 Stop review gate（`/codex:setup --enable-review-gate`）一律不開——它 fail-closed、本 gate fail-open，兩套語義相反且都叫 Codex。**不得**把 `codex-companion.mjs` 加進 gate 白名單繞路（`status` 與 `task --write` 只差參數尾巴，前綴白名單＝提權）。**審查類 `/codex:review`／`/codex:adversarial-review` 則可用**：在諮詢憑證窗內直接跑、**不必**關超級模式（2026-08-28 訂正：本檔原寫「要用 `/codex:review` 請先跑 `-Off`」，與 `docs/plugin-reeval-2026-08.md` A3「只禁 rescue／transfer」矛盾，故改）；一律 `--wait`、且 spec／AC 驗收不外包——選哪支、操作規則與觸發門檻見 `references/orchestration.md` §5.1。
-> 新一代模型（Opus 5 起）比前代**更傾向主動派子代理**。fan-out 只用在**真正獨立**的工作分支（多檔平行調查、彼此無依賴的研究線）；能在主線幾個工具呼叫內做完的事別外包——N 個平行子代理各自撞 gate、各自回報，只會拖慢主線。
+> 新一代模型（Opus 5 起；as-of 2026-09 現為 Claude 5 家族／Fable 5.1，規則不變）比前代**更傾向主動派子代理**。fan-out 只用在**真正獨立**的工作分支（多檔平行調查、彼此無依賴的研究線）；能在主線幾個工具呼叫內做完的事別外包——N 個平行子代理各自撞 gate、各自回報，只會拖慢主線。
 
 **模型與 effort（本機姿態：靜默繼承、不指定）**
 - Workflow / Agent 呼叫**不要指定 `model`，也不要指定 `effort`**——兩者省略時都跟隨 session 值，那是使用者依任務自己調的旋鈕。
-- **別自作主張降階。** 要降階必須有具體理由，不是「唯讀階段就降一階省額度」的反射動作。本機姿態：Sonnet 可接受、**Haiku 不可**。（理由見 `references/orchestration.md` §5。）
+- **別自作主張降階。** 要降階必須有具體理由，不是「唯讀階段就降一階省額度」的反射動作。本機姿態：Sonnet 可接受、**Haiku 不可**（as-of 2026-09：Sonnet 5／Haiku 4.5）。（理由見 `references/orchestration.md` §5。）
 - 子代理的工具權限由 `agentType` 決定（唯讀階段用 `Explore` / `Plan` 這類唯讀 agent type）；call-time **沒有** `tools` allowlist / `permissionMode` / `maxTurns` 這些參數，別憑空發明。
 
 ## 收尾
@@ -74,4 +74,4 @@ ultracode 開啟時：理解 / 設計 / 審查階段用 Workflow 多代理（唯
 **Codex 疑似額度/認證失敗 runbook**：判準是 **tuple —— exit 42 **且** stderr 出現 `CONSULT_UNAVAILABLE_QUOTA`**，兩者缺一不可。⚠️ **只看到 exit 42 而沒有哨兵，那是 codex 自己的退出碼，不是配額訊號**，照一般失敗處理即可（`exit 42` 的命名空間本來就會撞）。⚠️ 命中 tuple 也**只代表「疑似、未確證」**：判準是「逐字稿尾端的 codex 錯誤行命中配額/認證字樣」，我們手上沒有真正的配額失敗樣本可以校準它 —— **不要對使用者斷言「額度用盡」**，把哨兵訊息與逐字稿路徑原樣轉述。命中時：**立即停手、不要重試諮詢**，向使用者回報現況與選項；經使用者同意可跑 `scripts/super-mode.ps1 -Off` 降級為一般模式，由 Claude 自行完成剩餘工作。連續諮詢失敗 ≥2 次也一律回報使用者，勿在額度最稀缺時空轉。（另有 `exit 46` = 逐字稿不可用/寫壞：諮詢可能真的發生過但沒有稽核痕跡，**不會鑄證**，屬環境問題不是額度問題。）（2026-09-14 補：另一個**具名的非配額失敗**是 GPT-6 Astra 的安全 safeguard 拒答——上游 issue #45316／#45327 回報 Codex 0.154.0 會以「Daybreak isn't available for Astra. Some cybersecurity requests may still be limited.」擋掉良性的資料庫／timeout 除錯。帶安全稽核味的簡報命中時，屬**外部報告、本機未親遇**：照一般失敗處理、把訊息與逐字稿路徑原樣回報使用者，不算配額，也不要自行重試或換模型。）
 
 ---
-**本機備註：** Codex CLI 裝於 `C:\npm`（`C:\npm\codex.ps1`）；prompt 一律走 STDIN + fresh child powershell、加 `--skip-git-repo-check`（腳本已封裝這些坑）。Codex 沙箱**進不到 WSL UNC 路徑**（`\\wsl.localhost\...`）→ 改由 Claude 讀檔、把證據餵給 Codex 做唯讀第二意見。諮詢/派工逐字稿與最終回覆都在 `~/.claude/super-mode-logs/`。
+**本機備註：** Codex CLI 裝於 `C:\npm`（三支腳本實際呼叫 `C:\npm\codex.cmd`，經 `cmd.exe /d /s /c` 把簡報以 stdin 重導向餵入，刻意避開 `codex.ps1` shim——2026-09-14 訂正，原文誤寫 `codex.ps1`）；prompt 一律走 STDIN + fresh child cmd、加 `--skip-git-repo-check`（腳本已封裝這些坑）。Codex 沙箱**進不到 WSL UNC 路徑**（`\\wsl.localhost\...`）→ 改由 Claude 讀檔、把證據餵給 Codex 做唯讀第二意見。諮詢/派工逐字稿與最終回覆都在 `~/.claude/super-mode-logs/`。
