@@ -4,7 +4,7 @@
 
 一個 **Claude Code** skill：讓 Claude 當**指揮（orchestrator）**、**OpenAI Codex CLI** 當**執行（worker）**，把繁重的實作工作外包給 Codex（藉此節省 Claude Code 用量），而 Claude 專注在規劃、審查、並以 spec 當作合約。
 
-一個 `PreToolUse` 的 **consult-gate** hook 負責推動這套紀律：超級模式啟用期間，會改變狀態的工具呼叫（寫檔、shell、MCP 寫入、外發型內建工具）在**沒有** 20 分鐘內、由「先跑一次唯讀 Codex 諮詢」換來的「第二意見」憑證時會被攔下，要求先諮詢。**攔截面以 `settings.json` 的 PreToolUse matcher 為界**——沒列到的內建工具（例如 `TaskCreate`，刻意不納管）與已放行程序「內部」衍生的動作根本不會進 hook，**攔不到不等於規則允許**。
+一個 `PreToolUse` 的 **consult-gate** hook 負責推動這套紀律：超級模式啟用期間，會改變狀態的工具呼叫（寫檔、shell、MCP 寫入、外發型內建工具）在**沒有** 20 分鐘內、由「先跑一次唯讀 Codex 諮詢」換來的「第二意見」憑證時會被攔下，要求先諮詢。**攔截面以 `settings.json` 的 PreToolUse matcher 為界**——沒列到的內建工具（例如跨 session 外發的 `SendMessage`，目前未納管；舊例 `TaskCreate` 自 Claude Code 2.1.268 起在新模型已不提供）與已放行程序「內部」衍生的動作根本不會進 hook，**攔不到不等於規則允許**。
 
 > ⚠️ **定位與界線（請先讀）：這道 gate 是「諮詢紀律提醒」，不是安全邊界。**
 > 它的用途是讓一個**合作的** Claude 在動手前先諮詢、避免不小心跳過流程——**不是**用來圍堵一個蓄意繞過、或被 prompt-injection 挾持的 agent。具體來說，它：

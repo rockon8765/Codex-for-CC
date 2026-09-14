@@ -184,6 +184,8 @@ ECC 蓋掉」，那個理由已被推翻：躲進不會被載入的檔案只是�
 3. **spec／AC 驗收不外包。** diff reviewer 判不出「整項 AC 完全漏做」——沒有 changed line 可指，schema 又強制 `file`／`line`，最可能的結果是**漏報後 approve**。AC → PASS／FAIL／UNVERIFIED 對照表由 Claude 維護，這格不給 Codex。
 4. **不要每個里程碑都 review。** consult＋exec＋review＝三次 Codex 呼叫／里程碑，會先燒爆 Codex 額度。觸發門檻沿用 §5 的升級清單：安全敏感（auth／支付／個資／secret／crypto）、刪除／migration／schema／public API、installer／hook／跨平台、測試跑不動或 flaky、diff 跨 ≥3 個 production 檔。低風險里程碑聚合 2–3 個一次審，並擺在 merge／push／deploy 前，而非每個本機 commit 前。
 
+**原生替代路徑（2026-09-14 補記，未驗收）**：Codex CLI 0.154.0 的 `codex exec review`（`--uncommitted`／`--base <branch>`／`--commit <sha>`、`--ephemeral`、`--output-schema <file>`、`-o <file>`，自訂指示走 stdin `-`）不經 plugin 的 app-server broker 就能拿結構化審查；頂層 `codex review` **沒有** `--output-schema`／`-o`。限制：官方 code-review 頁未定義 JSON 格式；它是否強制 read-only、父命令的 `--sandbox` 是否套用、遠端工具權限如何，皆**未驗**——在 [`docs/AUDIT-upstream-drift-2026-09-14.md`](../../../../docs/AUDIT-upstream-drift-2026-09-14.md) E14 驗過之前，不要當成已驗證的唯讀替代品。plugin 本身自 2026-07-08 起零更新。
+
 **背景 job 不跨 session**：SessionEnd 會關 broker 並清掉該 session 的 plugin job（`session-lifecycle-hook.mjs:104`），結果要在同一 session 內收。plugin 的 state 落在 `%TEMP%/codex-companion/` 或 `$CLAUDE_PLUGIN_DATA`，不污染 repo、與 `~/.claude/super-mode-logs/` 無衝突。
 
 > 一般模式（超級模式 OFF）不受本節限制，plugin 全部可用。但全域「Codex 討論夥伴」規則不變：決策型輸出仍走 `codex-consult -NoCredential`——它吃 brief（審**還沒動手**的決策），plugin 吃 git state（審**已寫出**的碼），互相取代不了。
