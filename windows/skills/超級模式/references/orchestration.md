@@ -73,7 +73,7 @@ SKILL.md 的 §2 / §3 / §3.5 / §5 的詳細範本與程序。用到才讀。
 3. **別用「想仔細一點／think harder」代替更好的合約**——要提品質先收緊 AC 與驗證規則，不是加 reasoning。
 4. **有 placeholder ≠ 任務明確**——`<要做什麼>` 填成「處理一下 X」照樣是 vague task。
 
-> **出處與改寫**（2026-08-28，[`docs/plugin-reeval-2026-08.md`](../../../docs/plugin-reeval-2026-08.md) A4）：決策邊界／授權內裁量／動作安全／工具持續性／完成判準，選擇性移植自官方 plugin 的 `gpt-5-4-prompting` skill（v1.0.6）。最重要的改寫是官方的 `default_follow_through_policy`——原文授權 worker 在「低風險歧義」時自行續行，照搬等於授權它**解讀規格契約**，故收緊成「只有 AC 可觀察結果等價才可裁量」。另外 `codex exec` 是**單輪背景任務**，沒有「停下來問 Claude」這回事，所以缺脈絡的正確語義是回 `BLOCKED` 而非提問。**未移植**：`progress_updates`（背景執行＋逐字稿落地已覆蓋）、5 份 recipe 全文（其檔頭「診斷／修復類預設 write mode」與 SKILL §1 spec-first 相衝）；`research_mode`／`citation_rules` 降為上表選配。**全面 XML 化亦未採用**——`codex-exec` 走 stdin 純文字、路徑上沒有 XML parser，官方 prompt 指南本身也主張 Markdown 表階層、XML 只圈大段附件。
+> **出處與改寫**（2026-08-28，[`docs/plugin-reeval-2026-08.md`](../../../../docs/plugin-reeval-2026-08.md) A4）：決策邊界／授權內裁量／動作安全／工具持續性／完成判準，選擇性移植自官方 plugin 的 `gpt-5-4-prompting` skill（v1.0.6）。最重要的改寫是官方的 `default_follow_through_policy`——原文授權 worker 在「低風險歧義」時自行續行，照搬等於授權它**解讀規格契約**，故收緊成「只有 AC 可觀察結果等價才可裁量」。另外 `codex exec` 是**單輪背景任務**，沒有「停下來問 Claude」這回事，所以缺脈絡的正確語義是回 `BLOCKED` 而非提問。**未移植**：`progress_updates`（背景執行＋逐字稿落地已覆蓋）、5 份 recipe 全文（其檔頭「診斷／修復類預設 write mode」與 SKILL §1 spec-first 相衝）；`research_mode`／`citation_rules` 降為上表選配。**全面 XML 化亦未採用**——`codex-exec` 走 stdin 純文字、路徑上沒有 XML parser，官方 prompt 指南本身也主張 Markdown 表階層、XML 只圈大段附件。
 
 派工方式（擇一）：
 1. **Codex CLI 可用** → 先確認有 20 分鐘內諮詢憑證（exec 受 gate 攔，沒憑證會被擋）。用 Write 工具把簡報寫進 scratchpad（gate 豁免路徑），用 PowerShell 工具 `scripts/codex-exec.ps1 -Dir <repo> -PromptFile <brief>`，**`run_in_background: true` 跑**（重任務常超過工具 10 分鐘上限）。逐字輸出存 `~/.claude/super-mode-logs/codex_exec_<ts>.txt`，最終回覆落地 `codex_exec_<ts>_last.txt`（`--output-last-message`，可用 `-OutFile` 改位置）。收回後 Claude 用 `git diff` 審查。
@@ -122,7 +122,7 @@ SKILL.md 的 §2 / §3 / §3.5 / §5 的詳細範本與程序。用到才讀。
 （skill 裝到 `~/.claude/` 後不含 `docs/`，要回 checkout 看）。那一節有兩道 probe，動手前與合併後各一次；
 **兩者各自的理由寫在那一節，本檔刻意不複述**（先前在 macOS 側抄過一份，共用模組上線後就過時了——那正是不該複述的原因）。
 ⚠️ **Windows 用的就是 `~/.claude/settings.json`**，不是 `settings.local.json`。macOS／Linux 那條
-「家目錄的 local 檔不是 user scope」的坑**在 Windows 不適用**（見 [`docs/verify-settings-scope.md`](../../../docs/verify-settings-scope.md)，
+「家目錄的 local 檔不是 user scope」的坑**在 Windows 不適用**（見 [`docs/verify-settings-scope.md`](../../../../docs/verify-settings-scope.md)，
 該檔 §「Windows 已經用 settings.json，不受影響」）。但**任何工具改動過該檔之後**（包含 Claude Code 自己的
 plugin manager——它同樣寫這個檔），都要重跑
 `node ~/.claude/skills/超級模式/tests/matcher-contract.test.js --live`
