@@ -4,6 +4,8 @@
 > 接續：[`AUDIT-upstream-drift-2026-09-06.md`](AUDIT-upstream-drift-2026-09-06.md)（以下簡稱「9/6 稽核」；其 §3.F 與 E1–E13 是本檔的 baseline，**已知事項不重列**）
 > 觸發：使用者要求「重新尋找類似功能的最新做法，看有沒有新東西」。
 > 方法：四條平行 web 研究線（Codex 上游／Claude Code 上游／官方橋接／社群）＋本機一手指令（`codex exec --help`、`codex features list`、`codex plugin list`、`codex-check.ps1 -Force`、`codex debug prompt-input`）＋ Codex 反方諮詢一輪 → Claude 裁決。語言慣例：說明繁中；指令／檔名英文。
+>
+> **訂正註（2026-09-14 晚，依 [`ACCEPTANCE-capability-boundary-2026-09-14.md`](ACCEPTANCE-capability-boundary-2026-09-14.md)；原文不改）**：§6 提案 `E2` 寫的 `--disable multi_agent` 對 gpt-6-astra **無效**（模型宣告的 `multi_agent_version` 優先），有效的是 `-c agents.enabled=false`；§5「執行期 UNVERIFIED」已升級——read-only＋ephemeral 條件下存在能成功 spawn 的配置（CONFIRMED）；B1 的 `REGISTERED`／`CATALOG_PRESENT` 兩層已 CONFIRMED，`AUTHENTICATED_CALLABLE` 以後仍 UNVERIFIED；裁決不解凍。
 
 ---
 

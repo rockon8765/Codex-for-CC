@@ -11,6 +11,7 @@
 > - **設計上 fail-open**：沒有旗標、或 hook 出任何錯／輸入異常時一律放行；
 > - **可被 agent 自己關掉**：`super-mode off` 就在放行白名單內、會刪掉旗標與憑證（這是設計，gate 的 deny 訊息本身就這樣教）；
 > - **不攔子程序副作用**：測試 runner（`npm test`／`pytest`）、以及某些 shell／MCP 寫法本來就會通過（一個惡意 repo 的測試腳本能以你的權限任意執行）。
+> - **consult 的「唯讀」只是 sandbox 設定，不是完整隔離**（2026-09-14 驗收，[`docs/ACCEPTANCE-capability-boundary-2026-09-14.md`](docs/ACCEPTANCE-capability-boundary-2026-09-14.md)）：`codex-consult` 用 `--sandbox read-only` 設定，但同一次執行仍觀察到帳號已連結的 connector MCP（Gmail／Google Drive／Calendar／Notion 等）被註冊、工具目錄含寫入操作，且 `approval_policy=never`。認證、敏感資料讀取、外部寫入及其核准行為**尚未驗證**，所以**不保證** consult 整體唯讀或只存取你給的證據——敏感資料照隱私條款先去識別化。
 >
 > 真正的隔離必須來自 **OS 層 sandbox（WSL2／container／受限帳號）＋ Claude Code 自己的 permission 系統**——**這個 repo 不會幫你架這層**。請把它當「省下漏掉諮詢的失誤」的紀律工具，不要把它當防線。若你要在**不可信的 repo** 或**多人環境**下用，先自行架好 OS 層隔離與嚴格 permission。
 
