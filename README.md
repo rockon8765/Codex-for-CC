@@ -28,7 +28,7 @@
 
 | | [`windows/`](windows/) | [`macos/`](macos/) | [`linux/`](linux/) |
 |---|---|---|---|
-| Hook/腳本執行環境 | PowerShell 5.1 + Node | bash/zsh + Node | bash + Node |
+| Hook/腳本執行環境 | PowerShell 5.1／pwsh 7（主要呼叫 host）+ Node | bash/zsh + Node | bash + Node |
 | 執行腳本 | `*.ps1` | `*.sh` | `*.sh` |
 | Codex CLI 位置 | `C:\npm\codex.cmd`（寫死） | `PATH` 上的 `codex`（Homebrew npm global） | `PATH` 上的 `codex`（npm global） |
 | Gate 拒絕機制 | `permissionDecision` / exit 2 | stderr + exit 2 | stderr + exit 2 |
@@ -275,7 +275,7 @@ hook **在啟用前是 fail-open 且停用的** — 安裝它不會影響一般 
 - **node 不一定在 PATH**：可攜式安裝（如 `~/.local/node/bin`）的機器，settings 裡的 hook 指令請用 node 的絕對路徑——PATH 找不到 node 時 hook 會**靜默不跑、gate 形同虛設**。部署後用一次故意違規的 Write 驗證 gate 真的會 deny。
 
 **Windows**
-- **Windows 11**、**PowerShell 5.1**。**Codex CLI** 在 `C:\npm\codex.cmd`（位置不同就改 `$codexCmd`）。使用者家目錄在 settings matcher 指令與部分文件中寫死為 `C:\Users\user`。
+- **Windows 11**、**PowerShell 5.1**（Claude Code 的 PowerShell 工具實際以 **pwsh 7** 呼叫腳本，是主要呼叫 host；測試套件在 pwsh 7 與 WinPS 5.1 兩個 host 都跑，BOM 規則照舊）。**Codex CLI** 在 `C:\npm\codex.cmd`（位置不同就改 `$codexCmd`）。使用者家目錄在 settings matcher 指令與部分文件中寫死為 `C:\Users\user`。
 
 **各平台共通**
 - 執行環境與 settings 檔目標見上方「三個平台版本」表；腳本與 hook 都沒寫死路徑（Windows 家目錄例外，見上），只有 settings 裡的 hook 指令需要你的絕對家目錄路徑。
