@@ -14,7 +14,7 @@ description: 重型工程協作工作流的「明確開關」——spec-first �
 
 ## 0. 啟用閘門（先做 30 秒自評，不值得就退出）
 超級模式很燒 token，**只給大型工作用**。**啟動後第一件事先做這個 gate**：
-- ✅ 跨多 session、多檔案、要回測 / 交付、規格會反覆改、大規模重構 → 繼續：宣告進入，並跑 `scripts/super-mode.ps1 -On -Scope <專案根>`（開啟 consult-gate 強制；`-Scope` 讓 gate 只管這個專案、不擋同機其他 session，**建議都帶**。WSL/UNC 專案省略 `-Scope` 用全域強制）。
+- ✅ 跨多 session、多檔案、要回測 / 交付、規格會反覆改、大規模重構 → 繼續：宣告進入，並跑 `scripts/super-mode.ps1 -On -Scope <專案根>`（開啟 consult-gate 強制；`-Scope` 讓 scope 外一般路徑的檔案工具寫入與 cwd 在 scope 外的唯讀 shell 不受管；`~/.claude` 內與安全關鍵檔不因 scope 外而豁免，scope 外會改狀態的 shell／Monitor、MCP 寫入與外發內建工具仍受管，所以同機其他 session 仍可能被擋（2026-09-23 事實訂正：原寫只管本專案、不擋其他 session；旗標與憑證各為全機單一檔，scope 並非 session 隔離），**建議都帶**。WSL/UNC 專案省略 `-Scope` 用全域強制）。
 - ❌ 單檔改動、一次性腳本、3 步內完成、純探索 / 問答 → 直接說「這個任務不需要超級模式，建議直接做」並退出，用一般模式。
 
 **與 UltraCode 的分辨（別搞錯旋鈕）**：超級模式換的是「**省 Claude 額度**」（把實作外包給 Codex）；UltraCode 換的是「**品質**」（派更多 Claude 子代理，反而**更花** Claude）。兩者獨立、互不觸發：
@@ -27,7 +27,7 @@ description: 重型工程協作工作流的「明確開關」——spec-first �
 
 ## 1. Spec-first — 沒有 spec 不准寫實作
 1. 先找現有 spec：`docs/**/specs/*.md`、`*-design.md`、`*-plan.md`，找到就當真相來源。
-2. 沒有就用 `planner` / brainstorm 產一份：目標與非目標、任務拆解（可獨立交付步驟 + 依賴 DAG）、每步驗收條件、風險與未決。
+2. 沒有就用內建 `Plan` subagent（或直接手寫）產一份（2026-09-23 事實訂正：原引 ECC／superpowers 的規劃工具已在本機卸載）：目標與非目標、任務拆解（可獨立交付步驟 + 依賴 DAG）、每步驗收條件、風險與未決。
 3. **取得使用者確認後**才進入執行。遵守專案 CLAUDE.md 既有慣例（版本標頭、commit 格式）。
 
 ## 2. 兩層分離 — 哪些給 Codex
@@ -50,7 +50,7 @@ description: 重型工程協作工作流的「明確開關」——spec-first �
 - **不可逆動作前一律先問**；不確定是不是不可逆 → 先問。諮詢回覆以首行裁決（格式 `^(ALLOW|BLOCK)\s*:` 開頭——**大小寫敏感**，動詞與冒號之間**允許空白**，例如 `ALLOW :` 也算；2026-08-18 訂正：本檔原寫 `^(ALLOW|BLOCK):`，與實作不符且實作才是有效的那個，故改文件不改實作——拒絕 `ALLOW :` 屬錯誤方向的失敗）；BLOCK 就不做並回報使用者；首行不合格式 → 視為 BLOCK，重問一次取得合法首行後才可執行。**2026-08-18 起 `codex-consult` 會擋掉「codex 進程 exit 0 但回覆空白／過短／首行不是裁決格式」的情況**（exit 43、不鑄造憑證，**既有憑證不動**；判準在三平台共用的 `lib/consult-answer.js`）。⚠️ 它只擋「**沒取得足量且形式合格的輸出**」——**不**保證諮詢真的發生過（真諮詢也可能只回短答），**不**判斷答得對不對，也**不**強制上面那條 BLOCK 規則：憑證是**諮詢收據不是動作授權**，gate hook 只看憑證的 mtime 與 repo 綁定、**不讀裁決**，所以 `BLOCK:` 一樣會鑄造憑證並解鎖 20 分鐘。**「BLOCK 就不做」仍然只靠你自己遵守。** 兩個模式有各自的門檻：**討論模式（`-NoCredential`）只要求非空**，不套字數與裁決門檻；**`-SchemaFile` 模式只要求「原始輸出是 strict JSON」**——合法的短 JSON（例如 `{"ok":true}`）會直接通過並鑄證，**不驗首行裁決、不驗 40 字、也不驗真的符合那份 schema**。找不到 node 或判準模組時**一律 fail-closed**（exit 45、不鑄造）——驗不了就不該當成驗過了。
 - 諮詢簡報一次**批次列出本里程碑所有待決問題**（方案取捨、風險、審查重點），Codex 一次回答。簡報（現況數據＋候選方案＋初判，請它挑戰你的假設）**用 Write 工具寫進 scratchpad**，再用 PowerShell 工具跑 `scripts/codex-consult.ps1 -Dir <repo> -PromptFile <brief>`（工具 timeout 360000ms；**一律 `-PromptFile`**，inline `-Prompt` 已 deprecated）。為什麼不能用 shell 寫簡報、不能用 Bash 包 `powershell -Command` 呼叫腳本，見 `references/orchestration.md` §3.5。
 - **Claude 擁有最終決定權**：對照、調和、必要時反駁，再決定；有分歧向使用者說明。諮詢逐字稿自動存 `~/.claude/super-mode-logs/`。簡報會送到 Codex 並落地逐字稿 → **全域規則的隱私條款照舊適用**：只放最小必要證據，敏感個資／財務明細先去識別化。（2026-09-14 驗收：consult 的 `--sandbox read-only` 只是設定，同一次執行仍觀察到帳號 connector MCP 註冊、工具目錄含寫入操作、`approval_policy=never`；認證／敏感讀取／外寫／核准行為未驗——**別把 consult 當成完全隔離的顧問**。詳 `docs/ACCEPTANCE-capability-boundary-2026-09-14.md`。）
-- **硬性強制**：超級模式啟用時，consult-gate hook 會攔下**它看得到的狀態改變動作**——只有 settings.json matcher 有列到的工具才進得了 hook（檔案寫入、非唯讀 shell／Monitor、MCP 寫入／外發、排程／發佈／worktree 內建工具），要求 20 分鐘內的諮詢憑證；唯讀動作自動放行。**default-deny 只在「進得了 hook」的範圍內成立**：MCP 未知工具、無法判定唯讀的 shell／Monitor 一律要憑證——但 **matcher 沒列到的內建工具（例如跨 session 外發的 `SendMessage`，目前未納管；舊例 `TaskCreate` 自 Claude Code 2.1.268 起在新模型已不提供）與已放行程序「內部」衍生的動作（test runner 生出的子程序、shell／MCP 自己再呼叫的東西）根本不會進 hook**。**攔不到不等於規則允許**：會改變狀態就照本節先諮詢；要圍堵蓄意繞過得靠 OS sandbox 與 Claude permission（見檔頭定位）。`codex-exec` 派工同樣要憑證（只有唯讀的 codex-consult/check 與 super-mode 開關無條件放行）。收尾動作（commit/push/merge/publish/deploy）放行後憑證**降為只剩 3 分鐘**（同一條指令內 commit+push 不受影響），逼下一個里程碑重新諮詢。scratchpad 與 `~/.claude`（安全關鍵檔除外）寫入豁免。**被擋時照 hook 的拒絕訊息做**——它會給出當下該跑的指令。完整攔截面枚舉、豁免細則與 pathless 取捨見 `references/orchestration.md` §3.5。
+- **硬性強制**：超級模式啟用時，consult-gate hook 會攔下**它看得到的狀態改變動作**——只有 settings.json matcher 有列到的工具才進得了 hook（檔案寫入、非唯讀 shell／Monitor、MCP 寫入／外發、排程／發佈／worktree 內建工具），要求 20 分鐘內的諮詢憑證；唯讀動作自動放行。**default-deny 只在「進得了 hook」的範圍內成立**：MCP 未知工具、無法判定唯讀的 shell／Monitor 一律要憑證——但 **matcher 沒列到的內建工具（例如跨 session 外發的 `SendMessage`，目前未納管；舊例 `TaskCreate` 自 Claude Code 2.1.268 起在新模型已不提供）與已放行程序「內部」衍生的動作（test runner 生出的子程序、shell／MCP 自己再呼叫的東西）根本不會進 hook**。**攔不到不等於規則允許**：會改變狀態就照本節先諮詢；要圍堵蓄意繞過得靠 OS sandbox 與 Claude permission（見檔頭定位）。`codex-exec` 派工同樣要憑證（只有唯讀的 codex-consult/check 與 super-mode 開關無條件放行）。收尾動作（commit/push/merge/publish/deploy）放行後憑證**降為只剩 3 分鐘**（同一條指令內 commit+push 不受影響），逼下一個里程碑重新諮詢。scratchpad 與 `~/.claude`（安全關鍵檔除外）寫入豁免。**被擋時照 hook 的拒絕訊息做**——它會給出當下該跑的指令。（2026-09-23 事實訂正：原寫照拒絕訊息做即可，未提諮詢也可能被擋；引號內的特殊字元也可能擋住諮詢本身，路徑例外見 `references/orchestration.md` §3.5「豁免」。）完整攔截面枚舉、豁免細則與 pathless 取捨見 `references/orchestration.md` §3.5。
 - **非超級模式的日常討論**：走全域常駐規則（`~/.claude/CLAUDE.md`「Codex 討論夥伴」）——決策型輸出交付前先用 `codex-consult.ps1 -Dir <repo> -NoCredential -PromptFile <brief>` 與 Codex 討論（`-NoCredential`：不 mint 憑證，日常討論不會替並行的超級模式 session 解鎖動作）。超級模式啟用時以本節節奏優先、照常 mint 憑證，勿雙重諮詢。
 
 ## 4. 里程碑回寫 md
