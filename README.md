@@ -4,21 +4,21 @@
 
 一個 **Claude Code** skill：讓 Claude 當**指揮（orchestrator）**、**OpenAI Codex CLI** 當**執行（worker）**，把繁重的實作工作外包給 Codex（藉此節省 Claude Code 用量），而 Claude 專注在規劃、審查、並以 spec 當作合約。
 
-一個 `PreToolUse` 的 **consult-gate** hook 負責推動這套紀律：超級模式啟用期間，會改變狀態的工具呼叫（寫檔、shell、MCP 寫入、外發型內建工具）在**沒有** 20 分鐘內、由「先跑一次唯讀 Codex 諮詢」換來的「第二意見」憑證時會被攔下，要求先諮詢。**攔截面以 `settings.json` 的 PreToolUse matcher 為界**——沒列到的內建工具（例如跨 session 外發的 `SendMessage`，目前未納管；舊例 `TaskCreate` 自 Claude Code 2.1.268 起在新模型已不提供）與已放行程序「內部」衍生的動作根本不會進 hook，**攔不到不等於規則允許**。
+一個 `PreToolUse` 的 **consult-gate** hook 負責推動這套紀律：超級模式啟用期間，會改變狀態的工具呼叫（寫檔、shell、MCP 寫入、外發型內建工具）在**沒有** 20 分鐘內、由「先跑一次設定 `--sandbox read-only` 的 Codex 諮詢」換來的「第二意見」憑證時會被攔下，要求先諮詢。**攔截面以 `settings.json` 的 PreToolUse matcher 為界**——沒列到的內建工具（例如跨 session 外發的 `SendMessage`，目前未納管；舊例 `TaskCreate` 自 Claude Code 2.1.268 起在新模型已不提供）與已放行程序「內部」衍生的動作根本不會進 hook，**攔不到不等於規則允許**。
 
 > ⚠️ **定位與界線（請先讀）：這道 gate 是「諮詢紀律提醒」，不是安全邊界。**
 > 它的用途是讓一個**合作的** Claude 在動手前先諮詢、避免不小心跳過流程——**不是**用來圍堵一個蓄意繞過、或被 prompt-injection 挾持的 agent。具體來說，它：
 > - **設計上 fail-open**：沒有旗標、或 hook 出任何錯／輸入異常時一律放行；
 > - **可被 agent 自己關掉**：`super-mode off` 就在放行白名單內、會刪掉旗標與憑證（這是設計，gate 的 deny 訊息本身就這樣教）；
 > - **不攔子程序副作用**：測試 runner（`npm test`／`pytest`）、以及某些 shell／MCP 寫法本來就會通過（一個惡意 repo 的測試腳本能以你的權限任意執行）。
-> - **consult 的「唯讀」只是 sandbox 設定，不是完整隔離**（2026-09-14 驗收，[`docs/ACCEPTANCE-capability-boundary-2026-09-14.md`](docs/ACCEPTANCE-capability-boundary-2026-09-14.md)）：`codex-consult` 用 `--sandbox read-only` 設定，但同一次執行仍觀察到帳號已連結的 connector MCP（Gmail／Google Drive／Calendar／Notion 等）被註冊、工具目錄含寫入操作，且 `approval_policy=never`。認證、敏感資料讀取、外部寫入及其核准行為**尚未驗證**，所以**不保證** consult 整體唯讀或只存取你給的證據——敏感資料照隱私條款先去識別化。
+> - **consult 的「唯讀」只是 sandbox 設定，不是完整隔離**（2026-09-14 驗收，[`docs/ACCEPTANCE-capability-boundary-2026-09-14.md`](docs/ACCEPTANCE-capability-boundary-2026-09-14.md)）：`codex-consult` 的 `--sandbox read-only` 只約束受沙箱保護的指令。使用者 execpolicy `.rules` 裡命中 `decision="allow"` 的指令會在沙箱外執行（2026-09-23 macOS live 已確認；見 backlog [`EXECPOLICY-ALLOW-INHERIT`](docs/backlog.md#EXECPOLICY-ALLOW-INHERIT)）；即使沒有這類 allow，也不能推論 MCP／apps／hooks 的外部副作用受到同樣限制。9/14 同一次執行仍觀察到帳號已連結的 connector MCP（Gmail／Google Drive／Calendar／Notion 等）被註冊、工具目錄含寫入操作，且 `approval_policy=never`。這些 connector 的認證、敏感資料讀取、外部寫入及其核准行為**尚未驗證**，所以**不保證** consult 整體唯讀或只存取你給的證據——敏感資料照隱私條款先去識別化。
 >
 > 真正的隔離必須來自 **OS 層 sandbox（WSL2／container／受限帳號）＋ Claude Code 自己的 permission 系統**——**這個 repo 不會幫你架這層**。請把它當「省下漏掉諮詢的失誤」的紀律工具，不要把它當防線。若你要在**不可信的 repo** 或**多人環境**下用，先自行架好 OS 層隔離與嚴格 permission。
 
 這個 repo 實際提供**兩個並列能力**，別把第二個誤當第一個的附屬功能：
 
 1. **超級模式（開關，per-task）**：`super-mode on/off` — spec-first、Codex 當 worker 寫程式、consult-gate 強制紀律。適合大型實作。
-2. **Codex 討論夥伴（常駐規則，非開關）**：把 `CLAUDE-global-rule.md` append 到 `~/.claude/CLAUDE.md` 後常駐生效 — Claude 交付決策型輸出（方案選項、建議、規劃、結論）前，先跑唯讀 `codex-consult`（`-NoCredential`/`-n`）向 Codex 要反方意見再裁決。**不需要開超級模式**；腳本住在超級模式的 `scripts/` 底下純屬共用實作。
+2. **Codex 討論夥伴（常駐規則，非開關）**：把 `CLAUDE-global-rule.md` append 到 `~/.claude/CLAUDE.md` 後常駐生效 — Claude 交付決策型輸出（方案選項、建議、規劃、結論）前，先跑設定 `--sandbox read-only` 的 `codex-consult`（`-NoCredential`/`-n`）向 Codex 要反方意見再裁決。**不需要開超級模式**；腳本住在超級模式的 `scripts/` 底下純屬共用實作。
 
 ---
 
@@ -123,7 +123,7 @@
 
 > ⚠️ 最常見的錯用：**別為了省額度去開 UltraCode** — 那正好相反，UltraCode 是加花 Claude 的。省額度永遠靠超級模式的 Codex offload。（疊用時的分工鐵則見上一節：子代理絕不可自己呼叫 Codex。）
 
-> ℹ️ **補充：「Codex 討論夥伴」不在上表的取捨裡。** 若已啟用該全域規則（見安裝節最後一步），Claude 交付決策型輸出（方案選項、建議、規劃、結論）前，會自動先跑**唯讀**的 `codex-consult`（`-NoCredential`/`-n`，不解鎖任何寫入）向 Codex 要反方意見再裁決——**想要「Codex 第二意見」不必為此開超級模式**；需要多代理深挖時才是 UltraCode 的用途。它與上面兩個旋鈕獨立疊加，唯一交互：超級模式啟用時讓位給其 SKILL.md §3.5 的里程碑節奏，不雙重諮詢。
+> ℹ️ **補充：「Codex 討論夥伴」不在上表的取捨裡。** 若已啟用該全域規則（見安裝節最後一步），Claude 交付決策型輸出（方案選項、建議、規劃、結論）前，會自動先跑設定 `--sandbox read-only` 的 `codex-consult`（`-NoCredential`/`-n`，不鑄造 gate 憑證；不保證 consult 無副作用）向 Codex 要反方意見再裁決——**想要「Codex 第二意見」不必為此開超級模式**；需要多代理深挖時才是 UltraCode 的用途。它與上面兩個旋鈕獨立疊加，唯一交互：超級模式啟用時讓位給其 SKILL.md §3.5 的里程碑節奏，不雙重諮詢。
 
 ---
 
@@ -184,7 +184,7 @@ linux/                           # bash 版（GNU userland；每次 push 由 ubu
 4. **派工** — 寫一份自足的任務簡報，在背景跑 `codex-exec.sh -q`；由 Codex 寫程式。
 5. **審查** — Claude 審 `_last.txt` + `git diff`；不合格就退回重派。
 6. **里程碑回寫** — 勾掉 spec md 的項目，然後 commit（commit 會把憑證降到剩 3 分鐘，逼下一個里程碑重新諮詢）。
-7. **關閉** — `super-mode.sh off`（清掉旗標 + 憑證，並**名義上**清除超過 14 天的頂層 log 檔——⚠️ 這個清理只在 `off` 路徑觸發，日常「討論夥伴」諮詢從不觸發，所以 `~/.claude/super-mode-logs/` 實際會一直累積；見 [`docs/backlog.md`](docs/backlog.md)「逐字稿清理」列）。hook 也會自癒：超過 8 小時的旗標會被視為殘留並自動移除。
+7. **關閉** — `super-mode.sh off`（清掉旗標 + 憑證；POSIX（macOS／Linux）會遞迴刪除 `super-mode-logs/` 底下所有超過 14 天的檔案、不限檔名；Windows 只清頂層超過 14 天的檔案，同樣沒有檔名白名單。⚠️ **跑 off 前先保全要留的逐字稿／驗收證據**，見 [`OFF-CLEANUP-RECURSIVE`](docs/backlog.md#OFF-CLEANUP-RECURSIVE)。這個清理只在 `off` 路徑觸發，日常「討論夥伴」諮詢從不觸發，所以 `~/.claude/super-mode-logs/` 實際會一直累積；見 [`docs/backlog.md`](docs/backlog.md)「逐字稿清理」列）。hook 也會自癒：超過 8 小時的旗標會被視為殘留並自動移除。
 
 **設計上就是 fail-open：** 沒有旗標、或 hook 出任何錯 / 輸入異常時，gate 一律放行 — 一般（非超級模式）的 session 絕不會被卡住。
 

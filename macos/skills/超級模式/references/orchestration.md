@@ -7,9 +7,11 @@ SKILL.md 的 §2 / §3 / §3.5 / §5 的詳細範本與程序。用到才讀。
 > **hook／腳本的錯誤訊息 ＝ 復原指令**——撞到時才需要，且帶當下的實際工具名與路徑。
 > **本檔 ＝ 理由、完整攔截面、範本與範例**——需要時才載入。
 > 同一條資訊只住一層；要改就改它所屬那層，別在另一層補摘要。
-> **各平台的實作狀態（哪個平台已有哪個功能）一律以 README「功能差距」段為準**，不要在 SKILL 或本檔另記一份——那份必然先過時。
+> **各平台的實作狀態（哪個平台已有哪個功能）一律以 [README「功能差距」](https://github.com/rockon8765/Codex-for-CC/blob/main/README.md#功能差距各平台實作狀態) 段為準**，不要在 SKILL 或本檔另記一份——那份必然先過時。
 
 ## §2 AGENTS.md 生成（共用規範層 → Codex）
+
+> **2026-09-23 事實註記**：Claude Code 2.1.277（2026-09-18）起，在支援 AGENTS.md 載入的 session 中，若工作目錄及其上層都沒有 `CLAUDE.md`／`.claude/CLAUDE.md`／`CLAUDE.local.md`，預設會在 session 開始載入每一層的 `AGENTS.md`（也含 `.claude/AGENTS.md`）作為專案指示；使用者層的 `~/.claude/CLAUDE.md` 不算這項檢查。因此在符合此條件的 repo 生成 AGENTS.md，worker 的「不得做架構決策」等限制也會被 Claude orchestrator 自己讀到；workspace-write worker 也能改寫這個檔。這是指示載入方向改變的影響，尚未 live 重現；見[官方文件](https://code.claude.com/docs/en/memory#agents-md)與 backlog [`CC-AGENTS-MD`](https://github.com/rockon8765/Codex-for-CC/blob/main/docs/backlog.md#CC-AGENTS-MD)。
 
 第一次要派 Codex 時，從共用規範層**單向生成** repo 根目錄的 `AGENTS.md`（不要雙向手抄，必 drift）。只放精選共用規範，不是整包 skill。
 **若 repo 已有 AGENTS.md**：不要整檔覆蓋 — 只維護 `<!-- SUPER-MODE:START -->` … `<!-- SUPER-MODE:END -->` 標記區塊，其餘內容原封不動。範本：
@@ -73,7 +75,7 @@ SKILL.md 的 §2 / §3 / §3.5 / §5 的詳細範本與程序。用到才讀。
 3. **別用「想仔細一點／think harder」代替更好的合約**——要提品質先收緊 AC 與驗證規則，不是加 reasoning。
 4. **有 placeholder ≠ 任務明確**——`<要做什麼>` 填成「處理一下 X」照樣是 vague task。
 
-> **出處與改寫**（2026-08-28，[`docs/plugin-reeval-2026-08.md`](../../../../docs/plugin-reeval-2026-08.md) A4）：決策邊界／授權內裁量／動作安全／工具持續性／完成判準，選擇性移植自官方 plugin 的 `gpt-5-4-prompting` skill（v1.0.6）。最重要的改寫是官方的 `default_follow_through_policy`——原文授權 worker 在「低風險歧義」時自行續行，照搬等於授權它**解讀規格契約**，故收緊成「只有 AC 可觀察結果等價才可裁量」。另外 `codex exec` 是**單輪背景任務**，沒有「停下來問 Claude」這回事，所以缺脈絡的正確語義是回 `BLOCKED` 而非提問。**未移植**：`progress_updates`（背景執行＋逐字稿落地已覆蓋）、5 份 recipe 全文（其檔頭「診斷／修復類預設 write mode」與 SKILL §1 spec-first 相衝）；`research_mode`／`citation_rules` 降為上表選配。**全面 XML 化亦未採用**——`codex-exec` 走 stdin 純文字、路徑上沒有 XML parser，官方 prompt 指南本身也主張 Markdown 表階層、XML 只圈大段附件。
+> **出處與改寫**（2026-08-28，[`docs/plugin-reeval-2026-08.md`](https://github.com/rockon8765/Codex-for-CC/blob/main/docs/plugin-reeval-2026-08.md) A4）：決策邊界／授權內裁量／動作安全／工具持續性／完成判準，選擇性移植自官方 plugin 的 `gpt-5-4-prompting` skill（v1.0.6）。最重要的改寫是官方的 `default_follow_through_policy`——原文授權 worker 在「低風險歧義」時自行續行，照搬等於授權它**解讀規格契約**，故收緊成「只有 AC 可觀察結果等價才可裁量」。另外 `codex exec` 是**單輪背景任務**，沒有「停下來問 Claude」這回事，所以缺脈絡的正確語義是回 `BLOCKED` 而非提問。**未移植**：`progress_updates`（背景執行＋逐字稿落地已覆蓋）、5 份 recipe 全文（其檔頭「診斷／修復類預設 write mode」與 SKILL §1 spec-first 相衝）；`research_mode`／`citation_rules` 降為上表選配。**全面 XML 化亦未採用**——`codex-exec` 走 stdin 純文字、路徑上沒有 XML parser，官方 prompt 指南本身也主張 Markdown 表階層、XML 只圈大段附件。
 
 派工方式（擇一）：
 1. **Codex CLI 可用** → 先確認有 20 分鐘內諮詢憑證（exec 受 gate 攔，沒憑證會被擋）。用 Write 工具把簡報寫進 scratchpad（gate 豁免路徑），用 Bash 工具跑 `scripts/codex-exec.sh -d <repo> -f <brief> -q`，**一律 `run_in_background: true`**（重任務常超過前景時限）。逐字稿存 `~/.claude/super-mode-logs/codex_exec_<ts>.txt`，最終回覆落地 `codex_exec_<ts>_last.txt`（`--output-last-message`，`-o` 可改位置；`-s <schema.json>` 可讓最終回覆符合固定 JSON schema、好機器驗收）。**收工後 Claude 只讀 `_last.txt` + `git diff` 審查**；逐字稿只在退回重做 / 除錯時抽段讀。
@@ -102,14 +104,16 @@ SKILL.md 的 §2 / §3 / §3.5 / §5 的詳細範本與程序。用到才讀。
 1. **為什麼是 scratchpad**：它在 gate 豁免路徑內；shell 寫檔**不在**豁免內，用 shell 產簡報會被擋成繞圈。
 2. **為什麼不用 inline `-p`**：簡報含 `;` `|` `&` 等標點時，會被 gate 的指令解析誤判成串接指令。`-p` 已 deprecated（stage 1：仍可跑但出警告；同時給 `-p` 與 `-f` 直接報錯），一律用 `-f`。
 
-用 Bash 工具跑 `scripts/codex-consult.sh -d <repo> -f <brief.txt>`（read-only + `--ephemeral`，timeout 360000ms）。Claude 統合後決定；逐字稿自動存 `~/.claude/super-mode-logs/codex_consult_<ts>.txt`。
+用 Bash 工具跑 `scripts/codex-consult.sh -d <repo> -f <brief.txt>`（設定 `--sandbox read-only --ephemeral`，timeout 360000ms）。Claude 統合後決定；逐字稿自動存 `~/.claude/super-mode-logs/codex_consult_<ts>.txt`。
+
+**諮詢權限界線（2026-09-23 訂正）**：`--sandbox read-only` 只約束受沙箱保護的指令；使用者 execpolicy `.rules` 裡命中 `decision="allow"` 的指令會在沙箱外執行（見 backlog [`EXECPOLICY-ALLOW-INHERIT`](https://github.com/rockon8765/Codex-for-CC/blob/main/docs/backlog.md#EXECPOLICY-ALLOW-INHERIT)）。即使沒有這類 allow，也不能推論 MCP／apps／hooks 的外部副作用受到同樣限制。
 
 **首行裁決是鑄證契約，不只是不可逆動作的變體**（2026-09-14 訂正 9/6 D1）：超級模式的每一次里程碑諮詢都會鑄造憑證，而鑄證判準（`lib/consult-answer.js`）強制回覆第一行是 `ALLOW:` 或 `BLOCK:`——沒有這行就 exit 43、不鑄證、整趟諮詢白跑（9/6 親踩一次）。所以上面的範本已固定含那一句；**討論模式（`-n`）與 `-s <schema>` 模式可省略**（前者只驗非空，後者只驗 strict JSON）。不可逆動作（commit/push/deploy/刪除）前的諮詢語義照舊：`BLOCK` 就不做並回報使用者。
 
 **硬性強制（consult-gate v2-mac）**：超級模式啟用時（`scripts/super-mode.sh on [--scope <專案根>]`），PreToolUse hook（`~/.claude/hooks/super-mode-consult-gate.js`）的規則：
 - **範圍**：帶 `--scope` 時，scope 外一般路徑的**檔案工具寫入**與 **cwd 在 scope 外的唯讀 shell** 可放行（檔案看 file_path、shell 看 cwd）；`~/.claude` 內與安全關鍵檔不因 scope 外而豁免，仍依下列豁免細則判定。scope 外**會改狀態的 shell／Monitor 仍要憑證**，其 repo 綁定須涵蓋該動作的 cwd，其他專案的憑證不通用；不帶則全域攔。**MCP 寫入類與外發內建工具不看 scope，一律受管**。旗標與憑證各為全機單一檔，同機其他 session 仍可能被擋。（2026-09-23 事實訂正：原寫只攔 scope 內檔案工具／shell；實作只對上述 scope 外動作放行，並非 session 隔離。）
 - **攔截面**：Edit / Write / MultiEdit / NotebookEdit；**Bash**（唯讀白名單自動放行：git status/log/diff（含 `-C`/`--no-pager`）、ls / cat / rg / grep / `sed -n`、npm test / pytest / cargo test 等；命令替換 `$(...)`/反引號、背景 `&`、寫檔重導向一律不算唯讀；**其餘 default-deny**。唯讀 runner（pytest/npm test/node…）若指向暫存或 `~/.claude` 路徑仍要憑證——堵「先寫 conftest.py 到豁免區再 pytest 它」的繞過）；MCP 工具（寫入 / 外發字樣 create/update/delete/submit/send/click/type/trigger… 攔；**未知工具也 default-deny**，只有明確唯讀字樣或 benign 白名單放行）；外發 / 排程 / worktree 內建工具 RemoteTrigger / PushNotification / CronCreate / CronDelete / Artifact / ScheduleWakeup / EnterWorktree / ExitWorktree；**Monitor**（有 `command` → 走上面同一套 Bash 唯讀分類器；沒有 `command`（純 WebSocket）→ 一律要憑證，因為 `isReadOnlyCommand("")` 會回 true，讓空字串走分類器等於 fail-open）。**這些工具名必須同時出現在 settings 的 PreToolUse matcher，否則 hook 根本不會被叫起** —— `tests/matcher-contract.test.js` 會把兩邊釘在一起。
-- **豁免**：scratchpad（`/private/tmp/claude-*` 與系統暫存，hook 已處理 `/tmp`↔`/private/tmp` 等價）與 `~/.claude` 底下的**檔案工具**寫入——但 `settings.json` / `settings.local.json` / `hooks/` / `.super-mode-*` 旗標憑證 / `.codex-check-last` / `.codex-check-baseline` 等安全關鍵檔**不豁免**（防自我提權），`conftest.py` / `pytest.ini` / `package.json` / `Makefile` / `*.sh` 等會被自動載入執行的檔名**也不豁免**；`codex-consult.sh` / `codex-check.sh` / `super-mode.sh` 腳本呼叫本身無條件放行（僅限錨定在指令開頭、後面沒串接 / 替換 / 破壞性字樣）。（2026-09-23 事實訂正：原只寫無串接／替換時放行，未說明判定不理會引號；參數（含 `-d` 路徑）裡的 `& ; | < >` 或反引號即使在引號內也算串接，諮詢本身因此可能在無憑證時被擋，照拒絕訊息再諮詢會繞圈。） 例如 `codex-consult.sh -d "/…/報價&風險" -f brief` 與 `cd "<該路徑>" && codex-consult.sh …` 都會被擋；`ls`／`cat`／`grep`／`git -C` 帶該絕對路徑也會被判為非唯讀。脫困時先確認 Bash 的 cwd 就是預定專案根，再用 `codex-consult.sh -d . -f <brief>`（其餘參數也須符合上述檢查）；腳本會對 `-d` 指定的目錄 `cd` 後取絕對路徑綁定憑證，唯讀查看改用相對路徑或 Read／Grep 工具。**注意：`codex-exec.sh`（workspace-write 執行者）不在無條件放行內，派工也要先有憑證。**
+- **豁免**：scratchpad（`/private/tmp/claude-*` 與系統暫存，hook 已處理 `/tmp`↔`/private/tmp` 等價）與 `~/.claude` 底下的**檔案工具**寫入——但 `settings.json` / `settings.local.json` / `hooks/` / `.super-mode-*` 旗標憑證 / `.codex-check-last` / `.codex-check-baseline` 等安全關鍵檔**不豁免**（防自我提權），`conftest.py` / `pytest.ini` / `package.json` / `Makefile` / `*.sh` 等會被自動載入執行的檔名**也不豁免**；`codex-consult.sh` / `codex-check.sh` / `super-mode.sh` 腳本呼叫本身無條件放行（僅限錨定在指令開頭、後面沒串接 / 替換 / 破壞性字樣）。（2026-09-23 事實訂正：原只寫無串接／替換時放行，未說明判定不理會引號；參數（含 `-d` 路徑）裡的 `& ; | < >` 或反引號即使在引號內也算串接，諮詢本身因此可能在無憑證時被擋，照拒絕訊息再諮詢會繞圈。） 例如 `codex-consult.sh -d "/path/to/proj&x" -f brief` 與 `cd "<該路徑>" && codex-consult.sh …` 都會被擋；`ls`／`cat`／`grep`／`git -C` 帶該絕對路徑也會被判為非唯讀。脫困時先確認 Bash 的 cwd 就是預定專案根，再用 `codex-consult.sh -d . -f <brief>`（其餘參數也須符合上述檢查）；腳本會對 `-d` 指定的目錄 `cd` 後取絕對路徑綁定憑證，唯讀查看改用相對路徑或 Read／Grep 工具。**注意：`codex-exec.sh`（workspace-write 執行者）不在無條件放行內，派工也要先有憑證。**
 - **憑證**：`codex-consult.sh` 成功寫 `~/.claude/.super-mode-consult-ok`（JSON 含 `repo`＝諮詢綁定的專案，hook 比對後續動作路徑要落在該 repo 下；舊格式純時間戳只驗時間），有效 20 分鐘。**收尾動作（git commit / push / merge / rebase、publish、deploy、terraform apply、gh pr create/merge）放行後憑證降為只剩 3 分鐘**——同一條指令內 `git commit ... && git push` 不受影響，但下一個里程碑必須重新諮詢。**內建工具中 `Artifact`（發佈）同樣消耗憑證**；`ScheduleWakeup`／`Enter·ExitWorktree` 不消耗（比照 Cron*／rm）。
 - **內建工具是 pathless（刻意）**：`Artifact` 的 `file_path` 常在 scratchpad、`ScheduleWakeup` 根本沒路徑 → 憑證對這些工具**只做時間綁定、不做 repo 綁定**（與 MCP 的 pathless-allow 同語義）。也就是說 repo A 的憑證會放行 repo B 的 Artifact —— 這是取捨不是漏洞，別誤讀成 repo-bound。
 - **防殘留**：旗標超過 8 小時視為上個 session 忘了關，hook 自動解除。**fail-open**：沒旗標或任何錯誤一律放行（一般模式不受影響）。退出時必跑 `super-mode.sh off`。
@@ -120,7 +124,7 @@ SKILL.md 的 §2 / §3 / §3.5 / §5 的詳細範本與程序。用到才讀。
 - **擋不到 Codex 子程序自己寫的檔**——`codex-exec.sh` 一放行，Codex CLI 之後的檔案改動不逐一經過 Claude Code hook。
 
 **註冊（部署）**：把下面合併進 `~/.claude/settings.json`（官方 settings 文件稱檔案變更會即時載入、每次變更觸發 `ConfigChange` hook；本 repo 未實測，仍以重跑 `matcher-contract --live` 為準——2026-09-14 訂正，原文寫「下個 session 才生效」）。
-⚠️ **合併的完整步驟照 Codex-for-CC checkout 裡的 `docs/AI-INSTALL.md` 步驟 2 做，這裡刻意不複述**
+⚠️ **合併的完整步驟照 Codex-for-CC checkout 裡的 [`docs/AI-INSTALL.md`](https://github.com/rockon8765/Codex-for-CC/blob/main/docs/AI-INSTALL.md) 步驟 2 做，這裡刻意不複述**
 （skill 裝到 `~/.claude/` 後不含 `docs/`，要回 checkout 看）。那一節有兩道 probe，動手前與合併後各一次；**兩者各自的理由寫在那一節，本檔刻意不複述**
 （先前這裡抄過一份，共用模組上線後就過時了——那正是不該複述的原因）。
 ⚠️ **不要放 `settings.local.json`**——2026-07-28 macOS 實測確認家目錄那份**不是** user scope，
@@ -130,7 +134,7 @@ ECC 蓋掉」，那個理由已被推翻：躲進不會被載入的檔案只是�
 `node ~/.claude/skills/超級模式/tests/matcher-contract.test.js --live`
 ——它現在找不到已註冊的 hook 會 FAIL。
 （舊版這裡寫相對路徑 `tests/…`，從一般專案目錄執行會直接 module-not-found，等於這條指引沒法照做。）
-詳見 `docs/verify-settings-scope.md`：
+詳見 [`docs/verify-settings-scope.md`](https://github.com/rockon8765/Codex-for-CC/blob/main/docs/verify-settings-scope.md)：
 ```json
 {
   "hooks": {
@@ -154,10 +158,10 @@ ECC 蓋掉」，那個理由已被推翻：躲進不會被載入的檔案只是�
 | 里程碑回寫 | ❌ | 單線做即可 |
 
 **兩條鐵則（條文在 SKILL §5，此處只講理由與做法）：**
-- **單一 writer pool**：要平行跑多個 `codex exec`，須各自 `isolation: 'worktree'` 隔離，否則在同一 working tree 互相覆蓋。
+- **單一 writer pool**：`isolation: 'worktree'` 是 Claude 子代理的參數；本流程禁止子代理派工，因此不適用於這裡的 Codex 派工。平行的 `codex exec` 必須各自在獨立的 git worktree 執行，由 orchestrator 以 `git worktree add` 建立，再用腳本的 `-d <worktree>` 指向它，避免共用 working tree 互相覆蓋。Codex 0.156 有原生 `--worktree`（experimental），本 skill 的腳本尚未接入。
 - **子代理不得自行諮詢／派工**：代價有三層——N 個平行子代理各自諮詢會燒 Codex 額度；任一子代理的諮詢會 mint **全機**憑證（憑證不分代理）；其中任一次 commit 會把**全體**憑證降到 3 分鐘。所以由主線統一諮詢與派工，審查子代理要跑的 build / verify（如 `npm run build`、`go build`）也交主線在有憑證時跑。consult-gate 在子代理內同樣會觸發，且它的拒絕訊息已含「子代理請回報 orchestrator 後停手」的分支。
 **審查產出 findings 後先呈報使用者選擇要修哪些，勿自動批次修。**
-審查型派工帶 `-s references/review-output.schema.json`（路徑相對 skill 根目錄，跨目錄派工改傳絕對路徑），收工用 JSON 解析驗收 findings；驗證失敗 fallback 讀全文。
+審查型派工帶 `-s "$HOME/.claude/skills/超級模式/references/review-output.schema.json"`（相對 schema 路徑是依**呼叫端 cwd** 解析，不是 skill 根目錄，也不是 `-d` 指定的 worker 目錄；因此範例使用已安裝位置的絕對路徑），收工用 JSON 解析驗收 findings；驗證失敗 fallback 讀全文。
 
 **模型與 effort — 為什麼是「靜默繼承」**（規則在 SKILL §5，此處只講理由）：session 的模型與 effort 是**使用者依任務自己調的旋鈕**，skill 在派工時自行分層，等於覆蓋掉使用者當下的判斷。而「唯讀階段就降一階省額度」是錯的直覺——**唯讀 ≠ 低風險**：安全與架構審查一旦降階，漏判率就上升，省下的額度遠不夠賠。所以預設一律繼承，降階要有具體理由。
 
@@ -183,7 +187,7 @@ ECC 蓋掉」，那個理由已被推翻：躲進不會被載入的檔案只是�
 3. **spec／AC 驗收不外包。** diff reviewer 判不出「整項 AC 完全漏做」——沒有 changed line 可指，schema 又強制 `file`／`line`，最可能的結果是**漏報後 approve**。AC → PASS／FAIL／UNVERIFIED 對照表由 Claude 維護，這格不給 Codex。
 4. **不要每個里程碑都 review。** consult＋exec＋review＝三次 Codex 呼叫／里程碑，會先燒爆 Codex 額度。觸發門檻沿用 §5 的升級清單：安全敏感（auth／支付／個資／secret／crypto）、刪除／migration／schema／public API、installer／hook／跨平台、測試跑不動或 flaky、diff 跨 ≥3 個 production 檔。低風險里程碑聚合 2–3 個一次審，並擺在 merge／push／deploy 前，而非每個本機 commit 前。
 
-**原生替代路徑（2026-09-14 補記，未驗收）**：Codex CLI 0.154.0 的 `codex exec review`（`--uncommitted`／`--base <branch>`／`--commit <sha>`、`--ephemeral`、`--output-schema <file>`、`-o <file>`，自訂指示走 stdin `-`）不經 plugin 的 app-server broker 就能拿結構化審查；頂層 `codex review` **沒有** `--output-schema`／`-o`。限制：官方 code-review 頁未定義 JSON 格式；它是否強制 read-only、父命令的 `--sandbox` 是否套用、遠端工具權限如何，皆**未驗**——在 [`docs/AUDIT-upstream-drift-2026-09-14.md`](../../../../docs/AUDIT-upstream-drift-2026-09-14.md) E14 驗過之前，不要當成已驗證的唯讀替代品。plugin 本身自 2026-07-08 起零更新。
+**原生替代路徑（2026-09-14 補記，未驗收）**：Codex CLI 0.154.0 的 `codex exec review`（`--uncommitted`／`--base <branch>`／`--commit <sha>`、`--ephemeral`、`--output-schema <file>`、`-o <file>`，自訂指示走 stdin `-`）不經 plugin 的 app-server broker 就能拿結構化審查；頂層 `codex review` **沒有** `--output-schema`／`-o`。限制：官方 code-review 頁未定義 JSON 格式；它是否強制 read-only、父命令的 `--sandbox` 是否套用、遠端工具權限如何，皆**未驗**——在 [`docs/AUDIT-upstream-drift-2026-09-14.md`](https://github.com/rockon8765/Codex-for-CC/blob/main/docs/AUDIT-upstream-drift-2026-09-14.md) E14 驗過之前，不要當成已驗證的唯讀替代品。plugin 本身自 2026-07-08 起零更新。
 
 **背景 job 不跨 session**：SessionEnd 會關 broker 並清掉該 session 的 plugin job（`session-lifecycle-hook.mjs:104`），結果要在同一 session 內收。plugin 的 state 落在 `%TEMP%/codex-companion/` 或 `$CLAUDE_PLUGIN_DATA`，不污染 repo、與 `~/.claude/super-mode-logs/` 無衝突。
 
