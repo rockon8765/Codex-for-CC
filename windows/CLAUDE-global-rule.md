@@ -5,7 +5,7 @@
 
 - **可跳過**：純事實問答（查檔、查狀態、一句話能答）、純執行進度回報、翻譯/改寫、機械性小修。拿不準算不算決策型 → 問。
 - **做法**：簡報用 Write 工具寫進 scratchpad → 用 PowerShell 工具跑
-  `~/.claude/skills/超級模式/scripts/codex-consult.ps1 -Dir <相關 repo；無 repo 用目前工作目錄> -NoCredential -PromptFile <brief>`（工具 timeout 360000ms；`-NoCredential` = 討論模式，不 mint 超級模式憑證）。
+  `~/.claude/skills/超級模式/scripts/codex-consult.ps1 -Dir <相關 repo；無 repo 用目前工作目錄> -NoCredential -PromptFile <brief>`（工具 timeout 360000ms；`-NoCredential` = 討論模式，不 mint 超級模式憑證）。長諮詢常超過 6 分鐘（2026-09-24 事實訂正：本機稽核觀察過 8–30 分鐘；超時時 Claude Code 工具曾自動轉背景、完成後通知；進行中的逐字稿**可能**是 0 bytes，不能單憑空檔判失敗或判健康，細節見 skill 的 SKILL.md §3「逾時與長跑」）。
 - **簡報必須逼 Codex 當反方**：附上 Claude 初判，明文要求它：反對初判、給失敗情境、給替代排序、標注信心。不准寫成引導它附和的簡報。每個反對點答四問（什麼會壞／為何脆弱／影響／怎麼改）；安全就直說不灌水；推論須標注。
 - **單輪為預設**（Claude 初判 → Codex 挑戰 → Claude 裁決）；只有 Codex 指出致命風險、雙方結論相反、或決策不可逆/高成本時才加問第二輪，**上限 2 輪**。
 - **回覆使用者時標注 Codex 立場**（同意/反對/補充了什麼）與最終裁決理由；有分歧要明說，不可默默採納或默默忽略。
