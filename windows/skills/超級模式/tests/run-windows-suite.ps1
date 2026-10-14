@@ -11,9 +11,18 @@
 #
 # ⚠️ 涵蓋範圍：只跑 windows/ 底下的測試。POSIX 側有各自的入口
 #    （tests/run-gate-tests.js、tests/exit-code-contract.smoke.sh）。
-# ⚠️ codex-check.tests.ps1 內部把 SUT 的 host 寫死成 powershell.exe，
-#    所以本聚合器對它的 -Shell 標示只反映 runner，不代表 SUT。見 docs/backlog.md
-#    的 CODEX-CHECK-WARNING。
+# ⚠️ host 覆蓋（2026-10-14 LTS C3 起）：codex-check 與 consult-schema 也各有 pwsh／5.1 兩條腿。
+#    - codex-check.tests.ps1 原本把 SUT host 寫死成 powershell.exe（docs/backlog.md 的
+#      CODEX-CHECK-WARNING），外層換成 pwsh 也改變不了；現在由它自己的 -Shell 決定，
+#      並由 child 自報 `CODEX-CHECK-SUT-HOST=…`。
+#    - consult-schema.tests.ps1 的 T 案同行程執行 ⇒ 受測 host ＝ 下表的 Exe；
+#      它自報 `CONSULT-SCHEMA-HOST=…`。
+#    這兩支的 marker 都**同時**要求「host 自報行」與「成功摘要行」：Exe／-Shell 只是標籤，
+#    child 自報的 PSEdition／PSVersion 才是證據（與下方 SUT root 驗證同一個原則）。
+#    自報要算證據，前提是**自檢與案例共用同一個啟動點**：兩支各自只留一個 SUT／child 啟動點
+#    （Invoke-SutProcess、Get-ChildInv），並有 AST 守衛擋「把既有啟動點換成寫死 host」（另外新增的
+#    啟動路徑擋不住，見兩支測試的檔頭），守衛結果計入各自的 TOTAL／n/n。
+#    consult-credential／exit-code-contract／off-cleanup 的 host 則由它們各自的 -Shell 決定（runner 固定 pwsh）。
 
 param(
   # repo = 驗 repo 樹（AI-INSTALL 步驟 1a）；live = 驗已安裝的副本（步驟 3）。
@@ -54,12 +63,21 @@ $MANIFEST = @(
   @{ Name = 'gate-cases';            Exe = 'node';        Args = @('run-gate-tests.js');                       Marker = '(?m)^PASS ([1-9]\d*)/\1\r?$';                      TimeoutMs = 120000 }
   @{ Name = 'matcher-contract';      Exe = 'node';        Args = @('matcher-contract.test.js', "--$Mode");     Marker = '(?m)^RESULT_CODE=OK\r?$';                    TimeoutMs = 120000 }
   @{ Name = 'class-b-8dot3';         Exe = 'node';        Args = @('class-b-8dot3.test.js');                   Marker = '(?m)^PASS\r?$';                              TimeoutMs = 120000 }
-  @{ Name = 'consult-schema';        Exe = 'pwsh';        Args = @('consult-schema.tests.ps1');                Marker = '(?m)^CONSULT-SCHEMA ([1-9]\d*)/\1\r?$';           TimeoutMs = 300000 }
+  # consult-schema：同行程呼叫 SUT ⇒ Exe 就是受測 host。marker 用 (?ms)：先要 host 自報行、再要摘要行。
+  @{ Name = 'consult-schema-7';      Exe = 'pwsh';        Args = @('consult-schema.tests.ps1');                Marker = '(?ms)^CONSULT-SCHEMA-HOST=Core (?:[7-9]|[1-9]\d+)\.\S+ child=Core (?:[7-9]|[1-9]\d+)\.\S+\r?$.*^CONSULT-SCHEMA ([1-9]\d*)/\1\r?$'; TimeoutMs = 300000 }
+  @{ Name = 'consult-schema-51';     Exe = 'powershell';  Args = @('consult-schema.tests.ps1');                Marker = '(?ms)^CONSULT-SCHEMA-HOST=Desktop 5\.\S+ child=Desktop 5\.\S+\r?$.*^CONSULT-SCHEMA ([1-9]\d*)/\1\r?$'; TimeoutMs = 300000 }
   @{ Name = 'consult-credential-7';  Exe = 'pwsh';        Args = @('consult-credential.tests.ps1', '-Shell', 'pwsh');       Marker = '(?m)^CONSULT-CREDENTIAL ([1-9]\d*)/\1\r?$'; TimeoutMs = 600000 }
   @{ Name = 'consult-credential-51'; Exe = 'pwsh';        Args = @('consult-credential.tests.ps1', '-Shell', 'powershell');  Marker = '(?m)^CONSULT-CREDENTIAL ([1-9]\d*)/\1\r?$'; TimeoutMs = 900000 }
   @{ Name = 'exit-contract-7';       Exe = 'pwsh';        Args = @('exit-code-contract.tests.ps1', '-Shell', 'pwsh');       Marker = '(?m)^exit-code-contract \[pwsh\]: pass=[1-9]\d* fail=0 '; TimeoutMs = 900000 }
   @{ Name = 'exit-contract-51';      Exe = 'pwsh';        Args = @('exit-code-contract.tests.ps1', '-Shell', 'powershell'); Marker = '(?m)^exit-code-contract \[powershell\]: pass=[1-9]\d* fail=0 '; TimeoutMs = 900000 }
-  @{ Name = 'codex-check';           Exe = 'powershell';  Args = @('codex-check.tests.ps1');                   Marker = '(?m)^TOTAL [1-9]\d* FAIL 0\r?$';                  TimeoutMs = 900000 }
+  # codex-check：SUT host 由 -Shell 決定；runner host 也配成同一個（pwsh 腿＝純 7、51 腿＝純 5.1，
+  # 51 腿與 2026-10-14 之前的唯一一條腿完全相同）。marker 要求 child 自報的 host 行 ＋ TOTAL 行。
+  @{ Name = 'codex-check-7';         Exe = 'pwsh';        Args = @('codex-check.tests.ps1', '-Shell', 'pwsh');        Marker = '(?ms)^CODEX-CHECK-SUT-HOST=pwsh Core (?:[7-9]|[1-9]\d+)\.\S+ path=.*^TOTAL [1-9]\d* FAIL 0\r?$'; TimeoutMs = 900000 }
+  @{ Name = 'codex-check-51';        Exe = 'powershell';  Args = @('codex-check.tests.ps1', '-Shell', 'powershell');  Marker = '(?ms)^CODEX-CHECK-SUT-HOST=powershell Desktop 5\.\S+ path=.*^TOTAL [1-9]\d* FAIL 0\r?$'; TimeoutMs = 900000 }
+  # off-cleanup（F2／OFF-CLEANUP-RECURSIVE，2026-10-14）：受測 child 的 host 由 -Shell 決定，runner 固定 pwsh。
+  # 測試只用自建的暫存 USERPROFILE（§0 先驗 child 看到的家目錄，對不上就整支中止），repo／live 兩種 mode 都安全。
+  @{ Name = 'off-cleanup-7';         Exe = 'pwsh';        Args = @('off-cleanup.tests.ps1', '-Shell', 'pwsh');        Marker = '(?m)^off-cleanup \[pwsh\]: pass=[1-9]\d* fail=0\r?$'; TimeoutMs = 300000 }
+  @{ Name = 'off-cleanup-51';        Exe = 'pwsh';        Args = @('off-cleanup.tests.ps1', '-Shell', 'powershell');  Marker = '(?m)^off-cleanup \[powershell\]: pass=[1-9]\d* fail=0\r?$'; TimeoutMs = 300000 }
   # ⚠️ repo 層級的規則：這支測試**不在 skill payload 內**，live 安裝時根本不存在
   #    （從 ~/.claude/skills/超級模式/tests 往上四層是 %USERPROFILE%，不是 repo 根）。
   #    2026-08-19 我上一輪才修掉「matcher 寫死 --repo 導致 live 必敗」，
@@ -70,7 +88,10 @@ $MANIFEST = @(
 
 # 這個數字是**刻意寫死**的：manifest 被人不小心刪掉一列時要看得出來。
 # 改動 manifest 請一併改這裡（並在 commit 訊息說明改了什麼）。
-$EXPECTED_ENTRIES = 10
+# 2026-10-14：10 → 12（新增 consult-schema-51 與 codex-check-7 兩條 host 腿；原兩列改名加 -7／-51）；
+#             12 → 14（新增 off-cleanup-7／off-cleanup-51，F2 修正的回歸守衛）。
+# ⚠️ .github/workflows/windows.yml 也在 YAML 端釘死摘要行的 entries／ran／skipped，三處要一起改。
+$EXPECTED_ENTRIES = 14
 
 $results = @()
 $fail = 0
@@ -128,6 +149,11 @@ foreach ($m in $MANIFEST) {
   # 逐支開**新 process**：共用 session 會讓某一支改動的 preference／環境變數污染下一支。
   $pr = Start-Process -FilePath $m.Exe -ArgumentList $argString -NoNewWindow -PassThru `
     -RedirectStandardOutput $o -RedirectStandardError $e
+  # ⚠️ 必須在 child 結束前先讀一次 .Handle（2026-10-14 實測）：Windows PowerShell 5.1（.NET Framework）
+  #    的 Start-Process -PassThru 不會保留 process handle，child 一結束 $pr.ExitCode 就是 $null ——
+  #    以 5.1 當 runner host 時**每一列**都被判成「exit=」FAIL（marker 明明在），連未改動的 HEAD 也一樣；
+  #    pwsh 7 不受影響，所以先前的證據（全在 pwsh 下跑）從沒踩到。這裡只是快取 handle，不改任何判定。
+  $null = $pr.Handle
   $exited = $pr.WaitForExit($m.TimeoutMs)
   $sw.Stop()
   if (-not $exited) {
@@ -158,7 +184,10 @@ foreach ($m in $MANIFEST) {
   if (-not $ok) {
     $fail++
     $why = @()
-    if (-not $rcOk) { $why += ("exit=" + $pr.ExitCode) }
+    if (-not $rcOk) {
+      if ($null -eq $pr.ExitCode) { $why += "exit=<取不到退出碼：child 在 runner 讀到 process handle 前就結束（見上方 .Handle 註解）>" }
+      else { $why += ("exit=" + $pr.ExitCode) }
+    }
     if (-not $markOk) { $why += "缺少成功 marker" }
     Write-Output ("FAIL  " + $m.Name + " -- " + ($why -join '，'))
     $tail = (($out + "`n" + $err) -split "`r?`n" | Where-Object { $_ } | Select-Object -Last 6) -join "`n        "
@@ -214,7 +243,9 @@ if ($Filter) {
 }
 
 # 正式模式：釘死每個 mode 該跑幾支、該跳過幾支。零案一律視為失敗。
-$EXPECTED = @{ repo = @{ ran = 10; skipped = 0 }; live = @{ ran = 9; skipped = 1 } }
+# 2026-10-14：repo 10 → 12、live 9 → 11（兩條新腿兩種 mode 都跑；live 仍只跳過 no-multibyte-varref）；
+#             再加 off-cleanup 兩條腿：repo 12 → 14、live 11 → 13。
+$EXPECTED = @{ repo = @{ ran = 14; skipped = 0 }; live = @{ ran = 13; skipped = 1 } }
 $want = $EXPECTED[$Mode]
 if ($results.Count -eq 0) {
   Write-Output "FAIL  一支都沒跑到 —— 零案不算通過。"

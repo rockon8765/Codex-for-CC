@@ -6,15 +6,15 @@
 ## 0. 平台偵測
 
 - 你在 macOS（BSD userland）→ 用 [`macos/`](../macos/)（bash 腳本 `.sh`）。
-- 你在 Linux（GNU userland）→ 用 [`linux/`](../linux/)（bash 腳本 `.sh`）。⚠️ **不要把 `macos/` 當等價物**：除了 `stat -c` 與平台文案，`codex-check.sh` 的能力面盤點與 baseline diff 整層**尚未移植到 Linux**（macOS 549 行 vs Linux 123 行），hook 也有兩處刻意的大小寫語義差異。
 - 你在 Windows PowerShell 環境 → 用 [`windows/`](../windows/)（PowerShell 腳本 `.ps1`）。
+- ⛔ **你在 Linux（GNU userland，包括在 WSL2 的 Linux 環境裡執行）→ 停止，不要執行本文件的任何步驟。** Linux 版已於 2026-10-14 凍結：不修、不驗收、不提供支援。先把這件事告訴使用者。使用者仍堅持要裝時，唯一的做法是**另開一份 clone，或用 `git worktree add <dir> pre-lts`** 取得凍結快照 tag `pre-lts`（＝`80c60a8`；**tag 建立前請用 commit `80c60a8`**），照**該快照內**的 `docs/AI-INSTALL.md` 安裝——**不要在使用者現有的 clone 裡 checkout**（那會切換使用者的工作目錄、甚至打斷進行中的工作）；並明白告知：沒有支援、Linux 從未做過 live 驗收、`codex-check.sh` 的能力面盤點與 baseline diff 沒有移植到 Linux。⚠️ **不要拿 `macos/` 代替**：macOS 的 hook 會把路徑轉成小寫再比對（大小寫敏感的檔案系統會誤判範圍），腳本的 `stat` 也是 BSD 語法。
 
-以下每步先列 macOS 指令、再列 Windows 對應；**Linux 照 macOS 指令做，把路徑裡的 `macos/` 換成 `linux/` 即可**。
+> ℹ️ **LTS 建置中（2026-10-14 起）**：目前沒有任何經過准入的版本，見 [README](../README.md) 頂端說明與 [`LTS-ADMISSION-PLAN.md`](LTS-ADMISSION-PLAN.md)。
 
-> ℹ️ **Linux（2026-07-26 起）**：`linux/` 樹每次 push／PR 都會在 GitHub Actions 的 `ubuntu-latest` 上跑完整原生回歸
-> （[`.github/workflows/linux.yml`](../.github/workflows/linux.yml)）。安裝前想確認你要裝的 commit 是否綠燈，
-> 看該 workflow 的狀態即可。**但這不免除步驟 1a／步驟 3**——CI 驗的是 repo bytes，你要驗的是**你這台機器的安裝結果**
-> （node 位置、settings 合併、家目錄路徑），那是 CI 驗不到的部分。任何 FAIL：停止安裝／回滾並回報。
+以下每步先列 macOS 指令、再列 Windows 對應。（凍結前本段另有「Linux 照 macOS 指令做」的說明，已隨 Linux 凍結移除。）
+
+> ℹ️ **`linux.yml`（凍結快照 CI）**：GitHub Actions 的 `ubuntu-latest` 仍會跑凍結的 `linux/` 樹與頂層共用測試（`tests/*.test.js` 等），
+> 直到 LTS 凍結第二階段移除；它的綠燈不構成任何平台的支援宣稱，也不代表本文件適用於 Linux。
 
 ## 1. 安裝 skill 與 hook（先驗證 → 先備份 → 安裝，失敗可回滾）
 
@@ -22,12 +22,13 @@
 
 **1a. 先在 repo 版本上驗證（還沒碰 `~/.claude`）**
 
-macOS / Linux（Linux 把 `macos/` 換成 `linux/`）:
+macOS:
 ```bash
 node "macos/skills/超級模式/tests/run-gate-tests.js"               # 這裡就 FAIL → repo 版本本身有問題，別安裝，回報使用者
 node "macos/skills/超級模式/tests/matcher-contract.test.js" --repo # hook 的工具清單 vs settings matcher 是否一致
 bash "macos/skills/超級模式/tests/exit-code-contract.smoke.sh"     # consult 的退出碼契約(42/46/原樣傳回)與配額判準
 bash "macos/skills/超級模式/tests/fault-injection.smoke.sh"        # cat/rm/mktemp 故障注入 ＋ 三個 mutant（上一支沒刺激到的三條路）
+bash "macos/skills/超級模式/tests/off-cleanup.tests.sh"            # super-mode off 只清頂層白名單逐字稿；暫存 HOME，不碰真的 ~/.claude
 node "tests/no-multibyte-varref.test.js"                           # 禁止 `$var` 緊接多位元組字元（部分 locale 下 bash 會併進變數名）
 ```
 Windows:
@@ -38,7 +39,8 @@ node ".\windows\skills\超級模式\tests\matcher-contract.test.js" --repo # hoo
 #   （已含 tests\no-multibyte-varref.test.js：禁止 $var 緊接多位元組字元）
 ```
 
-> ℹ️ **`run-windows-suite.ps1` 約需 3 分鐘**（含 codex-check 的 ~2 分鐘）。它用**顯式 manifest**
+> ℹ️ **`run-windows-suite.ps1` 約需 6 分鐘**（含 codex-check 的 pwsh／5.1 兩條腿，各約 2 分鐘）。
+> **工具 timeout 請給 ≥ 600000ms，或改成背景執行**，否則會在跑完前被工具中斷（步驟 3 的 `-Mode live` 同樣適用）。它用**顯式 manifest**
 > 逐支開新 process，並檢查每支的**成功 marker**——只看 exit code 會被「空輸出但 exit 0」騙過。
 > 它同時涵蓋 pwsh 7 與 WinPS 5.1 兩個 host。
 
@@ -81,7 +83,7 @@ node ".\windows\skills\超級模式\tests\matcher-contract.test.js" --repo # hoo
 > 若你的 `~/.claude/skills/超級模式` 底下有任何掛載點，**先卸載或改用手動安裝**，不要跑本流程。
 > 記在 [`backlog.md`](backlog.md)。
 
-macOS / Linux（Windows 的 settings 檔名不同，見下一段）:
+macOS（Windows 的 settings 檔名不同，見下一段）:
 ```bash
 set -euo pipefail
 ts=$(date +%Y%m%d-%H%M%S)
@@ -233,7 +235,7 @@ else { New-Item -ItemType File -Path "$setbak.absent" | Out-Null }
 > 成功結束，而步驟 3 的測試載入的是**現有的 live hook**——舊版三件套彼此一致的話會全綠，
 > 於是「安裝成功」被回報出去，實際上什麼都沒換。所以複製完會**逐檔驗證 live 與來源一致**。
 
-macOS / Linux:
+macOS:
 ```bash
 set -euo pipefail
 src="macos/skills/超級模式"; hooksrc="macos/hooks/super-mode-consult-gate.js"
@@ -356,8 +358,8 @@ if (Test-Path -LiteralPath $stale) { throw "安裝驗證失敗：FIX-PLAN.md 未
 >
 > **後置條件**：`settings.json` 的 gate handler **恰 1 個**、`settings.local.json` **0 個**。
 
-- Linux 注意：若 `node` 不在系統 PATH——例如可攜式安裝在 `~/.local/node/bin`——
-  hook 指令開頭的 `node` 必須寫**絕對路徑**，否則 hook 會靜默不跑、gate 形同虛設。
+- 若 `node` 不在系統 PATH——例如可攜式安裝在 `~/.local/node/bin`——
+  hook 指令開頭的 `node` 必須寫**絕對路徑**，否則 hook 會靜默不跑、gate 形同虛設。（本條原寫給 Linux 的可攜式 node 安裝；Linux 已凍結，macOS 若同樣用可攜式 node 也適用，推論。）
 
 > ⚠️ **不要用 `~/.claude/settings.local.json`**（2026-07-27 以前本文件的 macOS／Linux 段是這樣寫的，**那是錯的**）。
 >
@@ -387,13 +389,14 @@ hook 在啟用前是 fail-open 且停用的——安裝它不影響一般 sessio
 
 ## 3. 驗證（跑 live；FAIL 就回滾到步驟 1b 的備份）
 
-**macOS / Linux**
+**macOS**
 ```bash
 node ~/.claude/skills/超級模式/tests/run-gate-tests.js               # 應全數 PASS
 node ~/.claude/skills/超級模式/tests/matcher-contract.test.js --live # ★ 必跑，見下方說明
 bash ~/.claude/skills/超級模式/tests/run-e2e.sh                      # 應全數 passed（會印 GATE_UNDER_TEST 供核對）
 bash ~/.claude/skills/超級模式/tests/exit-code-contract.smoke.sh     # 退出碼契約；驗的是**剛安裝的那份** consult
 bash ~/.claude/skills/超級模式/tests/fault-injection.smoke.sh        # 故障注入 ＋ mutant；同樣驗**剛安裝的那份**
+bash ~/.claude/skills/超級模式/tests/off-cleanup.tests.sh            # off 的逐字稿清理範圍；暫存 HOME，驗**剛安裝的那份** super-mode.sh
 ```
 
 **Windows**
@@ -438,7 +441,7 @@ node "$env:USERPROFILE\.claude\skills\超級模式\tests\matcher-contract.test.j
 > ⚠️ settings 是**整檔還原**成 1b 當時的內容。若你在 1b 之後對 settings 做過與本安裝無關的修改，
 > 那些修改會一併被還原掉——回滾請緊接在步驟 3 失敗後執行。
 
-macOS / Linux:
+macOS:
 ```bash
 set -euo pipefail
 ts='<貼上 1b 印出的值>'          # 例：20260727-154409
@@ -629,7 +632,7 @@ elseif (Get-Entry $setf) { Remove-Item -LiteralPath $setf -Force }
 跑已安裝的權威 smoke test（不要只跑 `codex --version`，登入狀態要靠真實呼叫驗證）：
 
 **macOS**：`bash ~/.claude/skills/超級模式/scripts/codex-check.sh`
-**Linux**：`bash ~/.claude/skills/超級模式/scripts/codex-check.sh`（同路徑；**注意 Linux 版目前只有 H1–H5 那層，沒有能力面盤點與 baseline diff**——輸出比 macOS／Windows 短是預期的，不是壞掉）
+**Linux**：🧊 已凍結，不適用本文件（見步驟 0）。凍結快照的 `codex-check.sh` 只有 H1–H5 那層，沒有能力面盤點與 baseline diff。
 **Windows**：`& "$env:USERPROFILE\.claude\skills\超級模式\scripts\codex-check.ps1"`
 
 - **通過** → 繼續步驟 5。
@@ -639,7 +642,7 @@ elseif (Get-Entry $setf) { Remove-Item -LiteralPath $setf -Force }
 
 這一步會讓使用者的 Claude 在**交付決策型輸出前，先向 Codex 諮詢反方意見**。它修改的是使用者的全域行為設定 `~/.claude/CLAUDE.md`，所以有硬性防護要求：
 
-1. **先徵得使用者同意**：展示將要寫入的 snippet 全文（對應平台：[`macos/CLAUDE-global-rule.md`](../macos/CLAUDE-global-rule.md)、[`linux/CLAUDE-global-rule.md`](../linux/CLAUDE-global-rule.md) 或 [`windows/CLAUDE-global-rule.md`](../windows/CLAUDE-global-rule.md)），並提醒：啟用後決策討論摘要會送到 Codex（OpenAI），逐字稿留在本機 `~/.claude/super-mode-logs/`。使用者不同意 → 跳過，安裝仍算完成。（之後隨時想啟用：重跑本步驟、或手動把對應平台 snippet **全文** append 到 `~/.claude/CLAUDE.md` 即可，下個新 session 生效。）
+1. **先徵得使用者同意**：展示將要寫入的 snippet 全文（對應平台：[`macos/CLAUDE-global-rule.md`](../macos/CLAUDE-global-rule.md) 或 [`windows/CLAUDE-global-rule.md`](../windows/CLAUDE-global-rule.md)；Linux 已凍結，不適用），並提醒：啟用後決策討論摘要會送到 Codex（OpenAI），逐字稿留在本機 `~/.claude/super-mode-logs/`。使用者不同意 → 跳過，安裝仍算完成。（之後隨時想啟用：重跑本步驟、或手動把對應平台 snippet **全文** append 到 `~/.claude/CLAUDE.md` 即可，下個新 session 生效。）
 2. **備份**：若 `~/.claude/CLAUDE.md` 已存在，先複製一份 `~/.claude/CLAUDE.md.bak-<日期>`。
 3. **冪等檢查**：若檔內已有 `CODEX-DISCUSSION-PARTNER` marker 或「Codex 討論夥伴」標題——**不要重複 append**；要更新就只替換 `BEGIN/END` marker 之間的區塊。
 4. **Append**：把對應平台 snippet 檔的**全文**（含 BEGIN/END marker 註解）附加到 `~/.claude/CLAUDE.md` 末尾（檔案不存在就建立）。

@@ -1,8 +1,8 @@
 # 9/30 決策備忘：永久封存，還是最低成本 LTS
 
-> 撰寫：2026-09-24；補記：2026-10-14｜狀態：**公開面裁決（封存 vs LTS）仍未記錄，待使用者明示裁決**（原定 2026-09-30 覆核）；本機自用 fork 已於 2026-10-14 選 1b（見 [§7](#7-2026-10-14-補記)）｜backlog ID：[`LTS-DECISION-MEMO`](backlog.md#LTS-DECISION-MEMO)
-> 依據：凍結規則見 [`AGENTS.md`](../AGENTS.md)「產品凍結中」段；凍結裁決見 [`plugin-reeval-2026-08.md`](plugin-reeval-2026-08.md)。
-> 本備忘只回答 AGENTS.md 指定的那一題，**不清 backlog、不授權任何實作**。
+> 撰寫：2026-09-24；補記：2026-10-14｜狀態：**2026-10-14 使用者已裁決公開 LTS**（Windows 先准入、macOS 隨後；Linux 凍結），見 [§8](#lts-decision-2026-10-14)；原寫「公開面裁決（封存 vs LTS）仍未記錄，待使用者明示裁決」（原定 2026-09-30 覆核），已由 §8 取代；本機自用 fork 已於 2026-10-14 選 1b（見 [§7](#7-2026-10-14-補記)）｜backlog ID：[`LTS-DECISION-MEMO`](backlog.md#LTS-DECISION-MEMO)
+> 依據：凍結規則見 [`AGENTS.md`](../AGENTS.md)「產品凍結中」段（10/14 補記：該段已改為「LTS 建置期」段，凍結期 2026-08-29 至 2026-10-14 的歷史註記留在該段）；凍結裁決見 [`plugin-reeval-2026-08.md`](plugin-reeval-2026-08.md)。
+> 本備忘只回答 AGENTS.md 指定的那一題，**不清 backlog、不授權任何實作**。（10/14 補記：§8 記錄的裁決所對應的建置授權寫在 AGENTS.md「LTS 建置期」段，不在本備忘。）
 
 ## 0. 要裁決的一題與建議
 
@@ -20,7 +20,7 @@
 | exec 使用量 | `codex-exec` 派工只有 4 次，全在 2026-08-30、同一個外部專案；9 月 0 次；超級模式開關目前未開 | 同上，歷史不完整；一個月沒用不證明永遠不需要。**10/14 補記**：使用者表示沒派工是因為忘了派工時機，「0 次」不再能當「沒有需求」的證據；另有其他承接途徑（覆蓋範圍未驗），見 §7 |
 | 凍結後投入 | 8/29 起 main 共 18 個 commit，全是文件：治理收尾、三輪上游漂移稽核（9/6、9/14、9/23）、事實訂正、backlog 登錄 | 只證明沒改產品碼，**不證明**維護成本低——稽核本身就是維護迴圈 |
 | repo 對外面 | 公開 repo，1 star、0 fork，GitHub 貢獻者只有維護者本人 | 看不到未 star 的安裝者 |
-| 已出貨 security | [`EXECPOLICY-ALLOW-INHERIT`](backlog.md#EXECPOLICY-ALLOW-INHERIT)：解凍資格成立（macOS live 證實），修法（`--ignore-rules`）**未驗證**；9/23 的 execpolicy 收窄是在 **macOS 配置**套用（[`LOCAL-EXECPOLICY-NARROW`](backlog.md#LOCAL-EXECPOLICY-NARROW)），**Windows 維護機未收窄**（10/14 訂正，見 §7） | 收窄是個人設定，不等於產品修好；且只涵蓋 macOS 那一份 rules 檔 |
+| 已出貨 security | [`EXECPOLICY-ALLOW-INHERIT`](backlog.md#EXECPOLICY-ALLOW-INHERIT)：解凍資格成立（macOS live 證實），修法（`--ignore-rules`）**未驗證**；9/23 的 execpolicy 收窄是在 **macOS 配置**套用（[`LOCAL-EXECPOLICY-NARROW`](backlog.md#LOCAL-EXECPOLICY-NARROW)），**Windows 維護機未收窄**（10/14 訂正，見 §7）。**10/14 補記（刪除後）**：同日依使用者明示請求，Windows 維護機刪除 29 條 allow，剩 11 條 cmdlet 開頭的讀取規則，見 [§7.1 刪除補記](#execpolicy-deletion-2026-10-14) | 收窄是個人設定，不等於產品修好；且只涵蓋 macOS 那一份 rules 檔（10/14 補記：Windows 那一份也只動使用者層這一個檔） |
 | 其他解凍候選 | [`OFF-CLEANUP-RECURSIVE`](backlog.md#OFF-CLEANUP-RECURSIVE)（資料遺失候選）、[`CC-AGENTS-MD`](backlog.md#CC-AGENTS-MD)（上游 breakage 候選）；[`CONNECTOR-EXPOSURE`](backlog.md#CONNECTOR-EXPOSURE) 已裁決不解凍 | — |
 | 平台 | Windows 是維護基準、**無 CI**；macOS 8/29 滿足 A8 門檻（四輪原生驗證）；Linux 只有 CI、無 live，已標 `UNSUPPORTED` | macOS 過去通過≠驗證者願意承接未來維護 |
 | 程式相依 | `-NoCredential` 討論路徑不鑄證、不直接呼叫 `codex-exec` 或 gate，可以拆開；但 snippet 要求超級模式啟用時改走鑄證流程、consult 錯誤訊息建議跑 `super-mode.ps1 -Off`、測試要求三平台 `consult-answer.js` 逐位元相同 | 能拆，但支援範圍要寫清楚 |
@@ -39,7 +39,7 @@
 
 1. **repo**：README 開頭加 archived 說明與封存 SHA；backlog 開放項一次性改成「隨封存關閉」並保留原文（不刪列）；最後在 GitHub 按 Archive（可再 unarchive）。
 2. **本機自用 fork**：記錄目前安裝副本的來源 SHA 與部署時間；只按實際故障修，不追三平台、不建 installer、不把上游新功能列成待辦、不再做全面漂移稽核。
-3. **權限風險照樣要管**：自用不等於安全。`EXECPOLICY-ALLOW-INHERIT` 的曝露在本機仍存在。⚠️ 10/14 訂正：本點原寫「靠已收窄的 execpolicy 規則控制」，但 9/23 的收窄只在 macOS 配置做過；Windows 維護機的 rules **未收窄**（40 條 allow、0 條 prompt；其中 10 條有寫入效果、26 條是 `-Command` 型（matcher 層實測容許附加參數）（兩類重疊 8 條），另有 1 條裸名 `python --version` 可經基名回退命中任何絕對路徑的 `python`；分類見 §7.1），consult（含 `-NoCredential`）與 exec 都繼承這些 allow（Windows 為讀碼結論、未 live）。處置屬本機設定、不是 repo 變更，由使用者決定（[`LOCAL-EXECPOLICY-WINDOWS`](backlog.md#LOCAL-EXECPOLICY-WINDOWS)）。日後新增 allow 規則（包括互動核准時加入 allow 清單）前要記得這條。
+3. **權限風險照樣要管**：自用不等於安全。`EXECPOLICY-ALLOW-INHERIT` 的曝露在本機仍存在。⚠️ 10/14 訂正：本點原寫「靠已收窄的 execpolicy 規則控制」，但 9/23 的收窄只在 macOS 配置做過；Windows 維護機的 rules **未收窄**（40 條 allow、0 條 prompt；其中 10 條有寫入效果、26 條是 `-Command` 型（matcher 層實測容許附加參數）（兩類重疊 8 條），另有 1 條裸名 `python --version` 可經基名回退命中任何絕對路徑的 `python`；分類見 §7.1），consult（含 `-NoCredential`）與 exec 都繼承這些 allow（Windows 為讀碼結論、未 live）。處置屬本機設定、不是 repo 變更，由使用者決定（[`LOCAL-EXECPOLICY-WINDOWS`](backlog.md#LOCAL-EXECPOLICY-WINDOWS)）。日後新增 allow 規則（包括互動核准時加入 allow 清單）前要記得這條。**10/14 補記（刪除後）**：上述「未收窄（40 條 allow）」是刪除前的狀態。使用者同日明示請求「幫我刪那 29 條規則」後，29 條已刪（26 條 `-Command` 型、`New-Item`、`wsl.exe --update`、`python --version`），剩 11 條 cmdlet 開頭的讀取規則；細節與警語見 [§7.1 刪除補記](#execpolicy-deletion-2026-10-14)。曝露沒有因此歸零：其他 rules 層未盤點，按「永遠允許」也會讓規則再長回來。
 4. **常駐規則與副本同步**：本機 `~/.claude/CLAUDE.md` 的討論夥伴規則繼續有效；它依賴的是 `~/.claude/skills/超級模式/scripts/codex-consult.ps1`，不是 repo。
 
 ## 4. 選項 2 的准入條件與必填項（若選 2）
@@ -93,20 +93,20 @@
 
 ## 7. 2026-10-14 補記
 
-> 頁首狀態、§1（exec 使用量、已出貨 security 兩列）與 §3 第 3 點已就地補記或訂正並指向本節；§0–§6 的原判斷不改寫。本節不授權任何產品變更，凍結規則照舊。
+> 頁首狀態、§1（exec 使用量、已出貨 security 兩列）與 §3 第 3 點已就地補記或訂正並指向本節；§0–§6 的原判斷不改寫。本節不授權任何產品變更，凍結規則照舊。（10/14 補記：公開面裁決見 [§8](#lts-decision-2026-10-14)；建置期規則改見 AGENTS.md「LTS 建置期」段。）
 
 ### 7.1 execpolicy 事實訂正（`DOC-FIX`）
 
 | 面向 | 事實（2026-10-14 唯讀查核） | 限制 |
 |---|---|---|
 | 9/23 收窄的對象 | **macOS 配置**：刪除的 allow 含 macOS 專屬的 `qlmanage -t`，以及 BSD／procps 語法的 `ps -Ao`，見 [`LOCAL-EXECPOLICY-NARROW`](backlog.md#LOCAL-EXECPOLICY-NARROW)。Windows 維護機的 rules 檔不含那次保留的 3 條 allow，也不含那次由 allow 改成的 5 條 prompt | §1、§3 原寫「本機已收窄」，對 Windows 維護機不成立 |
-| Windows 維護機的 rules | 使用者層 `~/.codex/rules/default.rules`：40 條 allow、0 條 prompt、0 條 forbidden；最後修改 2026-09-04（早於 9/23）。多是整串指令，像是互動核准時加入 allow 清單寫入的（推論；[官方 rules 文件](https://learn.chatgpt.com/docs/agent-configuration/rules)：TUI 加入 allow 清單會寫入此檔） | 只讀這一層；其他生效 rules 層未盤點 |
+| Windows 維護機的 rules | 使用者層 `~/.codex/rules/default.rules`：40 條 allow、0 條 prompt、0 條 forbidden；最後修改 2026-09-04（早於 9/23）。多是整串指令，像是互動核准時加入 allow 清單寫入的（推論；[官方 rules 文件](https://learn.chatgpt.com/docs/agent-configuration/rules)：TUI 加入 allow 清單會寫入此檔）。**10/14 補記**：本列是刪除前的狀態；同日刪除 29 條後剩 11 條，見本節末的[刪除補記](#execpolicy-deletion-2026-10-14) | 只讀這一層；其他生效 rules 層未盤點 |
 | 有寫入效果的 allow | 10 條（依固定命令本身判讀；`-Command` 型附加參數與基名回退的影響另見下兩列）：8 條經 `powershell.exe -Command` 執行、會產出檔案的 Python 腳本；1 條建目錄（`New-Item … -Force`）；1 條 `wsl.exe --update` | 依指令與參數判讀，未逐條執行 |
 | `-Command` 前綴容許附加參數 | 26 條是 `powershell.exe`／`pwsh` 的 `-Command <字串>` 型。`codex execpolicy check`（codex-cli 0.162.1）實測：pattern 之後附加參數（例 `"; Remove-Item x"`）仍回 `allow`，改動字串本身則不命中；非 `-Command` 型的 `wsl.exe --update` 附加參數同樣命中。PowerShell 會把 `-Command` 字串之後的所有參數當成要執行的指令（[about_Pwsh](https://learn.microsoft.com/powershell/module/microsoft.powershell.core/about/about_pwsh)、[about_PowerShell_exe](https://learn.microsoft.com/powershell/module/microsoft.powershell.core/about/about_powershell_exe?view=powershell-5.1)）⇒ 這 26 條**不能當成固定完整命令**（推論） | 只驗到 matcher 層；Codex 實際送進 matcher 的 argv 形狀與 live 利用**未驗**（Windows 會先嘗試拆解 PowerShell 腳本，拆解成功時整串 `-Command` 規則可能不被比對），不宣稱已發生外寫。pattern 的執行檔是完整路徑，以裸名 `powershell.exe` 呼叫不命中（實測）。官方 rules 文件只說明 `bash`／`zsh`／`sh` 的 `-c`／`-lc` 會拆段比對，未提 `powershell -Command` |
 | `python --version` 的基名回退 | 1 條以裸名 `python` 開頭的規則。執行期開啟 host-executable 解析（讀碼：codex-cli 0.162.1 `codex-rs/core/src/exec_policy.rs:373`）；某基名沒有 `host_executable()` 限定時，絕對路徑可回退到基名規則比對（`codex-rs/execpolicy/README.md`；副檔名處理見 `codex-rs/execpolicy/src/executable_name.rs`），而本檔沒有任何 `host_executable()`。`codex execpolicy check --resolve-host-executables`（codex-cli 0.162.1）實測：以任意（不必實際存在的）絕對路徑呼叫 `python.cmd --version`、`PYTHON.BAT --version -c x` 都回 `allow`（`resolvedProgram` 為該絕對路徑）；不加此旗標則不命中 ⇒ 任何絕對路徑、基名為 `python`（不分大小寫；無副檔名或 `.exe`／`.cmd`／`.bat`／`.com`）的程式加 `--version` 都命中 allow，包括工作區內自寫的批次檔（推論：等於讓該檔在沙箱外執行） | 評估器層已驗；執行期**未 live 驗**。真的 CPython 遇 `--version` 印版本即結束（推論），但基名回退不保證被執行的是 CPython |
-| 影響範圍 | consult（含 `-NoCredential`）與 exec 都繼承 allow 的沙箱外語義（[`EXECPOLICY-ALLOW-INHERIT`](backlog.md#EXECPOLICY-ALLOW-INHERIT)，Windows 讀碼、未 live）⇒ 這是**日常 consult** 的權限問題，不只跟恢復 exec 有關 | 本輪只分類、**未改 rules 檔**；處置（刪除；或改 prompt——但 consult／exec 在 `approval_policy=never` 下 prompt 等於拒絕）屬本機設定；`host_executable()` 只收窄基名回退、**不綁定裸名 `python`**（裸名先比對第一個 token，不檢查路徑清單），所以 `python --version` 建議直接刪除，真要保留就改成工作區無法改寫的完整路徑 `python.exe` 規則、不是 repo 變更，由使用者另決（[`LOCAL-EXECPOLICY-WINDOWS`](backlog.md#LOCAL-EXECPOLICY-WINDOWS)） |
+| 影響範圍 | consult（含 `-NoCredential`）與 exec 都繼承 allow 的沙箱外語義（[`EXECPOLICY-ALLOW-INHERIT`](backlog.md#EXECPOLICY-ALLOW-INHERIT)，Windows 讀碼、未 live）⇒ 這是**日常 consult** 的權限問題，不只跟恢復 exec 有關 | 本輪只分類、**未改 rules 檔**（10/14 補記：分類之後，使用者同日明示請求刪除，29 條已刪，見[刪除補記](#execpolicy-deletion-2026-10-14)）；處置（刪除；或改 prompt——但 consult／exec 在 `approval_policy=never` 下 prompt 等於拒絕）屬本機設定；`host_executable()` 只收窄基名回退、**不綁定裸名 `python`**（裸名先比對第一個 token，不檢查路徑清單），所以 `python --version` 建議直接刪除，真要保留就改成工作區無法改寫的完整路徑 `python.exe` 規則、不是 repo 變更，由使用者另決（[`LOCAL-EXECPOLICY-WINDOWS`](backlog.md#LOCAL-EXECPOLICY-WINDOWS)） |
 
-Windows rules 分類（40 條；只列類別，不列個人路徑）：
+Windows rules 分類（40 條，**刪除前**；只列類別，不列個人路徑）：
 
 | 類別 | 條數 | 附加參數／路徑解析 |
 |---|---|---|
@@ -115,6 +115,18 @@ Windows rules 分類（40 條；只列類別，不列個人路徑）：
 | 其他寫入：`New-Item` 建目錄、`wsl.exe --update` | 2 | 命中（`New-Item` 開頭者的限制同下一列） |
 | cmdlet 開頭的讀取：`Get-Content -LiteralPath …`（10）、`Select-Object -First 80`（1） | 11 | argv[0] 是 cmdlet 不是執行檔；讀碼（codex-cli 0.162.1 `codex-rs/core/src/exec_policy.rs:889-897`）：Windows 上會先嘗試把 PowerShell 指令拆成單一指令再比對；可拆條件與 live 行為未驗 |
 | `python --version`（裸名） | 1 | 附加參數命中；基名回退讓任何絕對路徑的 `python`（不分大小寫；無副檔名或 `.exe`／`.cmd`／`.bat`／`.com`）加 `--version` 都命中（評估器實測、執行期未 live；見上表） |
+
+<a id="execpolicy-deletion-2026-10-14"></a>
+**10/14 補記：29 條已刪除（本機設定，不是 repo 變更）**
+
+| 面向 | 內容 |
+|---|---|
+| 依據 | 使用者 2026-10-14 明示請求「幫我刪那 29 條規則」 |
+| 執行 | 同日由 Claude（主代理）執行：事前核對雜湊並備份（備份留在本機，不進 repo），事後由另一個代理驗證 |
+| 刪除 | 29 條：26 條 `-Command` 型（上表前兩類 8＋18）、`New-Item` 建目錄、`wsl.exe --update`、`python --version` |
+| 剩下 | 11 條 cmdlet 開頭的讀取規則：10 條固定路徑的 `Get-Content -LiteralPath …`、1 條 `Select-Object -First 80`；這 11 行與刪除前的對應行逐位元相同 |
+| 警語 | ① 刪除只撤掉沙箱外放行，**不等於**之後一定會詢問（approval=never 下需要核准的動作會被拒）；② 互動時按「永遠允許」會讓規則再長回來；③ 只處理使用者層這一份檔，其他生效 rules 層沒有盤點；④ 剩下 11 條的附加參數行為與 Windows 上的 PowerShell 拆解行為未驗證（見上表「cmdlet 開頭的讀取」列） |
+| 產品面 | [`EXECPOLICY-ALLOW-INHERIT`](backlog.md#EXECPOLICY-ALLOW-INHERIT) 照舊成立；LTS 的處置見 [§8](#lts-decision-2026-10-14) 與 [`LTS-ADMISSION-PLAN.md`](LTS-ADMISSION-PLAN.md#must)（F1） |
 
 ### 7.2 「exec 0 次」的解讀修正
 
@@ -143,6 +155,8 @@ Windows rules 分類（40 條；只列類別，不列個人路徑）：
 
 ### 7.4 公開面仍待使用者裁決
 
+> **10/14 補記**：本小節是裁決前的狀態。使用者已於 2026-10-14 裁決公開 LTS，見 [§8](#lts-decision-2026-10-14)。
+
 - §0 的題目（永久封存 vs LTS）**至今未記錄裁決**。9/30 是預定覆核日，不是凍結自動到期日。
 - 選 1b 只決定本機 fork 怎麼維護，**不等於**公開面已採選項 1；記錄裁決時寫實際日期與使用者的明示裁決。
 
@@ -167,3 +181,110 @@ Windows rules 分類（40 條；只列類別，不列個人路徑）：
 **第二輪（套用前審查，逐字稿 `codex_consult_20261014_023153_bd254f.txt`）**：Codex 接受「固定完整命令」的訂正並認為本節轉述公正；支持刪除 29 條；指出 `host_executable()` 不綁定裸名 `python`（已改寫 7.1）、刪除不保證之後一定詢問、worker 契約應點名不得自行呼叫 consult／exec（已補進本機派工簡報範本）。
 
 **分歧**：本機變體 Codex 首選 1a′，使用者選 1b，照使用者的本機決定記錄；Codex 認為 1b 應在「自然任務反覆需要 exec、且維護成本有上限」時才升順位，這個條件尚未驗證、維護上限尚未設定（7.3）。execpolicy「固定完整命令」一點，Claude 以 matcher 實測不採納。3 與 2 的排序未裁決。Codex 另對使用時機與記憶輔助提出修改建議，屬本機操作說明，未列入本表。
+
+<a id="lts-decision-2026-10-14"></a>
+## 8. 2026-10-14 使用者裁決：公開 LTS
+
+> 本節記錄使用者的明示裁決，取代 §7.4「公開面仍待使用者裁決」。§0–§7 的原判斷不改寫。
+
+### 8.1 使用者的裁決：原話與選擇的選項（2026-10-14）
+
+兩種紀錄分開標：**原話**是使用者自己打的字，逐字照錄；**使用者選擇的選項**是使用者在 Claude 提出的選項題裡點選的那一項，照錄選項文字（含 Claude 提問時加的「(Recommended)」推薦標記），不是使用者打的字。選項文字由 Claude 撰寫，「Windows 先、macOS 隨後」與 Codex 審查後的建議措辭相同，原因就在這裡。
+
+| 問題 | 使用者的回答 | 形式 |
+|---|---|---|
+| 公開面：永久封存，還是 LTS | 「我選LTS」 | 原話 |
+| LTS 的選項 | 「改成Windows和MacOS就好，Linus凍結」（「Linus」是 Linux 的筆誤） | 原話 |
+| 功能範圍 | 使用者選擇的選項：全功能（括號內為 Claude 補充的範圍說明：gate hook、consult、exec、AI-INSTALL） | 選項 |
+| 准入順序 | 使用者選擇的選項：Windows 先、macOS 隨後 (Recommended) | 選項 |
+| 預算 | 使用者選擇的選項：115h／2027-01-15 (Recommended) | 選項 |
+| 每週投入 8–10h 是否可行 | 使用者選擇的選項：可以 | 選項 |
+| 何時開始 | 「我以為你已經開始修改了，結果花一堆時間在評估時間嗎」（解讀為：即刻開工，不再延長評估） | 原話 |
+
+這些裁決**不包含** AGENTS.md「LTS 建置期」段的逐字措辭與計畫 §4／§5.2 的原文：那些仍待使用者逐字核准（計畫 §9 第 1 點），核准前所有工作只留在本機的 `lts/build`，不 push、不動 `main`（2026-10-15 使用者授權批次 1 的 SHA 單次 push，見 [8.7](#user-decisions-2026-10-15)）。
+
+### 8.2 與本備忘建議的關係（照實記錄，不重議）
+
+§0 建議選項 1（封存）；§2 把選項 5（全產品／三平台 LTS）列為不建議；§7.5 記錄的 Codex 排序是 1＞3＞2＞4＞5。本裁決是選項 5 的雙平台、分段准入版本。§4 的必填項原本為選項 2 撰寫，套用到本範圍的數字寫在 [`LTS-ADMISSION-PLAN.md`](LTS-ADMISSION-PLAN.md)。
+
+### 8.3 對外狀態：准入前不宣布支援
+
+- 准入通過之前，README、AI-INSTALL、tag 訊息與任何對外說明都**不得**宣稱受支援，只能寫「LTS 建置中」（禁用字詞見計畫 §1）。
+- **Windows 先准入，macOS 隨後。** 每個平台各自通過准入條件、經使用者簽核 PASS 之後，才可以宣布該平台受支援；兩個平台都通過之前，不得做雙平台宣稱。
+- **Linux 凍結**：不支援、不修、不驗收、不為 parity 同步。最終快照是 tag `pre-lts`（＝`80c60a8`，與 LTS 前的凍結快照共用同一個 tag，不另取名）；tag 尚未建立，建立與 push 都要使用者同意（**tag 建立前請用 commit `80c60a8`**）。
+- `main` 維持凍結快照；建置在分支 `lts/build` 進行，准入時才以 PR 合併。Windows 准入時合併進 `main` 的內容會包含尚未准入的 macOS 側變更，所以 macOS 准入前，README 與 AI-INSTALL 要指示 macOS 使用者固定在 `pre-lts`（計畫 §4.6）。
+
+### 8.4 預算與檢查點
+
+- 總工時**硬上限 115h**、日曆**截止 2027-01-15**，先到者為準。尚未完成而到達上限：停工回報使用者，預設退出（轉 §3 的選項 1）。
+- 115h 先保障四項核心功能（MVS）、審查與驗收；便利項目排在核心之後，未經使用者核准不做。分配見計畫 [§3](LTS-ADMISSION-PLAN.md#budget)。
+- 每週投入 8–10h（使用者選擇的選項：「可以」）。
+- **檢查點 2026-10-28，依關鍵產物判定**：① Windows CI 在兩個 host（pwsh 7、WinPS 5.1）實際跑起來；② 第一個阻擋問題已定位並留下證據；③ Mac 驗收環境與時段已確認。另附 10/15 起的實記工時與剩餘工時預測。產物達標就通過，不論工時多寡；花了工時而產物沒到，不通過。沒通過時交使用者重新裁決，預設退出。
+- 工時記錄：[`LTS-timelog.md`](LTS-timelog.md)。
+
+### 8.5 計畫與規則的位置
+
+- 准入計畫：[`LTS-ADMISSION-PLAN.md`](LTS-ADMISSION-PLAN.md)——MVS、准入條件、凍結的驗收清單、MUST 與劃出文字、新缺陷規則、預設裁決。
+- 建置期規則：[`AGENTS.md`](../AGENTS.md)「LTS 建置期」段。
+- 准入條件與 PASS 簽核屬於使用者：計畫裡的准入條件、驗收清單與劃出文字由使用者核准原文後凍結，之後只有使用者能改；PASS 由使用者在對話中簽核。核准與簽核的原文、日期、RC SHA 都記在本節之後的小節。
+
+### 8.6 Codex 反方立場與 Claude 裁決（事實記錄）
+
+逐字稿：`~/.claude/super-mode-logs/codex_consult_20261014_035954_145795.txt`（討論模式，`-NoCredential`）。
+
+**Claude 初判**：預算改用 115h 案；MVS 四項不再縮；預設裁決都站得住；計畫結構不再刪減。
+
+**Codex 立場：反對「只把預算改成 115h、其餘照批」**，首選「Windows 先准入、macOS 隨後；115h 先投入核心、審查與驗收」（信心 0.88）。主要論點都已採納進計畫：
+
+| Codex 論點 | 計畫的處置 |
+|---|---|
+| 階段預算可能先耗盡而核心未完成；總額要當硬上限，階段數字只當預警；「尚未完成且到上限」才停工 | 計畫 §3.1、§3.2 |
+| 「10/28 前燒滿 15h」只量消耗，會獎勵燒時 | 改成依關鍵產物判定（8.4、計畫 §3.3） |
+| F7 的劃出文字寫「清單是空的」，與 hook 實際內容不符 | 預寫「已移除／未移除」兩段文字，逐項列出例外（計畫 §5.2） |
+| 准入條件只凍結了名稱，沒凍結驗收做法 | 凍結 W0–W11 原文、代表性簡報與允許的配置；M0–M10 在 M 階段開工前凍結（計畫 §4.4、§4.5） |
+| A9 混了准入前置與發行後置 | 拆成 A9-pre（准入條件）與 A9-post（PASS 後的動作）；正式 tag 指向簽核的 RC SHA（計畫 §4.2、§4.6） |
+| worker 契約「一律不回寫」與修 F6 的授權衝突 | 改判：最小角色契約放進出貨的派工範本（計畫 §5.1、§7） |
+| 新缺陷「一律降級」可能靠揭露掏空核心 | 會讓 MVS 不成立的缺陷只能在授權內修或交使用者裁決，不得劃出（計畫 §6） |
+| 28 項 MUST 可以縮減 | 保留 18 項並加最小 worker 契約，共 19 項；其餘降級並預寫限制文字（計畫 §5）。（10/14 補記：F2 `OFF-CLEANUP-RECURSIVE` 未獲 ACCEPTED_RISK 裁決，依計畫 §5.2 預寫的規則改列 MUST，現為 20 項；2026-10-15 使用者確認，見 8.7） |
+| 維護承諾的可行性沒有核算 | 新增 A10：用驗收實記工時核算每月重驗（計畫 §4.2） |
+| Mac 的可行性探測要提早做 | 原計畫只把它寫成「10/28 前確認 Mac 驗收環境與時段」，是排時程而不是探測，屬**部分採納**。10/14 批次 1 審查後補上：11/25 前在 GitHub runner 試跑一次 `macos.yml` smoke（不需要 Mac，從保留撥約 2h），見計畫 §2.3 |
+
+**分歧**：原寫「無未採納的論點」，10/14 批次 1 審查指出 Mac 提早探測只部分採納，已補上表最後一列。Codex 的結論是計畫審查，沒有執行 CI 或 live 驗收。
+
+<a id="user-decisions-2026-10-15"></a>
+### 8.7 2026-10-15 使用者裁決（批次 1 commit 前）
+
+背景：批次 1（S0 治理文件、C1／C3 Windows CI、F2 off 清理）10/14 只 staged 在本機。10/15 commit 前，Claude 先做一次 Codex 反方諮詢與一次多代理審查（見 8.8），再用選項題問使用者四題。四題的回答都是**使用者選擇的選項**，照錄選項文字（含 Claude 加的「(Recommended)」），不是原話；「選項說明」是 Claude 寫在選項底下的說明，這裡是摘要。
+
+| 問題 | 使用者選擇的選項 | 選項說明（Claude 撰寫，摘要） |
+|---|---|---|
+| F2 要不要列為 MUST、白名單怎麼處理（計畫 §9 第 3 點的 F2 部分） | MUST＋收緊白名單 (Recommended) | exec 後綴限恰好 6 位 hex，consult 限 6 位 hex 或純數字 PID，無後綴的初版舊檔照清；其餘取捨照現狀（大寫保留、出錯 exit 0＋stderr）；差異清單補上「Windows 會清 junction 目標」與頂層 file symlink；要重跑 off-cleanup 測試 |
+| consult-schema 測試寫進真實 `~/.claude`、CI 的 postflight 每次必紅；這是第 2 輪審查後仍存在的阻擋問題，依規交使用者裁決 | 授權修，不再送審 (Recommended) | 只改測試：USERPROFILE 導到暫存目錄，加斷言確認真實 logdir 前後不變，改正檔頭「無副作用」；修完以兩個 host 實跑驗證，不開第 3 輪審查 |
+| 批次 1 怎麼 commit | 一個 commit (Recommended) | 修完、重跑全套驗證之後整包一個 commit，逐個 ID 附 LTS-BUILD 四行標記；只有這個樹真正驗過，文件與程式碼也一致 |
+| push 怎麼做（AGENTS.md 建置期段與計畫 §4／§5.2 原文核准之前不得 push，但 10/28 檢查點需要 CI 實跑） | 授權單次 push (Recommended) | commit 後把該 SHA push 到 `lts/build` 跑 CI，這一次豁免「核准前不 push」；不推 tag、不動 `main`；三份原文仍待核准 |
+
+效力範圍：
+
+- push 豁免只涵蓋**一次**：把批次 1 的 commit push 到 `lts/build`。之後每次 push 仍要使用者逐次同意。計畫 §9 第 1 點（三份原文的逐字核准）與第 2 點（tag `pre-lts`）都**不**因此視為已核准。
+- F2 列入 MUST 已確認，計畫 §5.1 為 20 項。計畫 §9 第 3 點的 F4 `MOUNT-RMRF` ACCEPTED_RISK 仍待使用者裁決。
+- 「不再送審」只涵蓋這次授權的 consult-schema 隔離修正，以及使用者選定的 F2 白名單收緊；兩者以實跑測試與變異檢查驗證（結果記在 commit 訊息）。審查輪數帳見 [`LTS-timelog.md`](LTS-timelog.md#review-rounds)。
+
+### 8.8 Codex 反方立場與 Claude 裁決（2026-10-15，事實記錄）
+
+逐字稿：`~/.claude/super-mode-logs/codex_consult_20261015_013134_4003a7.txt`（討論模式，`-NoCredential`）。
+
+**Claude 初判**：F2 確認 MUST、取捨照現狀；F4 確認 ACCEPTED_RISK；分三個 commit（S0 → CI → F2）；push 與 tag 等使用者逐字核准三份原文之後再做。
+
+**Codex 立場：部分反對。**
+
+| Codex 論點 | 處置 |
+|---|---|
+| F2 白名單的後綴接受任意長度 hex，比「符合產生格式」的宣稱寬（實測 `codex_exec_20200101_000000_cafe.txt` 會命中） | 採納。使用者選擇收緊（8.7），兩平台各加 6 個反例 |
+| Windows 的 logdir 若是 junction，會清到目標目錄；不能當成和另外兩項同等的小差異 | 採納，寫進 backlog 差異清單 |
+| F4 若接受風險，範圍要涵蓋回滾當下才存在的掛載點；技術修補應優先做「`rm -rf` 前重新偵測」 | 記入計畫 §9 第 3 點；F4 仍待使用者裁決 |
+| 反對三個 commit（中間樹要另外驗，交織的計數也拆不乾淨）；首選兩個（S0 → CI＋F2），且各 commit 的文件要與程式碼一致 | 部分採納：不拆三個。**分歧**：Claude 改推一個 commit，理由是兩個 commit 的方案要切分並改寫計畫、README、backlog、AI-INSTALL 的中間版本文字，而只有整包的樹被驗過；Codex 沒有評估一個 commit 的選項。使用者選了一個 commit。commit 結構在 push 前仍可重整，可逆、成本低，所以沒有開第二輪諮詢 |
+| 全文核准不宜成為首次 CI 的關鍵路徑；改成對指定 SHA 的單次 push 授權，規則核准、push、tag 分開記錄 | 採納（8.7 第 4 題） |
+| 漏列計畫 §9 第 4、5 點（`CODEX-CHECK-CP437`、`CODEX-CHECK-WARNING`；Mac 環境與時段），後者是 10/28 的必要產物 | 記錄；待之後整批問使用者 |
+| 先核對各 ID 已用的審查輪數 | 採納：新增輪數帳（[`LTS-timelog.md`](LTS-timelog.md#review-rounds)） |
+
+**多代理審查（同日，5 個維度各配 1 個對抗驗證）**：存活 11 條，其中 1 條在 repo 外的交接檔。阻擋問題兩類：F2 先做後問（交使用者，8.7 第 1 題）、consult-schema 寫進真實家目錄導致 CI postflight 必紅（交使用者，8.7 第 2 題；backlog [`CONSULT-SCHEMA-HOME-LEAK`](backlog.md#CONSULT-SCHEMA-HOME-LEAK)）。其餘是文件事實錯誤，已就地訂正：`windows.yml` 對 mutation-controls 測試臺 host 的說明、兩個 AST 守衛的涵蓋範圍、backlog 的 F2 差異清單與 `LINUX-FREEZE` 列措辭、push 前提的交叉註記、逐字稿證據的保存規則（計畫 §3.4）。

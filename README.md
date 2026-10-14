@@ -1,6 +1,8 @@
-# Codex-for-CC — 超級模式 (Super Mode)
+> **🚧 LTS 建置中——目前不提供支援。** 准入順序：**Windows 先、macOS 隨後**；每個平台要通過准入條件並經維護者簽核，才會宣布該平台受支援，在那之前本 repo 沒有任何經過准入的版本。**Linux 已凍結**（不修、不驗收）。
+> 要固定版本，請用凍結快照 tag `pre-lts`（＝`80c60a8`，產品凍結期（2026-08-29 起）最後的狀態，照現狀提供、不修復；Linux 的最終版本也是這個 tag。**tag 建立前請用 commit `80c60a8`**）。建置在分支 `lts/build` 進行，准入前請勿從該分支安裝。
+> 裁決與准入條件見 [`docs/DECISION-MEMO-lts-2026-09-30.md` §8](docs/DECISION-MEMO-lts-2026-09-30.md#lts-decision-2026-10-14) 與 [`docs/LTS-ADMISSION-PLAN.md`](docs/LTS-ADMISSION-PLAN.md)。下文所有「live 驗收通過」「全綠」之類的紀錄都是**歷史紀錄，不構成支援宣稱**。
 
-[![linux](https://github.com/rockon8765/Codex-for-CC/actions/workflows/linux.yml/badge.svg)](https://github.com/rockon8765/Codex-for-CC/actions/workflows/linux.yml)
+# Codex-for-CC — 超級模式 (Super Mode)
 
 一個 **Claude Code** skill：讓 Claude 當**指揮（orchestrator）**、**OpenAI Codex CLI** 當**執行（worker）**，把繁重的實作工作外包給 Codex（藉此節省 Claude Code 用量），而 Claude 專注在規劃、審查、並以 spec 當作合約。
 
@@ -22,18 +24,20 @@
 
 ---
 
-## 三個平台版本
+## 三個平台版本（LTS 範圍只有 Windows 與 macOS；Linux 已凍結）
 
-這個 repo 為**三個平台提供同一個 skill**，**設計上等價** — 同一套發現、同一組不變量（I1–I8，外加 `.sh` 平台（macOS/Linux）的 I9）、同一組驗收條件 — 但*實作機制*依平台翻譯（PowerShell vs bash、BOM 處理、stdin 佈線、路徑規則、BSD vs GNU userland）。**注意「設計等價」不等於「已驗證等價」**：三平台的原生驗證各有其涵蓋範圍與時間點，Windows 版覆蓋最廣、也是維護基準。詳見下方「⚠️ 安裝前一定要知道的限制」。挑你機器對應的那個：
+> **2026-10-14 起**：LTS 只做 `windows/` 與 `macos/`（Windows 先准入、macOS 隨後，目前都還沒有經過准入）；`linux/` 已凍結，不修、不驗收、不為 parity 同步，見 [`docs/LTS-ADMISSION-PLAN.md`](docs/LTS-ADMISSION-PLAN.md#linux-freeze)。本節以下的驗證紀錄都是**歷史紀錄，不構成支援宣稱**。
 
-| | [`windows/`](windows/) | [`macos/`](macos/) | [`linux/`](linux/) |
+這個 repo 有**三個平台版本的同一個 skill**，**設計上等價** — 同一套發現、同一組不變量（I1–I8，外加 `.sh` 平台（macOS/Linux）的 I9）、同一組驗收條件 — 但*實作機制*依平台翻譯（PowerShell vs bash、BOM 處理、stdin 佈線、路徑規則、BSD vs GNU userland）。**注意「設計等價」不等於「已驗證等價」**：三平台的原生驗證各有其涵蓋範圍與時間點，Windows 版覆蓋最廣、也是維護基準（歷史紀錄，不構成支援宣稱）。詳見下方「⚠️ 安裝前一定要知道的限制」。挑你機器對應的那個（Linux 見上方凍結說明）：
+
+| | [`windows/`](windows/) | [`macos/`](macos/) | [`linux/`](linux/)（🧊 已凍結） |
 |---|---|---|---|
 | Hook/腳本執行環境 | PowerShell 5.1／pwsh 7（主要呼叫 host）+ Node | bash/zsh + Node | bash + Node |
 | 執行腳本 | `*.ps1` | `*.sh` | `*.sh` |
 | Codex CLI 位置 | `C:\npm\codex.cmd`（寫死） | `PATH` 上的 `codex`（Homebrew npm global） | `PATH` 上的 `codex`（npm global） |
 | Gate 拒絕機制 | `permissionDecision` / exit 2 | stderr + exit 2 | stderr + exit 2 |
 | 接 hook 的設定檔 | `settings.json` | `settings.json` | `settings.json` |
-| 驗證覆蓋 | 人工原生驗證（**無 CI**）；維護基準。**live 驗收 2026-08-28 通過**（`SUITE_RESULT=OK`） | 人工原生驗證（**無 CI**）。**live 驗收 2026-08-29 五項全綠** | `ubuntu-latest` CI 每次 push／PR 跑 **repo 層**回歸。⚠️ **從未做過 live 部署驗收** → 支援宣稱已降級，見下 |
+| 驗證覆蓋 | 人工原生驗證（**無 CI**；LTS 建置中）；維護基準。live 驗收 2026-08-28 通過（`SUITE_RESULT=OK`）——歷史紀錄，不構成支援宣稱 | 人工原生驗證（**無 CI**；LTS 建置中）。live 驗收 2026-08-29 五項全綠——歷史紀錄，不構成支援宣稱 | 🧊 **已凍結（2026-10-14）**。`linux.yml`（`ubuntu-latest`）跑凍結的 `linux/` 樹與頂層共用測試（`tests/*.test.js` 等）；綠燈不構成任何平台的支援宣稱，LTS 凍結第二階段移除。⚠️ **從未做過 live 部署驗收**，見下 |
 | 修復／平台紀錄 | [`docs/history/FIX-PLAN-windows-2026-07-02.md`](docs/history/FIX-PLAN-windows-2026-07-02.md) | [`docs/history/FIX-PLAN-macos-2026-07-03.md`](docs/history/FIX-PLAN-macos-2026-07-03.md) | [`docs/linux-platform-notes.md`](docs/linux-platform-notes.md)（現行參考，非史料） |
 
 > **驗證覆蓋不等於設計等價（as-of 2026-08-18）。** 三平台**設計上等價**，但驗證方式與時間點都不同。
@@ -45,8 +49,9 @@
 
 **本段是各平台實作狀態的唯一真相**——三平台的 `references/orchestration.md` 與 [`docs/backlog.md`](docs/backlog.md) 都指向這裡，請不要在別處另記一份。
 
-- **Linux 版 `codex-check` 的能力面盤點與 baseline diff 尚未移植**（Windows／macOS 已有）。**不要**把 macOS 版的 `codex-check.sh` 直接當 Linux 版的等價物拿來抄或替換。移植規格見 [`docs/handoff-capability-baseline-port.md`](docs/handoff-capability-baseline-port.md) 與 [`docs/handoff-0143-capability-surface-port.md`](docs/handoff-0143-capability-surface-port.md)（⚠️ 後者的可貼上片段已過時，只當背景讀）。
+- **Linux 版 `codex-check` 的能力面盤點與 baseline diff 尚未移植**（Windows／macOS 已有；2026-10-14 起隨 Linux 凍結不再移植）。**不要**把 macOS 版的 `codex-check.sh` 直接當 Linux 版的等價物拿來抄或替換。移植規格見 [`docs/handoff-capability-baseline-port.md`](docs/handoff-capability-baseline-port.md) 與 [`docs/handoff-0143-capability-surface-port.md`](docs/handoff-0143-capability-surface-port.md)（⚠️ 後者的可貼上片段已過時，只當背景讀）。
 - **實際派工的 `codex-exec` 只有 macOS 固定帶 `--disable remote_plugin`**（Windows／Linux 沒有；`codex-check` 三平台都只印提示、不帶旗標）。這不是 Linux 落後，是 macOS 端單方面硬化；維護者已明確**暫緩**收緊 `--disable`，要改請三平台一起改。⚠️ **2026-09-14 訂正**：`--disable remote_plugin` 只關**遠端外掛目錄**（上游 openai/codex #28443），關不掉已裝外掛與帳號 connector，稱它「硬化」屬高估；在註冊面真正有效的是 `--disable apps --disable plugins`（[驗收紀錄](docs/ACCEPTANCE-capability-boundary-2026-09-14.md)：`codex_apps` 與 plugin 提供的 MCP 消失），但要不要採用仍是凍結中的提案。
+- **🧊 Linux 已於 2026-10-14 凍結**（LTS 只做 Windows 與 macOS）：下面這條 8/29 的降級說明保留為歷史紀錄；凍結後 Linux 不修、不驗收，最終快照是 tag `pre-lts`（尚未建立；tag 建立前請用 commit `80c60a8`），本段第一條的 Linux `codex-check` 移植也不會再做。
 - **⚠️ Linux 的支援宣稱已於 2026-08-29 降級為 `UNSUPPORTED`（live 面）。** 三件事分開講：
   （a）**repo 層有 CI**（`ubuntu-latest`，每次 push／PR，含 smoke 與 fault-injection 的 mutant 守衛）；
   （b）**live 面從未由維護者驗收過** —— CI 刻意不碰 `~/.claude`，所以「repo 全綠」**不能**推論 live 生效。
@@ -54,7 +59,8 @@
   那五個工具的攔截在 runtime 下等於沒生效（見 [`docs/ACCEPTANCE-p0-16-live-macos-2026-08-29.md`](docs/ACCEPTANCE-p0-16-live-macos-2026-08-29.md)）；
   （c）**POSIX 回滾有已接受的資料遺失風險**（下方限制第 2 條的掛載點問題）。
   ⇒ 在 Linux 上使用前請自行做 live 驗收；不要把 CI 綠燈當成 live 保證。
-- 其餘功能三平台目前一致；差在**驗證覆蓋**（見上表）與平台語義（見下方「已知的坑」）。
+- **`super-mode off` 的逐字稿清理**（2026-10-14，`lts/build`，尚未准入；backlog [`OFF-CLEANUP-RECURSIVE`](docs/backlog.md#OFF-CLEANUP-RECURSIVE)）：Windows／macOS 只刪 `~/.claude/super-mode-logs/` **頂層**、檔名符合 consult／exec 逐字稿格式、且超過 14 天的檔，不進子目錄、不碰其他檔名，刪除或列舉失敗會在 stderr 印 `OFF_CLEANUP_ERROR`，但 off 照常完成。**Linux 已凍結、未套用這項修正：仍會遞迴刪除 `super-mode-logs/` 底下所有超過 14 天的檔案、不限檔名、錯誤靜默。** Windows 與 macOS 之間仍有五個沿用舊行為的差異，都不會刪到白名單以外的檔：logdir 本身是 symlink／junction（Windows 會清到目標目錄的頂層）、隱藏檔、列舉後才消失的檔、頂層的 file symlink、列舉錯誤的輸出格式，見同一列 backlog。
+- 其餘功能 Windows 與 macOS 目前一致（Linux 是凍結快照，差異見上面各條）；差在**驗證覆蓋**（見上表）與平台語義（見下方「已知的坑」）。
 
 ### ⚠️ 安裝前一定要知道的限制
 
@@ -63,7 +69,7 @@
 1. **`BLOCK` 和 `ALLOW` 鑄造的是同一張收據。** 憑證是「**諮詢收據**」不是「動作授權」——它裡面沒有裁決欄位，hook 也不讀。所以對「憑時間 ＋ repo 綁定就能放行」的動作而言，一次形式合格的 `BLOCK:` 回覆照樣解鎖 20 分鐘，**hook 分不出 ALLOW 與 BLOCK**。「BLOCK 就不做」目前純靠 orchestrator 自律，工具面零強制。⚠️ 但**不是每個被攔動作都會因此放行**：拿不到 repo 路徑、又不在 `MCP_PATHLESS_ALLOW`／policy 白名單的 **MCP 工具**，即使有憑證仍會被硬拒。⚠️ 反過來，**外發型內建工具（`Artifact` 等）是刻意 pathless 的**——它們綁不到 repo，所以任何有效憑證都放得過去，**repo A 的憑證擋不住 repo B 的發佈動作**。
 2. **macOS／Linux：安裝回滾的 `rm -rf` 會跨進掛載點、刪掉裡面的真實資料。** link 守衛用 `find -type l`，而**掛載點是目錄、抓不到**。成立條件是「掛載點位於 live skill 子樹」且「實際執行到回滾」。skill 樹底下有 bind mount 的人，安裝前請先卸載、或改用手動安裝。⚠️ 這是**已知的機制風險，沒有掛載點的端到端實測**。
 3. **沒有任何自動測試證明 Claude Code runtime 真的載入了你的 settings 並叫起 hook。** `matcher-contract` 是靜態比對、`run-gate-tests` 是直接呼叫 `decide()`；`run-e2e.sh` 會以 stdin 啟動完整的 hook process，但那也只驗到 hook 自己的行程層行為。**端到端只能在新 session 實際觸發一次違規動作來確認。**
-4. **Windows／macOS 沒有 CI。** 這兩個平台的回歸測試改壞了，遠端不會有任何 gate 攔下——仍靠人工在本機跑。Linux 每次 push／PR 都有 CI。
+4. **Windows／macOS 沒有 CI。** 這兩個平台的回歸測試改壞了，遠端不會有任何 gate 攔下——仍靠人工在本機跑（兩個平台的 CI 正在 `lts/build` 建置，准入前不構成任何宣稱）。`linux.yml` 每次 push／PR 仍會跑凍結的 `linux/` 樹與頂層共用測試（`tests/*.test.js` 等）；綠燈不構成任何平台的支援宣稱。LTS 凍結第二階段會移除它，屆時共用測試改由 Windows／macOS CI 跑。
 5. **安裝／回滾的驗證有明確邊界**（三件互相獨立的事）：
    - 「列舉失敗必須在任何 mutation 之前中止」這條回滾契約，**Windows 與 POSIX 兩側都有動態測試**；但只有 Windows 側有較寬的 oracle ＋ mutation control，POSIX 側的 oracle 只快照 `skills`、也沒有案數硬斷言（backlog 的 `POSIX-M13-GAP`，優先級待裁）。**Windows 側也不等於「完整 M13」。**
    - **1b 備份完整性只測了正常路徑。** 「正常備份 → 還原」有動態案（`run-posix.sh` 的 `[C1]`／`[C2]`）；**沒測的是列舉 fail-open 那一條**——若列舉只回非終止錯誤，可能只留下部分備份，卻仍印出代表「三個備份都完成」的 `backup ts=`。那是另一條契約，尚未處理。
@@ -133,7 +139,8 @@
 CLAUDE.md  AGENTS.md             # AI 助手自動載入的轉接指引（安裝用，指向 docs/AI-INSTALL.md）
 docs/AI-INSTALL.md               # AI 安裝指引（安裝流程的唯一真相）
 docs/backlog.md                  # 已知未完成項（跨平台彙整）
-docs/linux-platform-notes.md     # Linux 平台差異與部署注意事項（現行參考）
+docs/LTS-ADMISSION-PLAN.md       # LTS 准入計畫（Windows 先、macOS 隨後）
+docs/linux-platform-notes.md     # Linux 平台差異與部署注意事項（🧊 2026-10-14 起是凍結快照的參考）
 docs/history/                    # 已完成的修復／移植過程紀錄（不隨安裝部署）
 docs/history/verification-log.md # 逐批驗證日誌（帶日期的歷史觀測，非現況）
 
@@ -150,6 +157,7 @@ windows/                         # PowerShell 版（已稽核、已部署）
               run-gate-tests.js  run-gate-tests.ps1  matcher-contract.test.js  gate-cases.json
               consult-schema.tests.ps1  consult-credential.tests.ps1  codex-check.tests.ps1
               exit-code-contract.tests.ps1   # 退出碼契約：preference 矩陣／逐字稿故障／AST 守衛
+              off-cleanup.tests.ps1          # super-mode -Off 的逐字稿清理範圍（只清頂層白名單逐字稿）
 
 macos/                           # bash 版（平台移植版；驗證覆蓋見上方表格）
   settings.snippet.json
@@ -161,8 +169,9 @@ macos/                           # bash 版（平台移植版；驗證覆蓋見�
     scripts/  super-mode.sh  codex-consult.sh  codex-exec.sh  codex-check.sh
     tests/    run-gate-tests.js  run-e2e.sh  matcher-contract.test.js  gate-cases.json
               consult-schema.tests.sh  consult-credential.tests.sh  codex-check.tests.sh
+              off-cleanup.tests.sh           # super-mode off 的逐字稿清理範圍（只清頂層白名單逐字稿）
 
-linux/                           # bash 版（GNU userland；每次 push 由 ubuntu-latest CI 原生回歸）
+linux/                           # 🧊 已凍結（2026-10-14）：bash 版（GNU userland）；linux.yml 仍跑這棵凍結的樹與頂層共用測試，綠燈不構成支援
   settings.snippet.json
   CLAUDE-global-rule.md          # 同上，Linux 版 snippet
   hooks/super-mode-consult-gate.js
@@ -184,7 +193,7 @@ linux/                           # bash 版（GNU userland；每次 push 由 ubu
 4. **派工** — 寫一份自足的任務簡報，在背景跑 `codex-exec.sh -q`；由 Codex 寫程式。
 5. **審查** — Claude 審 `_last.txt` + `git diff`；不合格就退回重派。
 6. **里程碑回寫** — 勾掉 spec md 的項目，然後 commit（commit 會把憑證降到剩 3 分鐘，逼下一個里程碑重新諮詢）。
-7. **關閉** — `super-mode.sh off`（清掉旗標 + 憑證；POSIX（macOS／Linux）會遞迴刪除 `super-mode-logs/` 底下所有超過 14 天的檔案、不限檔名；Windows 只清頂層超過 14 天的檔案，同樣沒有檔名白名單。⚠️ **跑 off 前先保全要留的逐字稿／驗收證據**，見 [`OFF-CLEANUP-RECURSIVE`](docs/backlog.md#OFF-CLEANUP-RECURSIVE)。這個清理只在 `off` 路徑觸發，日常「討論夥伴」諮詢從不觸發，所以 `~/.claude/super-mode-logs/` 實際會一直累積；見 [`docs/backlog.md`](docs/backlog.md)「逐字稿清理」列）。hook 也會自癒：超過 8 小時的旗標會被視為殘留並自動移除。
+7. **關閉** — `super-mode.sh off`（清掉旗標 + 憑證，並順手清舊逐字稿：清理範圍（Windows／macOS 只清頂層、檔名符合 `codex_consult_<時間戳>.txt`／`codex_exec_<時間戳>.txt`／`codex_exec_<時間戳>_last.txt`、超過 14 天；Linux 凍結快照仍遞迴且不限檔名）以上方「[功能差距](#功能差距各平台實作狀態)」那一條為準，本處不另記一份。⚠️ **跑 off 前先保全要留的逐字稿／驗收證據**：Windows／macOS 移出頂層即可，Linux 要移出整個 `super-mode-logs/`；見 [`OFF-CLEANUP-RECURSIVE`](docs/backlog.md#OFF-CLEANUP-RECURSIVE)。這個清理只在 `off` 路徑觸發，日常「討論夥伴」諮詢從不觸發，所以 `~/.claude/super-mode-logs/` 實際會一直累積；見 [`docs/backlog.md`](docs/backlog.md)「逐字稿清理」列）。hook 也會自癒：超過 8 小時的旗標會被視為殘留並自動移除。
 
 **設計上就是 fail-open：** 沒有旗標、或 hook 出任何錯 / 輸入異常時，gate 一律放行 — 一般（非超級模式）的 session 絕不會被卡住。
 
@@ -220,7 +229,7 @@ node "$HOME/.claude/skills/超級模式/tests/matcher-contract.test.js" --live #
 bash "$HOME/.claude/skills/超級模式/tests/run-e2e.sh"               # 應全數 passed
 ```
 
-**Linux**
+**Linux**（🧊 **已凍結，不提供支援**：下面這段只是凍結快照的歷史參考。真的要用，請另開一份 clone，或用 `git worktree add <dir> pre-lts` 取得凍結快照 tag `pre-lts`（tag 建立前請用 commit `80c60a8`），照該快照內的文件自行負責；不要在現有的工作目錄裡 checkout。AI-INSTALL 在 Linux 會停止）
 ```bash
 # 1. Skill → ~/.claude/skills/    2. Hook → ~/.claude/hooks/
 cp -R "linux/skills/超級模式" ~/.claude/skills/
@@ -234,7 +243,7 @@ cp    "linux/hooks/super-mode-consult-gate.js" ~/.claude/hooks/
 #    docs/AI-INSTALL.md 步驟 2 做，本節刻意不複述**。
 #    （先前這裡抄了一份「為什麼要跑第二道」的理由，共用模組上線後它就過時了
 #    —— 那正是不該複述的原因。）
-# 4. 驗證（linux/ 每次 push 都跑 ubuntu-latest CI，這裡是驗你這台機器的安裝結果）：
+# 4. 驗證（凍結前的說明：linux/ 每次 push 都跑 ubuntu-latest CI；綠燈不構成支援。這裡是驗你這台機器的安裝結果）：
 node "$HOME/.claude/skills/超級模式/tests/run-gate-tests.js"        # 應全數 PASS（案例數見 gate-cases.json）
 node "$HOME/.claude/skills/超級模式/tests/matcher-contract.test.js" --live # ★ 必跑，見下方說明
 bash "$HOME/.claude/skills/超級模式/tests/run-e2e.sh"               # 應全數 passed
@@ -262,7 +271,7 @@ node "$env:USERPROFILE\.claude\skills\超級模式\tests\matcher-contract.test.j
 
 hook **在啟用前是 fail-open 且停用的** — 安裝它不會影響一般 session；只有在 `super-mode.{sh,ps1} on` 之後才會作用。
 
-**（建議的最後一步）啟用「Codex 討論夥伴」全域規則**（行為說明見開頭「兩個並列能力」第 2 點）：把對應平台的 `CLAUDE-global-rule.md`（[`macos/`](macos/CLAUDE-global-rule.md)、[`linux/`](linux/CLAUDE-global-rule.md)、[`windows/`](windows/CLAUDE-global-rule.md)）**全文** append 到你的 `~/.claude/CLAUDE.md`（已有 `CODEX-DISCUSSION-PARTNER` marker 就別重複加；完整防護與冪等細節見 [`docs/AI-INSTALL.md`](docs/AI-INSTALL.md) 步驟 5）。前提是 Codex CLI 已登入可用（步驟 4 的 `codex-check`）。
+**（建議的最後一步）啟用「Codex 討論夥伴」全域規則**（行為說明見開頭「兩個並列能力」第 2 點）：把對應平台的 `CLAUDE-global-rule.md`（[`macos/`](macos/CLAUDE-global-rule.md)、[`windows/`](windows/CLAUDE-global-rule.md)；Linux 已凍結：[`linux/`](linux/CLAUDE-global-rule.md)）**全文** append 到你的 `~/.claude/CLAUDE.md`（已有 `CODEX-DISCUSSION-PARTNER` marker 就別重複加；完整防護與冪等細節見 [`docs/AI-INSTALL.md`](docs/AI-INSTALL.md) 步驟 5）。前提是 Codex CLI 已登入可用（步驟 4 的 `codex-check`）。
 
 ## 環境假設（請依你的機器調整）
 
@@ -270,7 +279,7 @@ hook **在啟用前是 fail-open 且停用的** — 安裝它不會影響一般 
 - `codex` 實際位置：Homebrew npm global（`/opt/homebrew/lib/node_modules/@openai/codex`）。
 - 路徑等價已處理：gate 會把 `/private/tmp` ↔ `/tmp`、`/private/var` ↔ `/var` 正規化，讓 Claude Code 的 scratchpad（`/private/tmp/claude-*`）被正確當成豁免的暫存路徑。
 
-**Linux**
+**Linux**（🧊 已凍結；以下只是凍結快照的參考）
 - GNU coreutils（腳本用 `stat -c`；Alpine/BusyBox 請自行確認）；`codex` 常見於 `~/.local/bin`（npm global）。
 - **node 不一定在 PATH**：可攜式安裝（如 `~/.local/node/bin`）的機器，settings 裡的 hook 指令請用 node 的絕對路徑——PATH 找不到 node 時 hook 會**靜默不跑、gate 形同虛設**。部署後用一次故意違規的 Write 驗證 gate 真的會 deny。
 
@@ -288,7 +297,7 @@ hook **在啟用前是 fail-open 且停用的** — 安裝它不會影響一般 
 - Claude 的寫檔工具產生的是**無 BOM** 的 UTF-8；PowerShell 5.1 讀無 BOM 的含中文 `.ps1` 會亂碼。改完任何 `.ps1` 後，要重新補上 UTF-8 BOM 並重新驗證語法（見 [`docs/history/FIX-PLAN-windows-2026-07-02.md`](docs/history/FIX-PLAN-windows-2026-07-02.md) §0.5）。
 - 簡報透過 `cmd /s /c "... < file"` 餵給 Codex，因為 PS 5.1 的 `$OutputEncoding` 對 native pipe 不生效（非 ASCII 會變成 `?`）。
 
-**macOS / Linux**
+**macOS / Linux**（Linux 已凍結；與 Linux 有關的條目只是凍結快照的參考）
 - 沒有 BOM 問題 — 那些步驟已刻意移除。簡報以一般 stdin 重導向（`< file`）送給 Codex；stderr 收到獨立檔再併進 log（絕不用 `2>&1`，那會把 Codex 的雜訊回灌進 Claude 的 context）。
 - `set -e` + pipeline 會吞掉 Codex 的 exit code — 腳本用固定的 `set +e … ${PIPESTATUS[0]} … set -e` 寫法（見 [`docs/history/FIX-PLAN-macos-2026-07-03.md`](docs/history/FIX-PLAN-macos-2026-07-03.md) §0.5）。
 - macOS ↔ Linux 的**共通**差異是 `stat`（BSD `-f %m` vs GNU `-c %Y`，在 `codex-check.sh` 與 `super-mode.sh`）——別把版本拿錯邊。

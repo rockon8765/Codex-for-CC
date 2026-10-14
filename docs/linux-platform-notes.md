@@ -1,5 +1,9 @@
 # 超級模式 — Linux 平台差異與部署注意事項
 
+> 🧊 **已凍結（2026-10-14）。** 使用者裁決 LTS 只做 Windows 與 macOS，Linux 凍結：不提供支援、不修、不驗收、不為 parity 同步（[備忘 §8](DECISION-MEMO-lts-2026-09-30.md#lts-decision-2026-10-14)、[`LTS-ADMISSION-PLAN.md`](LTS-ADMISSION-PLAN.md#linux-freeze)）。
+> 本文件從此是**凍結快照的參考**，對應最終快照 tag `pre-lts`（＝`80c60a8`，與 LTS 前的凍結快照同一個 tag；tag 尚未建立，建立與 push 都要使用者同意，**tag 建立前請用 commit `80c60a8`**）。下面寫的「現行參考」「安裝或修改 `linux/` 之前先讀」等字樣都是凍結前的描述；現在不得修改 `linux/`，只剩 LTS 凍結第二階段的整樹刪除。
+> 路徑保留不搬，避免既有連結失效。
+
 > **這份是現行參考，不是史料。** 記錄 Linux 版與 macOS 版的實際差異、Linux 專屬的部署坑、
 > 以及最近一次原生驗證的結果。安裝或修改 `linux/` 之前先讀 §3。
 > （2026-07-27 從 `linux/skills/超級模式/FIX-PLAN.md` 移出——它不該躺在會被整個目錄複製到

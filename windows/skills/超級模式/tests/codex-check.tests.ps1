@@ -1,9 +1,33 @@
-﻿# codex-check.ps1 合成測試臺（Windows / PowerShell 5.1）。
-# 用法: powershell.exe -NoProfile -ExecutionPolicy Bypass -File codex-check.tests.ps1 [測試名…]；無參數跑全部。
+﻿# codex-check.ps1 合成測試臺（Windows；受測 host 可選 Windows PowerShell 5.1 或 pwsh 7）。
+# 用法: powershell.exe -NoProfile -ExecutionPolicy Bypass -File codex-check.tests.ps1 [-Shell powershell|pwsh] [測試名…]
+#       無測試名＝跑全部；不給 -Shell ＝ powershell（與 2026-10-14 之前寫死 powershell.exe 的行為相同）。
 # ⚠️ 本 host（mac）無 powershell.exe / cmd.exe → 無法在此執行；權威執行留給 Windows 原生 session（promote gate）。
 # 原理: USERPROFILE 指到暫存 fakeHome（隔離快取）；seam env（CODEX_CHECK_*_CMD）注入 stub、不靠 PATH；
-#       每案以獨立子行程 powershell.exe -File 跑真 SUT（SUT 內含 exit，同行程會殺 runner）。
+#       每案以獨立子行程 <受測 host> -File 跑真 SUT（SUT 內含 exit，同行程會殺 runner）。
 # 反打 live: 每案斷言 stub trace 與 SUT 輸出都不含 C:\npm。
+#
+# ── 受測 host（-Shell，2026-10-14 LTS C3）──────────────────────────────────────
+# 先前 SUT 一律以 powershell.exe 啟動 ⇒ 從 pwsh 啟動本 runner **不代表** SUT 在 pwsh 跑過
+# （docs/backlog.md 的 CODEX-CHECK-WARNING、DECISION-MEMO-lts-2026-09-30 §「LTS 建置線」）。
+# 所以 SUT host 改由 -Shell 決定，並在跑任何案例之前做**自檢**：真的啟動一次受測 host、
+# 讓它自報 PSEdition／PSVersion，對不上就 FAIL 並不跑案例。自報結果印成
+#   CODEX-CHECK-SUT-HOST=<-Shell> <PSEdition> <PSVersion> path=<實際執行檔>
+# run-windows-suite.ps1 的 marker 會同時要求這一行與 `TOTAL n FAIL 0` ——
+# 標籤（-Shell）不等於實際受測的東西，要用 child 自報的事實當證據。
+# ⚠️ 自檢與案例**共用同一個啟動點**（Invoke-SutProcess），並有 AST 守衛（Test-SutLaunchSite，
+#    斷言名 sut_launch_site）擋「把案例的啟動行換成寫死 host」。⚠️ 範圍只到這裡：另外新增的啟動路徑
+#    （Start-Process、[Diagnostics.Process]::Start、iex、cmd /c、絕對路徑、-f 縮寫）它擋不住，
+#    2026-10-15 審查以變異實測確認。2026-10-14 合併前審查實測：第一版的自檢走
+#    另一條探針路徑，把案例的啟動行改回寫死 powershell.exe 之後，pwsh 腿照樣全綠 —— 自檢量到的
+#    不是案例真正走的路，就不算證據。
+#
+# ⚠️ PositionalBinding=$false：測試名是位置參數（舊用法 `codex-check.tests.ps1 t_happy_path`），
+#    若讓 -Shell 吃位置參數，第一個測試名會被拿去當 -Shell 而撞 ValidateSet。
+[CmdletBinding(PositionalBinding = $false)]
+param(
+  [ValidateSet('powershell', 'pwsh')][string]$Shell = 'powershell',
+  [Parameter(ValueFromRemainingArguments = $true)][string[]]$Tests = @()
+)
 $ErrorActionPreference = 'Stop'
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
 $script:sut       = Join-Path $here '..\scripts\codex-check.ps1'
@@ -18,6 +42,16 @@ $script:tracePath = ''
 $script:currentTest = ''
 $script:fakeHomes = @()
 $script:origUserProfile = $env:USERPROFILE
+
+# 受測 host 先解析成絕對路徑（同 tests/ai-install/run-windows.ps1 的理由：executable 不存在時
+# `& $exe` 不會設定 $LASTEXITCODE，會沿用上一次的值 → 「找不到 host 卻判定成功」）。
+$script:sutExeName = if ($Shell -eq 'pwsh') { 'pwsh' } else { 'powershell' }
+$script:sutExe = $null
+try { $script:sutExe = (Get-Command $script:sutExeName -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source }
+catch {
+  Write-Output ("FAIL: 找不到受測 host '" + $script:sutExeName + "'（-Shell " + $Shell + "）：" + $_.Exception.Message)
+  exit 2
+}
 
 # 測試控制的 env 名單（每案先清、再套 override，避免跨案汙染）
 $stubVars = @('CODEX_STUB_VERSION','CODEX_STUB_VERSION_PREFIX','CODEX_STUB_SUPPORTS_LASTMSG',
@@ -256,6 +290,11 @@ function Setup {
 function CacheFile { return (Join-Path $script:fakeHome '.claude\.codex-check-last') }
 function BaselineFile { return (Join-Path $script:fakeHome '.claude\.codex-check-baseline') }
 
+# 唯一的 SUT 啟動點：案例（Invoke-Check）與 host 自檢（Test-SutHost）共用，
+# 自檢量到的才是案例真正走的那條路；Test-SutLaunchSite 以 AST 擋「繞過本函式直接啟動 SUT」。
+function Invoke-SutProcess([string]$File, [string[]]$SutArgv = @()) {
+  & $script:sutExe -NoProfile -ExecutionPolicy Bypass -File $File @SutArgv 2>&1
+}
 # 唯一進入點；stub 預設在此統一注入（後傳 hashtable 可覆寫；空字串=移除該 env=bash「定義但空」的 no-write 語義）。
 function Invoke-Check {
   param([string]$Mode, [hashtable]$Overrides = @{})
@@ -279,7 +318,8 @@ function Invoke-Check {
   # 那應該呈現為該案 FAIL 斷言，不是測試臺崩潰。
   $prevEap = $ErrorActionPreference
   $ErrorActionPreference = 'Continue'
-  $raw = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $script:sut @sutArgs 2>&1 | Out-String
+  # SUT host 由 -Shell 決定（見檔頭）；預設 powershell ＝ 舊行為（原本這裡寫死 powershell.exe）。
+  $raw = Invoke-SutProcess $script:sut $sutArgs | Out-String
   $script:rc = $LASTEXITCODE
   $ErrorActionPreference = $prevEap
   $script:out = $raw
@@ -683,10 +723,60 @@ $allTests = @(
   't_b_marketplace_identity_drift','t_b_hooks_unparseable','t_b_flag_incompat_cache_not_trusted'
 )
 
+# 受測 host 自檢：真的用 $script:sutExe 跑一支探針，讓 child 自報 PSEdition／PSVersion。
+# 用探針檔而非 -Command：WinPS 5.1 傳給 native 的引數若含雙引號會被拆壞（-Command 字串很容易踩到）。
+# 回傳 $true ＝ child 確實是 -Shell 宣稱的那個 host。
+function Test-SutHost {
+  $probe = Join-Path $stubRoot 'sut-host-probe.ps1'
+  [System.IO.File]::WriteAllText($probe, ('$PSVersionTable.PSEdition' + "`r`n" + '$PSVersionTable.PSVersion.ToString()' + "`r`n"), (New-Object System.Text.UTF8Encoding($true)))
+  $prevEap = $ErrorActionPreference
+  $ErrorActionPreference = 'Continue'
+  $global:LASTEXITCODE = $null
+  $lines = @(Invoke-SutProcess $probe | ForEach-Object { "$_".Trim() } | Where-Object { $_ })
+  $probeRc = $LASTEXITCODE
+  $ErrorActionPreference = $prevEap
+  $edition = if ($lines.Count -ge 1) { $lines[0] } else { '?' }
+  $version = if ($lines.Count -ge 2) { $lines[1] } else { '?' }
+  Write-Output ("runner host = " + $PSVersionTable.PSEdition + " " + $PSVersionTable.PSVersion.ToString() + " / -Shell = " + $Shell)
+  Write-Output ("CODEX-CHECK-SUT-HOST=" + $Shell + " " + $edition + " " + $version + " path=" + $script:sutExe)
+  $major = -1
+  try { $major = ([version]$version).Major } catch { $major = -1 }
+  $ok = ($probeRc -eq 0) -and $(if ($Shell -eq 'pwsh') { ($edition -eq 'Core') -and ($major -ge 7) } else { ($edition -eq 'Desktop') -and ($major -eq 5) })
+  if ($ok) { Assert 'sut_host' ("受測 host 自報 " + $edition + " " + $version + " 與 -Shell " + $Shell + " 相符") 0 }
+  else { Assert 'sut_host' ("受測 host 自報 " + $edition + " " + $version + "（rc=" + $probeRc + "）與 -Shell " + $Shell + " 不符") 1 }
+  return $ok
+}
+
+# AST 守衛：SUT 只能經 Invoke-SutProcess 啟動（否則 host 自檢與案例走不同路徑，自檢就不是證據）。
+function Test-SutLaunchSite {
+  $tok = $null; $perr = $null
+  $ast = [System.Management.Automation.Language.Parser]::ParseFile($script:testsFile, [ref]$tok, [ref]$perr)
+  $cmds = @($ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.CommandAst] }, $true))
+  $bad = @()
+  foreach ($c in $cmds) {
+    $inHelper = $false; $p = $c.Parent
+    while ($p) { if (($p -is [System.Management.Automation.Language.FunctionDefinitionAst]) -and ($p.Name -eq 'Invoke-SutProcess')) { $inHelper = $true; break }; $p = $p.Parent }
+    if ($inHelper) { continue }
+    $nm = [string]$c.GetCommandName()
+    $dyn = $c.CommandElements[0] -is [System.Management.Automation.Language.VariableExpressionAst]
+    $hasFile = @($c.CommandElements | Where-Object { ($_ -is [System.Management.Automation.Language.CommandParameterAst]) -and ($_.ParameterName -eq 'File') }).Count -gt 0
+    if (($nm -match '^(?i)(powershell|pwsh)(\.exe)?$') -or ($dyn -and $hasFile)) { $bad += ('L' + $c.Extent.StartLineNumber + ' ' + $c.Extent.Text) }
+  }
+  $via = @($cmds | Where-Object { $_.GetCommandName() -eq 'Invoke-SutProcess' }).Count
+  if (($bad.Count -eq 0) -and ($via -eq 2)) { Assert 'sut_launch_site' 'SUT 只經 Invoke-SutProcess 啟動（案例與 host 自檢同一路徑）' 0 }
+  else { Assert 'sut_launch_site' ('SUT 啟動點不唯一 via=' + $via + ' ' + ($bad -join ' | ')) 1 }
+}
+
 try {
   Assert-Bom $script:sut 'SUT'           # 檔頭 BOM 斷言（SUT 與 tests）
   Assert-Bom $script:testsFile 'tests'
-  $sel = if ($args.Count -gt 0) { $args } else { $allTests }
+  $sutHostOk = $false
+  # Test-SutHost 會 Write-Output 兩行證據再回傳布林：最後一個物件才是判定。
+  Test-SutHost | ForEach-Object { if ($_ -is [bool]) { $sutHostOk = $_ } else { Write-Output $_ } }
+  Test-SutLaunchSite
+  $sel = if ($Tests.Count -gt 0) { $Tests } else { $allTests }
+  # host 不對時跑案例沒有意義（量到的是別的 host）—— 直接停在這裡，TOTAL 會帶著那一條 FAIL。
+  if (-not $sutHostOk) { $sel = @() }
   foreach ($t in $sel) {
     if ($allTests -contains $t) { & $t }
     else { [Console]::Error.WriteLine("unknown test: $t"); exit 2 }

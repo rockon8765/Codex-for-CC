@@ -1,0 +1,333 @@
+# Windows 原生回歸 —— LTS 建置期的 C1（WINDOWS-CI）＋ C3（codex-check 受測 host 參數化）。
+#
+# 為什麼需要：Windows 側（run-windows-suite.ps1、tests/ai-install/run-windows.ps1）在此之前
+# 完全靠維護者在本機跑兩個 host（docs/backlog.md 的 WINDOWS-CI）。改壞了遠端沒有任何 gate 攔下。
+#
+# ⚠️ 這是「必要非充分」：GitHub 的 windows-2025 是 **Windows Server 2025**，不是 Windows 11 主力機。
+#    它取代不了 live 驗收（DECISION-MEMO-lts-2026-09-30 §「LTS 建置線」）。實際映像版本不寫死在註解裡，
+#    由各 job 的「證據」步驟量出來，存成 artifact（ImageOS、ImageVersion、OS build、host 版本）。
+#
+# ── 涵蓋範圍（別讀成「全部驗過」）──────────────────────────────────────────────
+#   ✅ run-windows-suite.ps1 -Mode repo（14 條：含 codex-check、consult-schema 的 pwsh／5.1 兩條腿，
+#      與 off-cleanup 的 pwsh／5.1 兩個 child host）；
+#      全套的 runner host 是 pwsh，5.1 當 runner host 只做 -Filter smoke（全套 5.1 runner 僅有本機證據）
+#   ✅ tests/ai-install/run-windows.ps1 與 run-mutation-controls.ps1，pwsh 與 Windows PowerShell 5.1 各一輪
+#      （run-mutation-controls.ps1 內部固定用 pwsh 跑受測的測試臺；matrix.host 只決定 controls runner 與 -Shell）
+#   ✅ 平台無關的頂層 node 測試（與 linux.yml 同一組）＋ windows 的 node 測試，node 22 與 24
+#   ✅ 所有 tracked .ps1 的 parser（7.x 與 5.1）、BOM、CRLF；hook／lib 的 node --check
+#   ✅ 8.3 短名守衛的變異注入（拿掉 realpath，class-b-8dot3 必須以正確理由變紅）
+#   ❌ **非 UTF-8 的 console code page**：所有測試都在 chcp 65001 下跑（理由見 .github/scripts/windows-ci.ps1
+#      的 Set-Utf8Console：2026-10-14 本機以 code page 437 實測，codex-check 的中文斷言會紅（SUT 中文輸出
+#      在 cp437 下變 '?'；是否屬產品缺陷待裁決，見 docs/backlog.md 的 CODEX-CHECK-CP437）。
+#   ❌ system ANSI code page 與維護機不同（runner 推論為 1252、維護機為 950），本 CI 無法涵蓋 950。
+#   ❌ live 安裝（-Mode live）、真的 codex、真的 Claude Code hook 呼叫、Windows 11、arm64。
+#   ❌ 以 5.1 當測試臺 host 時，run-windows.ps1 斷言本身的牙齒：run-mutation-controls.ps1:123 寫死用 pwsh
+#      跑受測測試臺（2026-10-15 審查指出）。抽出的產品區塊在 5.1 腿仍由 -Shell 在 5.1 執行。
+#
+# ── 守衛 ──────────────────────────────────────────────────────────────────────
+#   * 金絲雀 codex：C:\npm\codex.cmd（腳本寫死的預設路徑）與 PATH 最前面各一支，被叫到就留紀錄、回 97；
+#     收尾步驟（always）檢查紀錄必須為空、檔案未被改動。測試只能走 stub 接縫。
+#   * ~/.claude 前後都必須不存在：測試臺找不到 repo 內檔案時會 fallback 到 ~/.claude，
+#     那會變成「驗到安裝版而非待驗 bytes」的假綠。
+#   * action 一律釘完整 commit SHA（tag 可被重指）；permissions 只有 contents: read；不引用任何 secret。
+#
+# ── 驗收怎麼讀（計畫 S2）──────────────────────────────────────────────────────
+#   3 個不同 SHA 連續綠才算數；不得重跑到綠；flaky 一律算紅。所以這裡**刻意不設 concurrency**：
+#   設了 cancel-in-progress（或同 group 的 pending 互相取消）會讓某些 SHA 沒有完整結果。
+name: windows
+
+# ⚠️ 刻意**不設 paths 過濾**（2026-10-14 合併前審查）：只改 docs 的 SHA 若被跳過，(1) 准入條件 A1 的
+#    「RC SHA 綠」與「3 個不同 SHA 連續綠」就會碰到沒有 run 的 SHA（RC commit 很可能正是文件同步）；
+#    (2) 之後開 main 分支保護、把本 workflow 設成 required check 時，被 path filter 跳過的 required
+#    workflow 會一直停在 Pending，PR 無法合併（GitHub 文件「Troubleshooting required status checks」）。
+#    全跑約 10 分鐘，公開 repo 的 Actions 不收費。
+on:
+  push:
+    branches: [main, 'lts/build']
+  pull_request:
+    branches: [main, 'lts/build']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: pwsh
+
+env:
+  # 含中文的路徑只放在 env；run 區塊一律 ASCII（runner 把 run 區塊寫成暫存 .ps1，
+  # 5.1 讀它時的編碼本 repo 沒實測過，不賭）。
+  SKILL_TESTS: windows/skills/超級模式/tests
+
+jobs:
+  # ════════════════════════════════════════════════════════════════════════════
+  suite:
+    name: suite -Mode repo + lint + 8.3 mutation
+    runs-on: windows-2025
+    timeout-minutes: 40
+    steps:
+      # SHA 以 `gh api repos/actions/checkout/git/ref/tags/v7.0.1` 解析（2026-10-14），與 linux.yml 相同。
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # 只讀 repo、不推東西；不把 token 留在 git config 給後續任意步驟使用。
+          persist-credentials: false
+
+      # v7.0.0（`gh api repos/actions/setup-node/git/ref/tags/v7.0.0`，2026-10-14 解析；與 linux.yml 同一個 SHA）。
+      # 刻意不追 v7.1.0：它 2026-10-08 才發布，未滿兩週。
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22'
+          package-manager-cache: false
+
+      - name: 守衛：安裝金絲雀 codex
+        run: ./.github/scripts/windows-ci.ps1 -Action InstallCanary
+
+      - name: 守衛：preflight（~/.claude 不存在、PATH 第一個 codex 是金絲雀）
+        run: ./.github/scripts/windows-ci.ps1 -Action Preflight
+
+      - name: 證據：環境（OS build、ImageOS、ImageVersion、host 版本、code page、8dot3）
+        run: ./.github/scripts/windows-ci.ps1 -Action Evidence -Name suite
+
+      - name: lint（pwsh parser、BOM、CRLF、node --check）
+        run: ./.github/scripts/windows-ci.ps1 -Action Lint
+
+      - name: lint（Windows PowerShell 5.1 parser）
+        shell: powershell
+        run: ./.github/scripts/windows-ci.ps1 -Action Lint
+
+      # 只跑一次（計畫 S2）。runner host 用 pwsh；各條腿的受測 host 由 manifest 決定，
+      # 且 codex-check／consult-schema 的 marker 要求 child 自報的 host 行。
+      # entries／ran／skipped 在 YAML 端再釘一次：與 run-windows-suite.ps1 的 EXPECTED_ENTRIES、
+      # $EXPECTED 三處要一起改（只改腳本的話，這裡會紅）。
+      - name: run-windows-suite.ps1 -Mode repo（必須 SUITE_RESULT=OK、fail=0）
+        run: >-
+          ./.github/scripts/windows-ci.ps1 -Action Run -Name suite-repo -Exe pwsh
+          -ArgList @('-NoProfile', '-File', (Join-Path $env:SKILL_TESTS 'run-windows-suite.ps1'), '-Mode', 'repo')
+          -Require @('^SUITE_RESULT=OK$', '^run-windows-suite \[mode=repo\]: entries=14 ran=14 skipped=0 fail=0$')
+          -Forbid @('^FAIL  ')
+
+      # 2026-10-14 本機實測：以 Windows PowerShell 5.1 當 runner host 時，舊版 run-windows-suite.ps1
+      # **每一列**都因 Start-Process 的 ExitCode 取到 $null 而判 FAIL（連未改動的 HEAD 也一樣；已修，
+      # 見該檔 `.Handle` 註解）。全套上一步已用 pwsh 跑過（計畫：只跑一次），這裡只用 -Filter 跑最快的
+      # 一列，守住「5.1 當 runner host」這條機制。輸出是 FILTERED —— 不是驗收證據，本步驟只驗 runner。
+      - name: run-windows-suite.ps1 以 5.1 當 runner host 的 smoke（-Filter gate-cases）
+        run: >-
+          ./.github/scripts/windows-ci.ps1 -Action Run -Name suite-runner-winps51-smoke -Exe powershell
+          -ArgList @('-NoProfile', '-File', (Join-Path $env:SKILL_TESTS 'run-windows-suite.ps1'), '-Mode', 'repo', '-Filter', 'gate-cases')
+          -Require @('^gate-cases\s+OK\s', '^run-windows-suite \[mode=repo\]: entries=14 ran=1 skipped=0 fail=0$', '^SUITE_RESULT=FILTERED')
+          -Forbid @('^FAIL  ')
+
+      - name: 變異注入：8.3 短名（拿掉 realpath，class-b-8dot3 必須變紅）
+        run: ./.github/scripts/windows-ci.ps1 -Action Mutate8dot3
+
+      - name: 守衛：postflight（金絲雀未被叫到、~/.claude 仍不存在）
+        if: always()
+        run: ./.github/scripts/windows-ci.ps1 -Action Postflight
+
+      # v7.0.1（`gh api repos/actions/upload-artifact/git/ref/tags/v7.0.1`，2026-10-14 解析）。
+      # 刻意不追 v7.0.2：2026-10-07 才發布，未滿兩週。
+      - name: 上傳證據
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: windows-evidence-suite
+          path: ${{ runner.temp }}/ci-evidence/
+          if-no-files-found: error
+
+  # ════════════════════════════════════════════════════════════════════════════
+  ai-install:
+    name: ai-install harness (${{ matrix.host }})
+    runs-on: windows-2025
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        # pwsh = PowerShell 7；powershell = Windows PowerShell 5.1。
+        # run-windows.ps1 這一步：測試臺本身的 host 與 -Shell（抽出的區塊用哪個 host 跑）都設成同一個，
+        # 即 README 的兩種跑法。mutation-controls 那一步例外：受測測試臺固定用 pwsh 跑（見檔頭涵蓋範圍）。
+        host: [pwsh, powershell]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22'
+          package-manager-cache: false
+
+      - name: 守衛：安裝金絲雀 codex
+        run: ./.github/scripts/windows-ci.ps1 -Action InstallCanary
+
+      - name: 守衛：preflight
+        run: ./.github/scripts/windows-ci.ps1 -Action Preflight
+
+      - name: 證據：環境
+        run: ./.github/scripts/windows-ci.ps1 -Action Evidence -Name ai-install-${{ matrix.host }}
+
+      # 精確比對摘要行（含兩個空白）。126 與 run-windows.ps1 的 EXPECTED_CHECKS 要一起改：
+      # 測試臺自己也會擋「案數不符」，YAML 端再釘一次是為了防兩邊被同一個 commit 一起改小。
+      - name: tests/ai-install/run-windows.ps1（必須 PASS=126 FAIL=0）
+        run: >-
+          ./.github/scripts/windows-ci.ps1 -Action Run -Name ai-install-${{ matrix.host }} -Exe '${{ matrix.host }}'
+          -ArgList @('-NoProfile', '-File', 'tests/ai-install/run-windows.ps1', '-Shell', '${{ matrix.host }}')
+          -Require @('^${{ matrix.host }}  PASS=126  FAIL=0$')
+          -Forbid @('^  STOP ')
+
+      # 證明測試臺有牙齒：4 個 control 各自要「具名失敗集合 ＋ 精確 rc」都符合。
+      # 這裡只比對 ASCII 部分（`PASS  [<label>] rc=1`）；成功總結行是中文，不拿來當唯一證據。
+      - name: tests/ai-install/run-mutation-controls.ps1（4 個 control 全 PASS）
+        run: >-
+          ./.github/scripts/windows-ci.ps1 -Action Run -Name mutation-controls-${{ matrix.host }} -Exe '${{ matrix.host }}'
+          -ArgList @('-NoProfile', '-File', 'tests/ai-install/run-mutation-controls.ps1', '-Shell', '${{ matrix.host }}')
+          -Require @('^PASS  \[c1-step2-noop\] rc=1 ', '^PASS  \[c2-hook-premove\] rc=1 ', '^PASS  \[c3-minus-one-check\] rc=1 ', '^PASS  \[c4-settings-premove\] rc=1 ')
+          -Forbid @('^FAIL  \[')
+
+      - name: 守衛：postflight
+        if: always()
+        run: ./.github/scripts/windows-ci.ps1 -Action Postflight
+
+      - name: 上傳證據
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: windows-evidence-ai-install-${{ matrix.host }}
+          path: ${{ runner.temp }}/ci-evidence/
+          if-no-files-found: error
+
+  # ════════════════════════════════════════════════════════════════════════════
+  node:
+    name: node tests (node ${{ matrix.node }})
+    runs-on: windows-2025
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        # 計畫 S2：CI 跑 22 與 24；宣稱的 major 只限「live 驗收過、CI 也有覆蓋」的。
+        node: ['22', '24']
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ matrix.node }}
+          package-manager-cache: false
+
+      - name: 守衛：安裝金絲雀 codex
+        run: ./.github/scripts/windows-ci.ps1 -Action InstallCanary
+
+      - name: 守衛：preflight
+        run: ./.github/scripts/windows-ci.ps1 -Action Preflight
+
+      - name: 證據：環境
+        run: ./.github/scripts/windows-ci.ps1 -Action Evidence -Name node-${{ matrix.node }}
+
+      # ── windows/ 的 node 測試（suite 也會跑，但只在 node 22）────────────────────
+      - name: gate-cases 回歸
+        run: >-
+          ./.github/scripts/windows-ci.ps1 -Action Run -Name gate-cases -Exe node
+          -ArgList @((Join-Path $env:SKILL_TESTS 'run-gate-tests.js'))
+          -Require @('^PASS ([1-9]\d*)/\1$')
+
+      - name: matcher-contract --repo
+        run: >-
+          ./.github/scripts/windows-ci.ps1 -Action Run -Name matcher-contract -Exe node
+          -ArgList @((Join-Path $env:SKILL_TESTS 'matcher-contract.test.js'), '--repo')
+          -Require @('^RESULT_CODE=OK$')
+
+      # SKIP 不算過：suite 的 marker 也只認 `PASS`（8dot3 停用的 volume 會印 SKIP）。
+      - name: class-b 8.3 短名（真檔案系統）
+        run: >-
+          ./.github/scripts/windows-ci.ps1 -Action Run -Name class-b-8dot3 -Exe node
+          -ArgList @((Join-Path $env:SKILL_TESTS 'class-b-8dot3.test.js'))
+          -Require @('^PASS$')
+
+      # ── 平台無關的頂層測試（與 linux.yml 同一組；POSIX 專屬的 .sh 測試不在這裡）──
+      - name: probe-gate-registration 回歸
+        run: >-
+          ./.github/scripts/windows-ci.ps1 -Action Run -Name probe-gate-registration -Exe node
+          -ArgList @('tests/probe-gate-registration.test.js')
+          -Require @('^TOTAL ([1-9]\d*)  PASS \1  FAIL 0$')
+
+      # --strict：SKIP 也算失敗。它同時比對 windows／macos／linux 三份鏡像的 bytes（linux 凍結中仍存在）。
+      - name: gate-registration 共用模組回歸（--strict）
+        run: >-
+          ./.github/scripts/windows-ci.ps1 -Action Run -Name gate-registration -Exe node
+          -ArgList @('tests/gate-registration.test.js', '--strict')
+          -Require @('^TOTAL ([1-9]\d*)  PASS \1  FAIL 0  SKIP 0$')
+
+      - name: matcher-contract CLI 回歸
+        run: >-
+          ./.github/scripts/windows-ci.ps1 -Action Run -Name matcher-contract-cli -Exe node
+          -ArgList @('tests/matcher-contract-cli.test.js')
+          -Require @('^TOTAL ([1-9]\d*)  PASS \1  FAIL 0$')
+
+      # 摘要行中間那個詞是中文（「執行」），用 \S+ 帶過，不讓 run 區塊出現非 ASCII。
+      - name: probe 判定矩陣
+        run: >-
+          ./.github/scripts/windows-ci.ps1 -Action Run -Name probe-verdict-cases -Exe node
+          -ArgList @('tests/probe-verdict-cases.test.js')
+          -Require @('^TOTAL ([1-9]\d*)  \S+ \1  PASS \1  FAIL 0$')
+
+      - name: verdict oracle 單元測試
+        run: >-
+          ./.github/scripts/windows-ci.ps1 -Action Run -Name cli-outcome -Exe node
+          -ArgList @('tests/lib/cli-outcome.test.js')
+          -Require @('^TOTAL ([1-9]\d*)  PASS \1  FAIL 0$')
+
+      # 「TOTAL n  殺掉 n  漏掉 0」：兩個中文詞用 \S+ 帶過。
+      - name: 驗證資產的變異注入（牙齒檢查）
+        run: >-
+          ./.github/scripts/windows-ci.ps1 -Action Run -Name oracle-teeth -Exe node
+          -ArgList @('tests/oracle-teeth.test.js')
+          -Require @('^TOTAL ([1-9]\d*)  \S+ \1  \S+ 0$')
+
+      - name: readFileSync(目錄) 的 errno 診斷
+        run: >-
+          ./.github/scripts/windows-ci.ps1 -Action Run -Name diagnose-readdir-errno -Exe node
+          -ArgList @('tools/diagnose-readdir-errno.js')
+          -Require @('^READ_DIR_CODE=EISDIR$')
+
+      # ⚠️ 不能用 --strict：copy-phase-failure-rolls-back 靠 chmod 000 擋讀取，Windows 上恆為 SKIP
+      #    （測試自己標明「可能是 root 或 Windows」）。改成在 YAML 端釘**精確的 SKIP 集合**：
+      #    只准那一條 SKIP；symlink 案必須真的跑到（GitHub 的 Windows runner 以 runneradmin 執行，
+      #    推論可建 symlink；證據步驟的 can_create_symlink 會記錄實況）。
+      - name: backup-settings 回歸（只准 Windows 恆有的那一條 SKIP）
+        run: >-
+          ./.github/scripts/windows-ci.ps1 -Action Run -Name backup-settings -Exe node
+          -ArgList @('tests/backup-settings.test.js')
+          -Require @('^TOTAL ([1-9]\d*)  PASS \d+  FAIL 0  SKIP 1$', '^SKIP: copy-phase-failure-rolls-back')
+          -Forbid @('^SKIP: symlink-refused-and-no-partial')
+
+      - name: 禁止 $var 緊接多位元組字元
+        run: >-
+          ./.github/scripts/windows-ci.ps1 -Action Run -Name no-multibyte-varref -Exe node
+          -ArgList @('tests/no-multibyte-varref.test.js')
+          -Require @('^RESULT_CODE=OK$')
+
+      - name: consult-answer 判準 fixtures
+        run: >-
+          ./.github/scripts/windows-ci.ps1 -Action Run -Name consult-answer -Exe node
+          -ArgList @('tests/consult-answer.test.js')
+          -Require @('^CONSULT-ANSWER ([1-9]\d*)/\1$')
+
+      - name: consult-answer 牙齒（變異對照）
+        run: >-
+          ./.github/scripts/windows-ci.ps1 -Action Run -Name consult-answer-teeth -Exe node
+          -ArgList @('tests/consult-answer-teeth.test.js')
+          -Require @('^CONSULT-ANSWER-TEETH ([1-9]\d*)/\1$')
+
+      - name: 守衛：postflight
+        if: always()
+        run: ./.github/scripts/windows-ci.ps1 -Action Postflight
+
+      - name: 上傳證據
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: windows-evidence-node-${{ matrix.node }}
+          path: ${{ runner.temp }}/ci-evidence/
+          if-no-files-found: error
