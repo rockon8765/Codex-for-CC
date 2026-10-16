@@ -246,7 +246,7 @@
 | <a id="REQUIREMENTS-SANDBOX-OVERRIDE"></a>**⬜ 待裁決（新缺陷，2026-10-17）：受管 requirements 讓 `-s read-only` 被靜默放寬**（ID：`REQUIREMENTS-SANDBOX-OVERRIDE`；中） | **讀碼（`rust-v0.163.0` `core/src/config/mod.rs:2611-2626`、`:4988-4990`）＋上游 #47464（open）**：機器層 `requirements.toml` 定義 `[allowed_permission_profiles]` 時，consult 的 `-s read-only` 與所有 `sandbox_mode` 設定層都被忽略，改用 requirements 的 `default_permissions`（報告實例跑成 danger-full-access）；workaround `-c default_permissions=:read-only`。這段是平台無關的 core 程式碼（macOS 推論同樣適用）。維護機兩處 requirements 檔都不存在，但 cloud requirements、MDM、managed config 未盤——**檔案不存在≠沒有受管政策**。codex-check 不解析 smoke banner 的有效 `sandbox:`。 | 第 2 條：有效權限被靜默放寬到可寫（報告實例為 danger-full-access），動到 exec 的 `workspace-write` 邊界與 SKILL:10「靠 OS sandbox 圍堵」的前提（consult 唯讀本來就不宣稱） | 稽核 D2-a、§4.6 |
 | <a id="CODEX-NOTIFY-INHERIT"></a>**⬜ 待裁決（新缺陷，2026-10-17）：桌面 app 寫入的 notify／MCP／plugin 被 consult 與 exec 繼承**（ID：`CODEX-NOTIFY-INHERIT`；中） | 四層記錄。設定存在 **CONFIRMED**：`~/.codex/config.toml` 的 `notify = [codex-computer-use.exe, "turn-ended"]`、`[mcp_servers.node_repl]`、`unified-computer-use` plugin，都由桌面 app 寫入。讀碼路徑 **CONFIRMED**：`rust-v0.163.0` `hooks/src/legacy_notify.rs` 在每輪結束時於沙箱外 spawn notify，參數含 `input_messages` 與 `last_assistant_message`；#52645 證實 headless exec 繼承，維護者不打算改預設。實際程序啟動與副作用：**未量測**。consult／exec 沒清 notify，codex-check 也不盤點；LTS 計畫 V3 自查範圍與 §5.2 已知限制都沒涵蓋。隔離候選（皆未驗、彼此不能互相替代）：`-c notify=[]`、停用 `node_repl`／`unified-computer-use`、`--ignore-user-config`、獨立 `CODEX_HOME`。 | 第 2 條：consult／exec 的對話內容經沙箱外程序流出（讀碼；實際副作用未量測） | 稽核 D2-c、§4.3 |
 | <a id="WIN-SANDBOX-MULTILINE"></a>**⬜ `CANDIDATE`（2026-10-17）：Windows `workspace-write` 下多行指令寫到 workspace 外（上游 #53943）**（ID：`WIN-SANDBOX-MULTILINE`；高，待重現） | **CANDIDATE**：第三方單一報告（10/14，0 留言；0.162.0／0.162.1、gpt-6.1-sol；sandbox backend 未交代）。單行指令被擋，多行 PowerShell 指令卻能寫到 workspace 外並 exit 0；`codex sandbox` 直接跑同一指令則被擋。本機 0.163.0 前提吻合但未重現；read-only consult 是否受影響是推論。**使用者 2026-10-17 裁決：不重現**（原話「不重現 #53943。」），維持 CANDIDATE、追蹤上游。 | CANDIDATE，暫不分流；上游確認、維護者回應或他人重現時，依第 2 條分流（若屬實，可能動到 SKILL:10「靠 OS sandbox 圍堵」的前提）。使用者已裁決不重現，所以 W8（exec workspace-write 驗收）會在本項未釐清的狀態下進行，記錄在案 | 稽核 D3 |
-| <a id="CC-MODS-GATE-OVERRIDE"></a>**⬜ 待裁決（新缺陷，2026-10-17）：Claude Mods 可推翻或短路 gate，現有驗證工具偵測不到**（ID：`CC-MODS-GATE-OVERRIDE`；中） | **CONFIRMED（官方 permissions／mods 文件）**：CC 2.1.287 起 mods 預設開啟。使用者自裝、處理 `tool.check` 的 mod 可把非 managed PreToolUse hook 的 exit 2 改判核准（auto mode 下還會跳過 classifier）；`tool.call` 中介鏈排在 settings hook 之前，mod 不呼叫 `next` 時 gate 不會被叫起；mod 以 `$.tool.register` 註冊的 `mcp__<plugin>__*` 工具命中 matcher 卻不進 gate（推論）。`probe-gate-registration`／`matcher-contract --live` 只驗 settings 層。2026-10-17 查本機 CLI plugin cache 與 Desktop local-agent-mode plugins，都沒有 `tool.check` mod。SKILL 已補事實訂正（本節 C 的 F3）。 | 第 3 條（姿態 A：gate 不是安全邊界） | 稽核 D6 |
+| <a id="CC-MODS-GATE-OVERRIDE"></a>**⬜ 待裁決（新缺陷，2026-10-17）：Claude Mods 可推翻或短路 gate，現有驗證工具偵測不到**（ID：`CC-MODS-GATE-OVERRIDE`；中） | **CONFIRMED（官方 permissions／mods 文件）**：CC 2.1.287 起 mods 預設開啟。使用者自裝、處理 `tool.check` 的 mod 可把非 managed PreToolUse hook 的 exit 2 改判核准（auto mode 下還會跳過 classifier）；`tool.call` 中介鏈排在 settings hook 之前，mod 不呼叫 `next` 時 gate 不會被叫起；mod 以 `$.tool.register` 註冊的 `mcp__<plugin>__*` 工具命中 matcher 卻不進 gate（推論）。`probe-gate-registration`／`matcher-contract --live` 只驗 settings 層。2026-10-17 查本機 CLI plugin cache 與 Desktop local-agent-mode plugins，都沒有 `tool.check` mod。SKILL 已補事實訂正（本節 C 的 DF3）。 | 第 3 條（姿態 A：gate 不是安全邊界） | 稽核 D6 |
 | <a id="WIN-CMD-NODE-CWD"></a>**⬜ 待裁決（新缺陷，2026-10-17）：Windows 腳本經 cmd.exe 解析裸名 `node`，會執行呼叫端 cwd 裡的 `node.*`**（ID：`WIN-CMD-NODE-CWD`；低） | **CONFIRMED（shim 層無害實測）**：consult／exec／check（`codex-consult.ps1:35/:305`、`codex-exec.ps1:33/:181`、`codex-check.ps1:60/77/96/122/475`）以 `cmd.exe /d /s /c C:\npm\codex.cmd` 呼叫；shim 同目錄沒有 `node.exe` 時用裸名 `node`，cmd.exe 先搜**呼叫端的 cwd**（不是 `-Dir`），`node.exe`／`.com`／`.bat`／`.cmd` 都會命中。Claude Code 啟動時自設 `NoDefaultCurrentDirectoryInExePath=1`，CC 內受保護；在 CC 之外手動執行（含 AI-INSTALL 步驟 4 的 codex-check）不受保護。與 GHSA-4p2j（Desktop 以裸名執行 git.exe）同型。macOS 不經 cmd.exe。 | 第 2 條（暫定）：腳本也可能在 CC 之外被手動執行（例如使用者自行跑 codex-check），屬 security；若裁定 CC 外手動執行不在宣稱範圍，改第 3 條 | 稽核 §4.5 |
 | <a id="WIN-SANDBOX-LOOPBACK"></a>**⬜ `CANDIDATE`（2026-10-17）：Windows elevated sandbox 不擋 loopback（上游 #48856）**（ID：`WIN-SANDBOX-LOOPBACK`；低～中） | **CANDIDATE**：0.157.1 的報告，10/11 留言在 0.162.1 觀察到類似現象，根因未證實。repo 沒有「無網路」宣稱；但連到有權限的本機服務時副作用可能較大（推論），不能只因「只在本機」就判低。 | 第 3 條，除非確認有受影響的本機服務 | 稽核 §6.2 |
 | <a id="SENDUSERFILE-SURFACE"></a>**⬜ 待裁決（新缺陷，2026-10-17）：`SendUserFile`、`ShareOnboardingGuide` 不在 matcher**（ID：`SENDUSERFILE-SURFACE`；低） | **CONFIRMED（官方 tools reference）**：`SendUserFile` 經 Anthropic 託管基礎設施把 session 內的檔案送到使用者裝置，不需權限確認（Remote Control／cloud session）；`ShareOnboardingGuide` 上傳 `ONBOARDING.md` 並回傳分享連結（需權限確認；本 session 工具面沒有）。兩平台 matcher 都沒列。7 月計畫「只送檔案進同一對話、非外發」的前提要改寫。 | 第 3 條：matcher 未涵蓋的內建工具（姿態 A），併入既有的「攔截面以 matcher 為界」已知限制 | 稽核 §3.1 工具面 |
@@ -280,23 +280,25 @@
 
 ### C. DOC-FIX（2026-10-17 已做）
 
+編號 DF1–DF12 對應稽核 §6.1（原寫 F1–F12，和准入計畫 MUST 的 F 編號撞名，2026-10-17 改名）。
+
 只改事實敘述；稽核 §6.1 右欄的規則部分都沒動。`linux/` 未動；`~/.claude/skills/超級模式/` 的安裝副本未同步這批訂正（F1 本機 10/14 已有對應內容）。
 
 | 項目 | 位置 |
 |---|---|
-| ✅ F1 ultracode 只在 2.1.267–2.1.283 受 effort 上限影響 | 兩平台 `SKILL.md` §0（:26） |
-| ✅ F2 consult 耗時樣本標籤更正；「超時自動轉背景」的例外與 2.1.300 退出行為 | 兩平台 `SKILL.md` §3（:44） |
-| ✅ F3 mods 可推翻或短路 gate | 兩平台 `SKILL.md` 檔頭定位（:10）、§3.5（:56） |
-| ✅ F4 Daybreak 文案只在 TUI；headless 的實際文案 | 兩平台 `SKILL.md`（:77） |
-| ✅ F5 「省略時跟隨 session」的例外 | 兩平台 `SKILL.md` §5（:70） |
-| ✅ F6 `worktrees` 0.156.0 起 stable、與 `--ephemeral` 互斥 | `windows/…/orchestration.md:167`、`macos/…/orchestration.md:161`；本檔 `E19`、B16 完成註 |
-| ✅ F7 Windows gate 不輸出 `permissionDecision` | `README.md` 平台表 |
-| ✅ F8 hook 啟動失敗是 non-blocking error，不是完全靜默 | `docs/AI-INSTALL.md`（可攜式 node 那條） |
-| ✅ F9 9/14 稽核 (a)–(i)（(h)(i) 是審查時補上，與 F4、F11 同一批事實） | `AUDIT-upstream-drift-2026-09-14.md` 檔頭訂正註（原文不改；行號指加註前的原文） |
-| ✅ F10 9/6 稽核 D2 的樣本標籤 | `AUDIT-upstream-drift-2026-09-06.md` 檔頭訂正註（原文不改） |
-| ✅ F11 2.1.273 撤回了 2.1.268 的 deny 檢查 | 本檔 [`GATE-ENV-PREFIX`](#GATE-ENV-PREFIX) |
-| ✅ F12 原始碼行號加註版本 tag | 本檔 `EXEC-NO-SUBAGENTS` 的 `config/mod.rs`、`spec_plan.rs` 兩處加註 `rust-v0.154.0`；`ACCEPTANCE-capability-boundary-2026-09-14.md` §3 標題本來就標了 `rust-v0.154.0`，只補 `rust-v0.163.0` 的對應位置 |
-| ✅ F8 的同型敘述（§6.1 範圍外，使用者同意一併訂正） | `windows/…/orchestration.md:147`（另補 2.1.299 無 Git Bash 的例外）、`README.md` 兩處 Linux 段 |
+| ✅ DF1 ultracode 只在 2.1.267–2.1.283 受 effort 上限影響 | 兩平台 `SKILL.md` §0（:26） |
+| ✅ DF2 consult 耗時樣本標籤更正；「超時自動轉背景」的例外與 2.1.300 退出行為 | 兩平台 `SKILL.md` §3（:44） |
+| ✅ DF3 mods 可推翻或短路 gate | 兩平台 `SKILL.md` 檔頭定位（:10）、§3.5（:56） |
+| ✅ DF4 Daybreak 文案只在 TUI；headless 的實際文案 | 兩平台 `SKILL.md`（:77） |
+| ✅ DF5 「省略時跟隨 session」的例外 | 兩平台 `SKILL.md` §5（:70） |
+| ✅ DF6 `worktrees` 0.156.0 起 stable、與 `--ephemeral` 互斥 | `windows/…/orchestration.md:167`、`macos/…/orchestration.md:161`；本檔 `E19`、B16 完成註 |
+| ✅ DF7 Windows gate 不輸出 `permissionDecision` | `README.md` 平台表 |
+| ✅ DF8 hook 啟動失敗是 non-blocking error，不是完全靜默 | `docs/AI-INSTALL.md`（可攜式 node 那條） |
+| ✅ DF9 9/14 稽核 (a)–(i)（(h)(i) 是審查時補上，與 DF4、DF11 同一批事實） | `AUDIT-upstream-drift-2026-09-14.md` 檔頭訂正註（原文不改；行號指加註前的原文） |
+| ✅ DF10 9/6 稽核 D2 的樣本標籤 | `AUDIT-upstream-drift-2026-09-06.md` 檔頭訂正註（原文不改） |
+| ✅ DF11 2.1.273 撤回了 2.1.268 的 deny 檢查 | 本檔 [`GATE-ENV-PREFIX`](#GATE-ENV-PREFIX) |
+| ✅ DF12 原始碼行號加註版本 tag | 本檔 `EXEC-NO-SUBAGENTS` 的 `config/mod.rs`、`spec_plan.rs` 兩處加註 `rust-v0.154.0`；`ACCEPTANCE-capability-boundary-2026-09-14.md` §3 標題本來就標了 `rust-v0.154.0`，只補 `rust-v0.163.0` 的對應位置 |
+| ✅ DF8 的同型敘述（§6.1 範圍外，使用者同意一併訂正） | `windows/…/orchestration.md:147`（另補 2.1.299 無 Git Bash 的例外）、`README.md` 兩處 Linux 段 |
 | ✅ Windows `SKILL.md:10`「它 fail-open」的 2.1.299 例外（§6.1 範圍外，使用者同意一併訂正） | 只改 Windows；macOS 沒有 Git Bash 這個條件 |
 
 <a id="drift-1017-decisions"></a>

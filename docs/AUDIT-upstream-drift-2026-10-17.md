@@ -25,7 +25,7 @@
 
 **已降為歷史故障**：Codex 0.162.1 期間 Windows consult 的 shell 工具大量失敗（10/12–10/15 全部 16 份 consult 逐字稿都有 `exec_command failed … helper_unknown_error: setup refresh had errors`；0.160.1 沒有；上游 #54405 維護者 10/16 稱 0.163.0 已修）。本輪 0.163.0 consult 實測：13 次 shell 呼叫都沒有 helper 錯誤（12 次 exit 0，1 次是指令本身 exit 1；§8）。保留為回歸觀察；若在目標 tuple 再現並阻擋必要查證，立即升回前列（可能碰 MVS-2）。
 
-9/14 稽核本身有 9 處、9/6 稽核有 1 處事實需要加 dated erratum（§6.1 F9、F10；F9 的 (h)(i) 是審查時補上的）。
+9/14 稽核本身有 9 處、9/6 稽核有 1 處事實需要加 dated erratum（§6.1 DF9、DF10；DF9 的 (h)(i) 是審查時補上的）。
 
 ---
 
@@ -194,35 +194,37 @@ consult／exec 沒有清 notify，codex-check 也不盤點。上游維護者給�
 
 ## 6. 對 repo 的影響（依 LTS 建置期授權分桶；**稽核當下全部未執行**）
 
-> **執行紀錄（2026-10-17，使用者裁決後）**：§6.1 F1–F12 只做了事實部分（右欄規則部分未動；`linux/` 未動；F9 依審查補了 (h)(i)，與 F4、F11 同一批事實）；§6.2、§6.3 已登錄進 [`backlog.md`](backlog.md#drift-1017)。使用者對 §6.5 的三項裁決：consult 固定 effort `high` 並設 `agents.enabled=false`——落實在本機 fork 的 `codex-consult.ps1`（repo 與 `~/.codex/config.toml` 都未改），live consult banner 為 `reasoning effort: high`，另一次要求它嘗試派子代理的 consult 自述沒有任何子代理工具、未嘗試；不重現 #53943；接受 codex-check 新外掛清單（已備份舊檔後 `-UpdateBaseline`，`UPDATE_BASELINE=OK`；這也一併寫入 features +14／−3，該部分使用者同日追認）。§6.1 範圍外、經使用者同意一併訂正的同型事實：`windows/…/orchestration.md:147`、`README.md` 兩處 Linux 段的「靜默不跑」，以及 Windows `SKILL.md:10`「它 fail-open」的 2.1.299 例外。細節見 backlog「10/17 登錄」D 段。
+> **執行紀錄（2026-10-17，使用者裁決後）**：§6.1 DF1–DF12 只做了事實部分（右欄規則部分未動；`linux/` 未動；DF9 依審查補了 (h)(i)，與 DF4、DF11 同一批事實）；§6.2、§6.3 已登錄進 [`backlog.md`](backlog.md#drift-1017)。使用者對 §6.5 的三項裁決：consult 固定 effort `high` 並設 `agents.enabled=false`——落實在本機 fork 的 `codex-consult.ps1`（repo 與 `~/.codex/config.toml` 都未改），live consult banner 為 `reasoning effort: high`，另一次要求它嘗試派子代理的 consult 自述沒有任何子代理工具、未嘗試；不重現 #53943；接受 codex-check 新外掛清單（已備份舊檔後 `-UpdateBaseline`，`UPDATE_BASELINE=OK`；這也一併寫入 features +14／−3，該部分使用者同日追認）。§6.1 範圍外、經使用者同意一併訂正的同型事實：`windows/…/orchestration.md:147`、`README.md` 兩處 Linux 段的「靜默不跑」，以及 Windows `SKILL.md:10`「它 fail-open」的 2.1.299 例外。細節見 backlog「10/17 登錄」D 段。
 
 ### 6.1 DOC-FIX 候選（文件事實訂正，屬 AGENTS.md 授權 5；改 `windows/`＋`macos/`，`linux/` 不動）
+
+> 編號說明（2026-10-17）：本節原用 F1–F12，和[准入計畫 §5.1](LTS-ADMISSION-PLAN.md#must) 的 MUST 編號 F1、F2、F4、F11、F12 撞名，已改為 DF1–DF12。
 
 本輪是使用者要求的唯讀稽核，所以沒有動任何既有文件。純事實訂正本身在 `lts/build` 已在授權內，不需要另設核准門檻；但**要逐句拆開「事實」與「規則」**（採 Codex 反方第 9 點）——同一列裡的規則部分不屬授權 5，要另列給使用者裁決：
 
 | 項目 | 可作事實訂正 | 屬規則變更、不在授權 5 的部分 |
 |---|---|---|
-| F1 Ultracode | 補適用版本與「2.1.284 起獨立開關」事實 | 撤除或改寫「啟用前先確認上限」這類指令 |
-| F2 背景執行 | 補時限、例外與版本；耗時標籤更正 | 改「照常等通知」「一律背景」，或加入重試／中止流程 |
-| F3 Mods | 補「非 managed hook 會被 mod 推翻／短路」的限制 | 改裝 managed hook、要求停用 mod、改拒絕後的行動 |
-| F5 model／effort | 補繼承例外 | 改為指定 model／effort |
-| F4 Daybreak | 訂正 TUI／headless 文案 | 改拒答判準、fallback 或重試政策 |
-| F6–F12 日期、耗時標籤、README 機制、worktree 狀態、歷史 erratum | 全部 | 若要接新操作流程，另算 |
+| DF1 Ultracode | 補適用版本與「2.1.284 起獨立開關」事實 | 撤除或改寫「啟用前先確認上限」這類指令 |
+| DF2 背景執行 | 補時限、例外與版本；耗時標籤更正 | 改「照常等通知」「一律背景」，或加入重試／中止流程 |
+| DF3 Mods | 補「非 managed hook 會被 mod 推翻／短路」的限制 | 改裝 managed hook、要求停用 mod、改拒絕後的行動 |
+| DF5 model／effort | 補繼承例外 | 改為指定 model／effort |
+| DF4 Daybreak | 訂正 TUI／headless 文案 | 改拒答判準、fallback 或重試政策 |
+| DF6–DF12 日期、耗時標籤、README 機制、worktree 狀態、歷史 erratum | 全部 | 若要接新操作流程，另算 |
 
 | # | 位置 | 現文 → 事實 |
 |---|---|---|
-| F1 | 兩平台 `SKILL.md:26` | 「2.1.267 起 maxEffortLevel 低於 xhigh 會關 ultracode」→ 只適用 2.1.267–2.1.283；2.1.284 起 ultracode 是獨立開關，只在 workflows 被關或模型不支援 xhigh 時不可用（本機安裝副本 10/14 已改，可直接回填） |
-| F2 | 兩平台 `SKILL.md:44` | 「gpt-6-astra／effort high 下 8–30 分鐘」標籤錯（見 §4.1）；「超時自動轉背景、等通知」補三個限定：unattended session 30 分鐘時限（文字 `-p` 10 分鐘，從轉入起算）、`CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1` 不轉背景、前景子代理的背景指令隨子代理結束而停 |
-| F3 | 兩平台 `SKILL.md:10`、`:56`（§3.5） | 「硬性強制」補但書：使用者自裝的 `tool.check` mod 可把 gate 的 exit 2 改判放行，`tool.call` mod 可讓 gate 不被叫起；只有 managed settings 的 hook 是最終決定（CC 2.1.287+） |
-| F4 | 兩平台 `SKILL.md:77` | 引用的「Daybreak isn't available for Astra…」只出現在 TUI；headless consult 看到的是 `ERROR: <伺服器 CyberPolicy 訊息>`（後備文案「This request has been flagged for possible cybersecurity risk.」）。#45327 內文其實沒有這個字串 |
-| F5 | 兩平台 `SKILL.md:70` | 「省略時都跟隨 session」補例外：自訂子代理 frontmatter、`CLAUDE_CODE_SUBAGENT_MODEL`、`CLAUDE_CODE_EFFORT_LEVEL`（優先於 frontmatter 與 2.1.292 per-call effort）、2.1.296 `CLAUDE_CODE_WORKFLOW_SUBAGENT_MODEL` |
-| F6 | 兩平台 `orchestration.md:167`／`:161`；backlog E19、B16 完成註 | 「Codex 0.156 有原生 `--worktree`（experimental）」→ 0.156.0 起 stable 且預設開；`--worktree` 不能與 `--ephemeral`／`--ignore-user-config` 併用，`exec resume`／`exec review` 會拒絕 |
-| F7 | `README.md:38` | 平台表寫 Windows gate 用「`permissionDecision` / exit 2」→ Windows gate 沒有 `permissionDecision`（只 stderr＋exit 2），與 macOS 相同 |
-| F8 | `docs/AI-INSTALL.md:362` | 「靜默不跑」→ 預設下會出現 non-blocking `hook error` 提示（該段屬 Linux／macOS 可攜式 node） |
-| F9 | 9/14 稽核（**只加 dated erratum，原文不改**；行號指加註前 `06b0bab` 的原文） | (a) :22／:63／:178 Astra blog 日期 9/4 → Sep 11；(b) :80／:188 「2.1.269 起背景 PowerShell 跨 session 存活」→ 2.1.300 起退出即清理；(c) :83「背景 subagent 沒有 Agent 工具」→ 只有 Workflow 那一半成立；(d) :56／:183「exec／resume／fork／review 都新增 `--worktree`」→ resume／review 執行期會 bail；(e) :58 `exec review --output-schema` → 讀碼顯示 review 路徑沒用 output_schema；(f) :59 分模型建議在快照中找不到；(g) :60 「靜默跳過」→ 記錄但不阻擋；(h) :64 Daybreak 文案只見於 #45316、且是 TUI 文案（同 F4）；(i) :79 「2.1.268 修了 env -C／eval」→ 2.1.273 已撤回（同 F11） |
-| F10 | 9/6 稽核 D2（dated erratum） | 28 份逐字稿標成 gpt-6-astra／ultra 有誤（實為 gpt-5.6-sol/ultra 25 次、astra/xhigh 2 次、astra/ultra 1 次） |
-| F11 | backlog `GATE-ENV-PREFIX` | 「CC 2.1.268 修了 env -C／eval 的 deny 繞過」→ 2.1.273 撤回了 2.1.268 的這項變更 |
-| F12 | backlog／驗收文件的原始碼行號 | `config/mod.rs:1564-1571`、`spec_plan.rs:648-650` 加註 `rust-v0.154.0`（0.163.0 為 `:1637-1664`、`:728-730`） |
+| DF1 | 兩平台 `SKILL.md:26` | 「2.1.267 起 maxEffortLevel 低於 xhigh 會關 ultracode」→ 只適用 2.1.267–2.1.283；2.1.284 起 ultracode 是獨立開關，只在 workflows 被關或模型不支援 xhigh 時不可用（本機安裝副本 10/14 已改，可直接回填） |
+| DF2 | 兩平台 `SKILL.md:44` | 「gpt-6-astra／effort high 下 8–30 分鐘」標籤錯（見 §4.1）；「超時自動轉背景、等通知」補三個限定：unattended session 30 分鐘時限（文字 `-p` 10 分鐘，從轉入起算）、`CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1` 不轉背景、前景子代理的背景指令隨子代理結束而停 |
+| DF3 | 兩平台 `SKILL.md:10`、`:56`（§3.5） | 「硬性強制」補但書：使用者自裝的 `tool.check` mod 可把 gate 的 exit 2 改判放行，`tool.call` mod 可讓 gate 不被叫起；只有 managed settings 的 hook 是最終決定（CC 2.1.287+） |
+| DF4 | 兩平台 `SKILL.md:77` | 引用的「Daybreak isn't available for Astra…」只出現在 TUI；headless consult 看到的是 `ERROR: <伺服器 CyberPolicy 訊息>`（後備文案「This request has been flagged for possible cybersecurity risk.」）。#45327 內文其實沒有這個字串 |
+| DF5 | 兩平台 `SKILL.md:70` | 「省略時都跟隨 session」補例外：自訂子代理 frontmatter、`CLAUDE_CODE_SUBAGENT_MODEL`、`CLAUDE_CODE_EFFORT_LEVEL`（優先於 frontmatter 與 2.1.292 per-call effort）、2.1.296 `CLAUDE_CODE_WORKFLOW_SUBAGENT_MODEL` |
+| DF6 | 兩平台 `orchestration.md:167`／`:161`；backlog E19、B16 完成註 | 「Codex 0.156 有原生 `--worktree`（experimental）」→ 0.156.0 起 stable 且預設開；`--worktree` 不能與 `--ephemeral`／`--ignore-user-config` 併用，`exec resume`／`exec review` 會拒絕 |
+| DF7 | `README.md:38` | 平台表寫 Windows gate 用「`permissionDecision` / exit 2」→ Windows gate 沒有 `permissionDecision`（只 stderr＋exit 2），與 macOS 相同 |
+| DF8 | `docs/AI-INSTALL.md:362` | 「靜默不跑」→ 預設下會出現 non-blocking `hook error` 提示（該段屬 Linux／macOS 可攜式 node） |
+| DF9 | 9/14 稽核（**只加 dated erratum，原文不改**；行號指加註前 `06b0bab` 的原文） | (a) :22／:63／:178 Astra blog 日期 9/4 → Sep 11；(b) :80／:188 「2.1.269 起背景 PowerShell 跨 session 存活」→ 2.1.300 起退出即清理；(c) :83「背景 subagent 沒有 Agent 工具」→ 只有 Workflow 那一半成立；(d) :56／:183「exec／resume／fork／review 都新增 `--worktree`」→ resume／review 執行期會 bail；(e) :58 `exec review --output-schema` → 讀碼顯示 review 路徑沒用 output_schema；(f) :59 分模型建議在快照中找不到；(g) :60 「靜默跳過」→ 記錄但不阻擋；(h) :64 Daybreak 文案只見於 #45316、且是 TUI 文案（同 DF4）；(i) :79 「2.1.268 修了 env -C／eval」→ 2.1.273 已撤回（同 DF11） |
+| DF10 | 9/6 稽核 D2（dated erratum） | 28 份逐字稿標成 gpt-6-astra／ultra 有誤（實為 gpt-5.6-sol/ultra 25 次、astra/xhigh 2 次、astra/ultra 1 次） |
+| DF11 | backlog `GATE-ENV-PREFIX` | 「CC 2.1.268 修了 env -C／eval 的 deny 繞過」→ 2.1.273 撤回了 2.1.268 的這項變更 |
+| DF12 | backlog／驗收文件的原始碼行號 | `config/mod.rs:1564-1571`、`spec_plan.rs:648-650` 加註 `rust-v0.154.0`（0.163.0 為 `:1637-1664`、`:728-730`） |
 
 ### 6.2 BACKLOG-NEW（新登錄；每列依 [`LTS-ADMISSION-PLAN.md` §6 新缺陷規則](LTS-ADMISSION-PLAN.md#new-defect-rule)標出走哪一條）
 
@@ -250,7 +252,7 @@ consult／exec 沒有清 notify，codex-check 也不盤點。上游維護者給�
 - **E13／`POSIX-CANCEL-CLEANUP`**：改寫為「**生命週期契約待重驗**」，不是單純刪掉舊前提換新前提：2.1.300 的退出政策（要求停止、1.5 秒後強殺）可確認，但整棵程序樹的清理未驗，所以「中途被殺、半改檔、不鑄憑證」與「後代程序或 pipe 殘留」兩種風險可能並存。要按互動／unattended、CC 版本（Desktop 2.1.295 不適用 2.1.300）、正常退出／中止分別記錄。另有上游至少三種「exec 長時間不結束」報告（#53659 wait 輪詢、#54285 structured output 吐空白、既有 #38495）→ 需要牆鐘上限或人工中止程序（推論）。
 - **E14**：補前置驗證三項：review 會繼承 config 頂層 `sandbox_mode`（本機為 workspace-write）、`-s` 必須放在 `review` 前或改用 `-c sandbox_mode=`、`--output-schema` 在 review 路徑可能被忽略。
 - **E4**：Windows 上至少三條互相獨立的 fail-open：exit 2 被 PowerShell 包裝改成 1（#54072，改用 JSON `permissionDecision:"deny"`＋exit 0 可擋）、未信任 hook 在 exec 下靜默略過、位置鍵信任遇重排／改 timeout 失信；另 #49736 `spawn_agent` 不觸發 PreToolUse。驗收必須用 sentinel 證明 hook 確實執行過。
-- **E19**：前提過時（F6），且與 consult 的 `--ephemeral` 互斥。
+- **E19**：前提過時（DF6），且與 consult 的 `--ephemeral` 互斥。
 - **E20**：量測前提變了（8.4KB）；新增 `skills.include_instructions`／`max_context_tokens`／`bundled.enabled` 三個 prompt 層有效的開關。
 - **`CONNECTOR-EXPOSURE`／E8／`CODEX-CHECK-SURFACE-GAPS`**：D7 的新數字（註明帳號 context 與快取 mtime 不穩定）；收緊候選鍵 `plugins._default.enabled`（0.163.0）、`plugins.<p>.mcp_servers.<s>.enabled`、`apps.<id>.omit_tools_from`、`--ignore-user-config`、`-c notify=[]`（皆未驗）；E8 盤點範圍加 notify。讀碼：設了 `_default` 時明寫的 `enabled=false` 會套用到 remote curated plugin，#28443 範圍可能已變（未 live）。
 - **`MCP-HARDDENY-RETRY`／`MCP-PREVIEW-START`**：Desktop 每輪的 `ccd_turn` 工具被 HARDDENY 是高頻實例；誤放行清單加 `set_unread`、`set_view`、`show_widget`。

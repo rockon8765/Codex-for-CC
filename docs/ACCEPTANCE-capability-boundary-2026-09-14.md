@@ -51,7 +51,7 @@
 
 ## 3. 原始碼對照（rust-v0.154.0）
 
-> 2026-10-17 註（依 [`AUDIT-upstream-drift-2026-10-17.md`](AUDIT-upstream-drift-2026-10-17.md) §6.1 F12）：以下行號都是 `rust-v0.154.0`。`rust-v0.163.0` 的對應位置：`config/mod.rs:1637-1664` 一帶、`spec_plan.rs:728-730`，邏輯不變；其餘行號未重核。
+> 2026-10-17 註（依 [`AUDIT-upstream-drift-2026-10-17.md`](AUDIT-upstream-drift-2026-10-17.md) §6.1 DF12）：以下行號都是 `rust-v0.154.0`。`rust-v0.163.0` 的對應位置：`config/mod.rs:1637-1664` 一帶、`spec_plan.rs:728-730`，邏輯不變；其餘行號未重核。
 
 - `codex-rs/core/src/config/mod.rs:1564-1571` `multi_agent_version_for_model(model_version)` ＝ `multi_agent_version_override()`（`features.multi_agent_v2` → V2；`agents.enabled=false` → Disabled）`.or(model_version).unwrap_or(from_features)`——`from_features` 才看 `Feature::Collab`（key `multi_agent`，`features/src/lib.rs:1259-1262`）。`codex debug models`：`gpt-6-astra`／`gpt-5.6-sol`／`gpt-5.6-terra` 宣告 `v2`，`gpt-5.6-luna` 宣告 `v1`。⇒ 對這些模型，`--disable multi_agent` 永遠被模型宣告蓋過。
 - `codex-rs/core/src/tools/spec_plan.rs:648-650,1285-1287`：`MultiAgentVersion::Disabled` → collaboration 工具不註冊。

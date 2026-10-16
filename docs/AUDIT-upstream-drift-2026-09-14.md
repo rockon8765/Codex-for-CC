@@ -7,7 +7,7 @@
 >
 > **訂正註（2026-09-14 晚，依 [`ACCEPTANCE-capability-boundary-2026-09-14.md`](ACCEPTANCE-capability-boundary-2026-09-14.md)；原文不改）**：§6 提案 `E2` 寫的 `--disable multi_agent` 對 gpt-6-astra **無效**（模型宣告的 `multi_agent_version` 優先），有效的是 `-c agents.enabled=false`；§5「執行期 UNVERIFIED」已升級——read-only＋ephemeral 條件下存在能成功 spawn 的配置（CONFIRMED）；B1 的 `REGISTERED`／`CATALOG_PRESENT` 兩層已 CONFIRMED，`AUTHENTICATED_CALLABLE` 以後仍 UNVERIFIED；裁決不解凍。
 >
-> **訂正註（2026-10-17，依 [`AUDIT-upstream-drift-2026-10-17.md`](AUDIT-upstream-drift-2026-10-17.md) §6.1 F9；原文不改）**：以下的 `:行號` 指本註加入前（commit `06b0bab`）的原文行號；本註插在檔頭，現行行號會往後移。
+> **訂正註（2026-10-17，依 [`AUDIT-upstream-drift-2026-10-17.md`](AUDIT-upstream-drift-2026-10-17.md) §6.1 DF9；原文不改）**：以下的 `:行號` 指本註加入前（commit `06b0bab`）的原文行號；本註插在檔頭，現行行號會往後移。
 > - (a) §0 N4（:22）、§3.1 Astra prompting 列（:63）、§6 E10′ 依據欄（:178）寫的〈Rethinking skills and prompts for GPT-6 Astra〉日期「9/4」是誤植：該文頁面與 blog 索引都標 **Sep 11, 2026**（2026-09-14 的 Wayback 快照當時已是 Sep 11）。9/4 是同索引中相鄰的兩篇 Astra 文。內容與 E10′ 的依據不變。
 > - (b) §3.2 的 2.1.269 列（:80）與 E13 列（:188）寫「Windows 背景 PowerShell 不再隨 Claude Code 退出而停」「跨 session 存活」，在 Claude Code ≥2.1.300 不成立：2.1.300 起退出時會要求背景指令停止、1.5 秒後仍在跑就強殺；現行文件寫「Background tasks are automatically cleaned up when Claude Code exits」，只有轉成背景 session 才續跑。2.1.269 的原文有歧義；Windows 上整棵程序樹是否一起被清理未驗。
 > - (c) §3.2 文件面（:83）「背景 subagent 沒有 `Agent`／`Workflow` 工具」只有 `Workflow` 那一半與現行 sub-agents 文件相符；現行文件寫背景子代理保留 `Agent`（依深度上限，預設主對話下三層）。9/14 當時的文件是否這樣寫，無法查證。
