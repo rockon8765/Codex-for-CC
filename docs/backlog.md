@@ -13,7 +13,7 @@
 > 重點：只有 [`LTS-ADMISSION-PLAN.md`](LTS-ADMISSION-PLAN.md#must) 列為 MUST 的 ID 可以在分支 `lts/build` 上開工，
 > commit 要帶 `LTS-BUILD <ID>` 四行；其餘列照舊保留原本的狀態標籤。「在途」「P0」「parity」「已投入很多」「只是測試」**仍不構成例外**。
 > **唯讀驗收不受限**（部署既有版本、跑既有套件、記錄結果）；建置期間新發現的缺陷照計畫的[新缺陷規則](LTS-ADMISSION-PLAN.md#new-defect-rule)處理，不自行 fix-forward。
-> AGENTS.md「LTS 建置期」段的細部措辭仍待使用者逐字核准；核准前所有工作只留在本機的 `lts/build`，不 push、不動 `main`。
+> AGENTS.md「LTS 建置期」段的措辭已於 2026-10-17 由使用者逐字核准；計畫 §4／§5.2 的原文仍待核准，在那之前所有工作只留在本機的 `lts/build`，不 push（使用者逐次授權的單次 push 除外）、不動 `main`。
 >
 > 歷史：2026-08-29 至 2026-10-14 是產品凍結期（原標題「⛔ 凍結中（2026-08-29）」）。當時的唯一例外是**已出貨**的
 > security／資料遺失／上游 breakage，且須在 commit 明示 `UNFREEZE <ID>` 四行；唯讀驗收不受限，但不得 fix-forward。

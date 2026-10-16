@@ -4,9 +4,9 @@
 
 ## 🚧 LTS 建置期（2026-10-14 起；准入前不得宣布支援）
 
-**在動手做任何事之前先讀這段。** 使用者已於 2026-10-14 裁決公開 LTS：平台只有 Windows 與 macOS，範圍是全功能，Linux 凍結。同日使用者以原話「我以為你已經開始修改了，結果花一堆時間在評估時間嗎」指示即刻開工，並選定方向：准入順序「Windows 先、macOS 隨後 (Recommended)」、預算「115h／2027-01-15 (Recommended)」、每週投入 8–10h「可以」（這三項是使用者選擇的選項原文，不是打字原話）。原話與選項的逐項紀錄見 [`docs/DECISION-MEMO-lts-2026-09-30.md` §8](docs/DECISION-MEMO-lts-2026-09-30.md#lts-decision-2026-10-14)，計畫見 [`docs/LTS-ADMISSION-PLAN.md`](docs/LTS-ADMISSION-PLAN.md)。
+**在動手做任何事之前先讀這段。** 使用者已於 2026-10-14 裁決公開 LTS：平台只有 Windows 與 macOS，範圍是全功能，Linux 凍結。同日使用者以原話「我以為你已經開始修改了，結果花一堆時間在評估時間嗎」指示即刻開工，並選定方向：准入順序「Windows 先、macOS 隨後 (Recommended)」、預算「115h／2027-01-15 (Recommended)」、每週投入 8–10h「可以」（這三項是使用者選擇的選項原文，不是打字原話）。2026-10-17 使用者取消了工時上限與截止日（見[備忘 §8.9](docs/DECISION-MEMO-lts-2026-09-30.md#user-decisions-2026-10-17)）。原話與選項的逐項紀錄見 [`docs/DECISION-MEMO-lts-2026-09-30.md` §8](docs/DECISION-MEMO-lts-2026-09-30.md#lts-decision-2026-10-14)，計畫見 [`docs/LTS-ADMISSION-PLAN.md`](docs/LTS-ADMISSION-PLAN.md)。
 
-⚠️ **本段的細部措辭由 Claude 依上述裁決起草，尚待使用者逐字核准**（計畫 §9 第 1 點）；以使用者核准或修改後的版本為準。核准之前，所有工作只留在本機的 `lts/build`：不 push 任何東西（分支、tag 都不推）、`main` 完全不動（下面「地點」的兩種例外也不做）。唯一已獲使用者授權的例外：2026-10-15 把批次 1 的 commit 單次 push 到 `lts/build` 跑 CI（[備忘 §8.7](docs/DECISION-MEMO-lts-2026-09-30.md#user-decisions-2026-10-15)），不推 tag、不動 `main`。
+✅ **本段原文已於 2026-10-17 由使用者逐字核准**（計畫 §9 第 1 點）：使用者先選「要改措辭」，打字提出「不要設定工時上限」，再對修改後的全文選擇「核准」（見[備忘 §8.9](docs/DECISION-MEMO-lts-2026-09-30.md#user-decisions-2026-10-17)）。計畫 §4、§5.2 的原文仍待核准；在那之前，所有工作仍只留在本機的 `lts/build`：不 push 任何東西（分支、tag 都不推）、`main` 完全不動（下面「地點」的兩種例外也不做）（計畫 §9 第 1 點、[備忘 §8.7](docs/DECISION-MEMO-lts-2026-09-30.md#user-decisions-2026-10-15)）。已獲使用者授權的例外都是對 `lts/build` 的單次 push，不推 tag、不動 `main`：2026-10-15 批次 1 的 commit（[備忘 §8.7](docs/DECISION-MEMO-lts-2026-09-30.md#user-decisions-2026-10-15)）；2026-10-17 兩次：10/17 上游漂移稽核 commit，以及取消工時上限、記錄本段核准的 commit（皆見[備忘 §8.9](docs/DECISION-MEMO-lts-2026-09-30.md#user-decisions-2026-10-17)）。
 
 預設仍是**禁止**：只有下面列出的項目獲得授權，其餘產品變更——`windows/`／`macos/`／`linux/` 底下的腳本與 hook、`tools/`、CI 設定，以及為它們新增的測試——一律不准動。
 
@@ -33,7 +33,7 @@
 
 **停止規則**
 
-- **總工時硬上限 115h、截止 2027-01-15**（記在 [`docs/LTS-timelog.md`](docs/LTS-timelog.md)）。**尚未完成而已到上限**：停工回報使用者，預設退出（轉備忘的選項 1）。階段數字只是預警。
+- **不設總工時上限與截止日**（使用者 2026-10-17 裁決，見[備忘 §8.9](docs/DECISION-MEMO-lts-2026-09-30.md#user-decisions-2026-10-17)；原為 115h／2027-01-15，到上限就停工、預設退出）。工時照樣記在 [`docs/LTS-timelog.md`](docs/LTS-timelog.md)，只當紀錄；計畫 §3.1 的分配數字只是預警，用來重新預測。
 - **每個 ID 最多 2 輪審查**；拆 PR、改名都不重置。第 2 輪後仍有阻擋問題：停下交使用者裁決，不得把「不再審」當成「已通過」。
 - **新缺陷**：會讓最低範圍（MVS）或必要的准入條件不成立的，只能在上面的授權範圍內修，或交使用者裁決／退出，**不得用揭露文字劃出**。其他照計畫的[新缺陷規則](docs/LTS-ADMISSION-PLAN.md#new-defect-rule)。
 - **檢查點 2026-10-28**：依關鍵產物判定，見計畫 [§3.3](docs/LTS-ADMISSION-PLAN.md#checkpoints)。
