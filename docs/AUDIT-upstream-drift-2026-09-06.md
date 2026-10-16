@@ -9,6 +9,9 @@
 > - **E3 加註**：`codex exec --json` 的事件名（`turn.completed` 等）**非 durable**——維護者於 issue #45251 明言只有 app-server API 是 durable。任何以事件名做驗收的實作都要釘 codex 版本，並把 `codex-check` 的版本比對當前置。
 > - **D2 降低確定性**：本檔把「8–37 分鐘」與 timeout 設定連在一起，且當時 effort 為 `ultra`（Models 頁定義 `ultra` ＝「automatic task delegation」）。自動委派是**可能原因、尚未證實**（沒有當次子代理紀錄與耗時分解）；本機 effort 現為 `high`。另有一個同樣未證實但已確認存在的觸發：使用者全域 `~/.codex/AGENTS.md:23`「主動委派子代理」會被每次 consult／exec 載入，而 0.154.0 的 `<multi_agent_mode>` 正是在「適用的 AGENTS.md 明確要求」時放行委派。
 
+> ### 訂正註（2026-10-17；原文保留不改，依 [`AUDIT-upstream-drift-2026-10-17.md`](AUDIT-upstream-drift-2026-10-17.md) §6.1 F10）
+> - **D2 的樣本標籤錯誤**：本檔把 9 月的長耗時逐字稿歸在 gpt-6-astra／`ultra` 名下。依逐字稿 stderr header 與「檔名時間戳→檔案 mtime」重算，本檔所說的 28 份是：2026-09-01～09-04 的 gpt-5.6-sol／`ultra` 25 份（8.2–37.0 分鐘）、09-05 的 gpt-6-astra／`xhigh` 2 份（14.6–19.0 分鐘）、09-06 的 gpt-6-astra／`ultra` 1 份（9.2 分鐘）——25＋2＋1＝28 的對應是推論。9 月內 gpt-6-astra／`ultra` 只出現在 09-06～09-07（4 份，0.7–9.2 分鐘）。上方 2026-09-14 訂正註「當時 effort 為 `ultra`」對 gpt-5.6-sol 那批成立，但模型不是 gpt-6-astra。
+
 ---
 
 ## 0. 一句話結論

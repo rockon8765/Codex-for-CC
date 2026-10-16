@@ -359,7 +359,7 @@ if (Test-Path -LiteralPath $stale) { throw "安裝驗證失敗：FIX-PLAN.md 未
 > **後置條件**：`settings.json` 的 gate handler **恰 1 個**、`settings.local.json` **0 個**。
 
 - 若 `node` 不在系統 PATH——例如可攜式安裝在 `~/.local/node/bin`——
-  hook 指令開頭的 `node` 必須寫**絕對路徑**，否則 hook 會靜默不跑、gate 形同虛設。（本條原寫給 Linux 的可攜式 node 安裝；Linux 已凍結，macOS 若同樣用可攜式 node 也適用，推論。）
+  hook 指令開頭的 `node` 必須寫**絕對路徑**，否則 hook 會靜默不跑、gate 形同虛設。（本條原寫給 Linux 的可攜式 node 安裝；Linux 已凍結，macOS 若同樣用可攜式 node 也適用，推論。）（2026-10-17 事實訂正：依 Claude Code hooks 文件，hook 啟動失敗在預設的 `onFailure: "continue"` 下屬於 non-blocking error——動作照常執行，PreToolUse 會在 transcript 顯示 `<hook name> hook error` 提示——所以不是完全「靜默」；gate 形同虛設的結論不變。以上限 macOS／Linux：Windows 沒有 Git Bash 且 Claude Code ≥2.1.299 時，預設改為失敗即擋（見 backlog `CC-NOBASH-FAILCLOSED`）；`onFailure` 欄位自 2.1.295 起才有。）
 
 > ⚠️ **不要用 `~/.claude/settings.local.json`**（2026-07-27 以前本文件的 macOS／Linux 段是這樣寫的，**那是錯的**）。
 >

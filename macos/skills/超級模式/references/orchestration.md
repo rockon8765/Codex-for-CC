@@ -158,7 +158,7 @@ ECC 蓋掉」，那個理由已被推翻：躲進不會被載入的檔案只是�
 | 里程碑回寫 | ❌ | 單線做即可 |
 
 **兩條鐵則（條文在 SKILL §5，此處只講理由與做法）：**
-- **單一 writer pool**：`isolation: 'worktree'` 是 Claude 子代理的參數；本流程禁止子代理派工，因此不適用於這裡的 Codex 派工。平行的 `codex exec` 必須各自在獨立的 git worktree 執行，由 orchestrator 以 `git worktree add` 建立，再用腳本的 `-d <worktree>` 指向它，避免共用 working tree 互相覆蓋。Codex 0.156 有原生 `--worktree`（experimental），本 skill 的腳本尚未接入。
+- **單一 writer pool**：`isolation: 'worktree'` 是 Claude 子代理的參數；本流程禁止子代理派工，因此不適用於這裡的 Codex 派工。平行的 `codex exec` 必須各自在獨立的 git worktree 執行，由 orchestrator 以 `git worktree add` 建立，再用腳本的 `-d <worktree>` 指向它，避免共用 working tree 互相覆蓋。Codex 有原生 `--worktree`（2026-10-17 事實訂正：原寫「Codex 0.156 有原生 `--worktree`（experimental）」。`worktrees` feature 自 0.156.0 起已是 stable 且預設開啟；`--worktree` 不能與 `--ephemeral`、`--ignore-user-config` 併用，`exec resume`／`exec review` 執行時也會拒絕，雖然兩者的 `--help` 仍列出這個旗標），本 skill 的腳本尚未接入。
 - **子代理不得自行諮詢／派工**：代價有三層——N 個平行子代理各自諮詢會燒 Codex 額度；任一子代理的諮詢會 mint **全機**憑證（憑證不分代理）；其中任一次 commit 會把**全體**憑證降到 3 分鐘。所以由主線統一諮詢與派工，審查子代理要跑的 build / verify（如 `npm run build`、`go build`）也交主線在有憑證時跑。consult-gate 在子代理內同樣會觸發，且它的拒絕訊息已含「子代理請回報 orchestrator 後停手」的分支。
 **審查產出 findings 後先呈報使用者選擇要修哪些，勿自動批次修。**
 審查型派工帶 `-s "$HOME/.claude/skills/超級模式/references/review-output.schema.json"`（相對 schema 路徑是依**呼叫端 cwd** 解析，不是 skill 根目錄，也不是 `-d` 指定的 worker 目錄；因此範例使用已安裝位置的絕對路徑），收工用 JSON 解析驗收 findings；驗證失敗 fallback 讀全文。

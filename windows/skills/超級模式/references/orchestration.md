@@ -144,7 +144,7 @@ plugin manager——它同樣寫這個檔），都要重跑
 }
 ```
 路徑改成你的家目錄——**JSON 內用正斜線最省事**，寫反斜線要逃逸成 `\`。若 `node` 不在系統 PATH
-（例如可攜式安裝），`command` 開頭的 `node` 也要換成絕對路徑，否則 hook 會**靜默不跑、gate 形同虛設**。
+（例如可攜式安裝），`command` 開頭的 `node` 也要換成絕對路徑，否則 hook 會**靜默不跑、gate 形同虛設**。（2026-10-17 事實訂正：依 Claude Code hooks 文件，hook 啟動失敗在預設下屬 non-blocking error——動作照常執行，transcript 會顯示 `<hook name> hook error` 提示，所以不是完全靜默；而在沒有 Git Bash 的 Windows 上，Claude Code 2.1.299 起這種失敗預設改為擋下呼叫，見 backlog `CC-NOBASH-FAILCLOSED`。）
 
 然後每次工作用 `super-mode.ps1 -On -Scope <dir>` 開、`super-mode.ps1 -Off` 關。
 **測試**：完整入口是 `tests/run-windows-suite.ps1`（`-Mode repo` 驗 repo 樹、`-Mode live` 驗已安裝副本；
@@ -164,7 +164,7 @@ plugin manager——它同樣寫這個檔），都要重跑
 | 里程碑回寫 | ❌ | 單線做即可 |
 
 **兩條鐵則（條文在 SKILL §5，此處只講理由與做法）：**
-- **單一 writer pool**：`isolation: 'worktree'` 是 Claude 子代理的參數；本流程禁止子代理派工，因此不適用於這裡的 Codex 派工。平行的 `codex exec` 必須各自在獨立的 git worktree 執行，由 orchestrator 以 `git worktree add` 建立，再用腳本的 `-Dir <worktree>` 指向它，避免共用 working tree 互相覆蓋。Codex 0.156 有原生 `--worktree`（experimental），本 skill 的腳本尚未接入。
+- **單一 writer pool**：`isolation: 'worktree'` 是 Claude 子代理的參數；本流程禁止子代理派工，因此不適用於這裡的 Codex 派工。平行的 `codex exec` 必須各自在獨立的 git worktree 執行，由 orchestrator 以 `git worktree add` 建立，再用腳本的 `-Dir <worktree>` 指向它，避免共用 working tree 互相覆蓋。Codex 有原生 `--worktree`（2026-10-17 事實訂正：原寫「Codex 0.156 有原生 `--worktree`（experimental）」。`worktrees` feature 自 0.156.0 起已是 stable 且預設開啟；`--worktree` 不能與 `--ephemeral`、`--ignore-user-config` 併用，`exec resume`／`exec review` 執行時也會拒絕，雖然兩者的 `--help` 仍列出這個旗標），本 skill 的腳本尚未接入。
 - **子代理不得自行諮詢／派工**：代價有三層——N 個平行子代理各自諮詢會燒 Codex 額度；任一子代理的諮詢會 mint **全機**憑證（憑證不分代理）；其中任一次 commit 會把**全體**憑證降到 3 分鐘。所以由主線統一諮詢與派工。consult-gate 在子代理內同樣會觸發，且它的拒絕訊息已含「子代理請回報 orchestrator 後停手」的分支。
 **派工簡報的驗收條件內建「Codex 自審 + 跑測試 + lint 並回報自審結論」**（見 §3 範本），讓第一道審查花 Codex 額度、不花 Claude。
 **審查產出 findings 後先呈報使用者選擇要修哪些，勿自動批次修。**

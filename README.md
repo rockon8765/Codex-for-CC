@@ -35,7 +35,7 @@
 | Hook/腳本執行環境 | PowerShell 5.1／pwsh 7（主要呼叫 host）+ Node | bash/zsh + Node | bash + Node |
 | 執行腳本 | `*.ps1` | `*.sh` | `*.sh` |
 | Codex CLI 位置 | `C:\npm\codex.cmd`（寫死） | `PATH` 上的 `codex`（Homebrew npm global） | `PATH` 上的 `codex`（npm global） |
-| Gate 拒絕機制 | `permissionDecision` / exit 2 | stderr + exit 2 | stderr + exit 2 |
+| Gate 拒絕機制 | stderr + exit 2（2026-10-17 事實訂正：原寫 `permissionDecision` / exit 2；Windows gate 實際不輸出 `permissionDecision`） | stderr + exit 2 | stderr + exit 2 |
 | 接 hook 的設定檔 | `settings.json` | `settings.json` | `settings.json` |
 | 驗證覆蓋 | 人工原生驗證（**無 CI**；LTS 建置中）；維護基準。live 驗收 2026-08-28 通過（`SUITE_RESULT=OK`）——歷史紀錄，不構成支援宣稱 | 人工原生驗證（**無 CI**；LTS 建置中）。live 驗收 2026-08-29 五項全綠——歷史紀錄，不構成支援宣稱 | 🧊 **已凍結（2026-10-14）**。`linux.yml`（`ubuntu-latest`）跑凍結的 `linux/` 樹與頂層共用測試（`tests/*.test.js` 等）；綠燈不構成任何平台的支援宣稱，LTS 凍結第二階段移除。⚠️ **從未做過 live 部署驗收**，見下 |
 | 修復／平台紀錄 | [`docs/history/FIX-PLAN-windows-2026-07-02.md`](docs/history/FIX-PLAN-windows-2026-07-02.md) | [`docs/history/FIX-PLAN-macos-2026-07-03.md`](docs/history/FIX-PLAN-macos-2026-07-03.md) | [`docs/linux-platform-notes.md`](docs/linux-platform-notes.md)（現行參考，非史料） |
@@ -237,6 +237,8 @@ cp    "linux/hooks/super-mode-consult-gate.js" ~/.claude/hooks/
 # 3. 把 hook 接到 ~/.claude/settings.json（見 linux/settings.snippet.json），
 #    絕對路徑改成你家目錄；若 node 不在系統 PATH（可攜式安裝），command 開頭的
 #    node 也要寫絕對路徑，否則 hook 會靜默不跑。
+#    （2026-10-17 事實訂正：hook 啟動失敗屬 non-blocking error，動作照常執行，
+#    transcript 會顯示 hook error 提示，不是完全靜默；gate 形同虛設的結論不變。）
 #    ⚠️ 不要用 settings.local.json —— 家目錄那份不是 user scope，只有從家目錄
 #    啟動 Claude Code 時才生效（見 docs/verify-settings-scope.md）。
 #    ⚠️ 合併的**完整步驟、以及那兩道 probe 各自的理由，一律照
@@ -281,7 +283,7 @@ hook **在啟用前是 fail-open 且停用的** — 安裝它不會影響一般 
 
 **Linux**（🧊 已凍結；以下只是凍結快照的參考）
 - GNU coreutils（腳本用 `stat -c`；Alpine/BusyBox 請自行確認）；`codex` 常見於 `~/.local/bin`（npm global）。
-- **node 不一定在 PATH**：可攜式安裝（如 `~/.local/node/bin`）的機器，settings 裡的 hook 指令請用 node 的絕對路徑——PATH 找不到 node 時 hook 會**靜默不跑、gate 形同虛設**。部署後用一次故意違規的 Write 驗證 gate 真的會 deny。
+- **node 不一定在 PATH**：可攜式安裝（如 `~/.local/node/bin`）的機器，settings 裡的 hook 指令請用 node 的絕對路徑——PATH 找不到 node 時 hook 會**靜默不跑、gate 形同虛設**（2026-10-17 事實訂正：依 Claude Code hooks 文件，hook 啟動失敗在預設下屬 non-blocking error——動作照常執行，transcript 會顯示 `<hook name> hook error` 提示，所以不是完全靜默；gate 形同虛設的結論不變）。部署後用一次故意違規的 Write 驗證 gate 真的會 deny。
 
 **Windows**
 - **Windows 11**、**PowerShell 5.1**（Claude Code 的 PowerShell 工具實際以 **pwsh 7** 呼叫腳本，是主要呼叫 host；測試套件在 pwsh 7 與 WinPS 5.1 兩個 host 都跑，BOM 規則照舊）。**Codex CLI** 在 `C:\npm\codex.cmd`（位置不同就改 `$codexCmd`）。使用者家目錄在 settings matcher 指令與部分文件中寫死為 `C:\Users\user`。

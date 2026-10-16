@@ -6,6 +6,17 @@
 > 方法：四條平行 web 研究線（Codex 上游／Claude Code 上游／官方橋接／社群）＋本機一手指令（`codex exec --help`、`codex features list`、`codex plugin list`、`codex-check.ps1 -Force`、`codex debug prompt-input`）＋ Codex 反方諮詢一輪 → Claude 裁決。語言慣例：說明繁中；指令／檔名英文。
 >
 > **訂正註（2026-09-14 晚，依 [`ACCEPTANCE-capability-boundary-2026-09-14.md`](ACCEPTANCE-capability-boundary-2026-09-14.md)；原文不改）**：§6 提案 `E2` 寫的 `--disable multi_agent` 對 gpt-6-astra **無效**（模型宣告的 `multi_agent_version` 優先），有效的是 `-c agents.enabled=false`；§5「執行期 UNVERIFIED」已升級——read-only＋ephemeral 條件下存在能成功 spawn 的配置（CONFIRMED）；B1 的 `REGISTERED`／`CATALOG_PRESENT` 兩層已 CONFIRMED，`AUTHENTICATED_CALLABLE` 以後仍 UNVERIFIED；裁決不解凍。
+>
+> **訂正註（2026-10-17，依 [`AUDIT-upstream-drift-2026-10-17.md`](AUDIT-upstream-drift-2026-10-17.md) §6.1 F9；原文不改）**：以下的 `:行號` 指本註加入前（commit `06b0bab`）的原文行號；本註插在檔頭，現行行號會往後移。
+> - (a) §0 N4（:22）、§3.1 Astra prompting 列（:63）、§6 E10′ 依據欄（:178）寫的〈Rethinking skills and prompts for GPT-6 Astra〉日期「9/4」是誤植：該文頁面與 blog 索引都標 **Sep 11, 2026**（2026-09-14 的 Wayback 快照當時已是 Sep 11）。9/4 是同索引中相鄰的兩篇 Astra 文。內容與 E10′ 的依據不變。
+> - (b) §3.2 的 2.1.269 列（:80）與 E13 列（:188）寫「Windows 背景 PowerShell 不再隨 Claude Code 退出而停」「跨 session 存活」，在 Claude Code ≥2.1.300 不成立：2.1.300 起退出時會要求背景指令停止、1.5 秒後仍在跑就強殺；現行文件寫「Background tasks are automatically cleaned up when Claude Code exits」，只有轉成背景 session 才續跑。2.1.269 的原文有歧義；Windows 上整棵程序樹是否一起被清理未驗。
+> - (c) §3.2 文件面（:83）「背景 subagent 沒有 `Agent`／`Workflow` 工具」只有 `Workflow` 那一半與現行 sub-agents 文件相符；現行文件寫背景子代理保留 `Agent`（依深度上限，預設主對話下三層）。9/14 當時的文件是否這樣寫，無法查證。
+> - (d) §3.1 的 0.154.0 列（:56）與 E19（:183）「`exec`／`resume`／`fork`／`review` 新增 `--worktree`」：`--help` 確有列出，但原始碼（`rust-v0.163.0` `exec/src/lib.rs:312-328`）在執行期拒絕 `exec resume`／`exec review` 使用它，也拒絕與 `--ephemeral`、`--ignore-user-config` 併用；另 `worktrees` feature 已於 0.156.0 轉為 stable 且預設開啟。
+> - (e) §3.1 `codex exec review` 列（:58）與 E14（:179）：讀碼（`rust-v0.163.0` `exec/src/lib.rs:920-924`、`:1271-1281`；`core/src/tasks/review.rs:136`）顯示 review 路徑沒有載入 `--output-schema`，可能被靜默忽略；review 子代理複製父設定、不強制 read-only；`-s` 必須放在 `review` 之前。以上為讀碼推論，未 live 驗證。
+> - (f) §3.1 Models 列（:59）的「建議 Code Review 用 Terra/Luna Medium/High、Implementation 用 Astra/Sol High/xHigh」在 2026-09-14 的 Wayback 快照與現況都找不到出處（INCONCLUSIVE）；同列「用能達標的最低 effort」一句已在 2026-10-01 前從官方頁刪除。
+> - (g) §3.1 Hooks 信任列（:60）「#45293 cwd 被刪時 PreToolUse 靜默跳過」：#45293 在 2026-09-13 的讀碼留言指出，失敗會以 status failed 加 error entry 記錄，是「記錄但不阻擋」，不是靜默跳過。
+> - (h) §3.1 Astra safeguard 列（:64）寫 #45316／#45327 回報「Daybreak isn't available for Astra…」：這段文案只出現在 #45316，#45327 內文沒有；它是 Codex TUI 的通知文案（0.154.0 就是如此），headless 的 consult／exec 遇到 cyber 拒答時，stderr 只會有 `ERROR: <伺服器訊息>`。
+> - (i) §3.2 的 2.1.268 列（:79）「`env -C`／`eval` 同行讓 deny 失效已修」：2.1.273 已撤回 2.1.268 的這項變更——對 permission checker 無法分析的 Bash 行（`eval`、`env -C`），不再套 Read／Edit deny 規則直接拒絕，改回跳提示詢問。
 
 ---
 
