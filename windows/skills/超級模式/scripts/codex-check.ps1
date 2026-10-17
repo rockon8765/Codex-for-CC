@@ -11,9 +11,18 @@
   UPDATE_BASELINE=OK / REFUSED / NOT_APPLIED 為權威訊號（被拒回 exit 2，但 smoke 失敗 passthrough 也可能
   是 2，automation 勿只看 exit code）。姿態 A：漂移只警示、不影響 exit code；依賴旗標缺失時不寫也不採信
   smoke 快取（不讓 24h 快取蓋掉不相容訊號）。
+  診斷（NO_BASELINE、baseline 格式不符、拒絕更新的理由、smoke 失敗）走 stderr、沒有「WARNING:」前綴，
+  而且是 best-effort（CODEX-CHECK-WARNING，2026-10-17）；權威訊號仍是 stdout 的 UPDATE_BASELINE=* 行與 exit code。
 #>
 param([switch]$Force, [switch]$UpdateBaseline)
 $ErrorActionPreference = "Stop"
+# CODEX-CHECK-CP437（2026-10-17）：輸出一律 UTF-8，與 codex-consult.ps1／codex-exec.ps1 同一行（同樣不還原）。
+# 不設的話，stdout／stderr 被 pipe／重導時中文依 console code page 編碼：en-US（437）變 '?'、zh-TW（950）變 Big5 位元組。
+# 互動式主控台不受影響（ConsoleHost 走 WriteConsoleW）。必須在第一個 native 呼叫（H1）與第一行輸出之前。
+# ⚠️ setter 會呼叫 SetConsoleOutputCP：共用 console 的 output code page 在本腳本結束後仍是 65001（consult／exec 相同）。
+# ⚠️ 以 child 擷取本腳本輸出的 PowerShell 呼叫端要用 UTF-8 解碼；機讀訊號（UPDATE_BASELINE=…、NO_BASELINE、
+#    UP-TO-DATE、CODEX_OK）都是 ASCII，不受解碼影響。設不成（沒有 console）就照舊（與 consult／exec 相同）。
+try { [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding $false } catch {}
 # -UpdateBaseline 通過盤點檢查後先掛起，等 smoke 通過（或快取命中=近期 smoke OK）才真正落檔（見 Invoke-BaselineCheck）。
 $baselinePending = $false
 # 可注入執行檔路徑（seam）：production 預設不變，測試用 env 覆寫指向 stub。
@@ -28,6 +37,16 @@ $baselineFile = Join-Path $env:USERPROFILE ".claude\.codex-check-baseline"
 $requiredFlags = @('--ephemeral', '--output-last-message', '--output-schema', '--sandbox', '--skip-git-repo-check')
 # baseline 段落序（也是檔內行序；captured 不參與比對）
 $capSections = @('codex_version', 'exec_flags', 'plugins', 'mcp', 'features', 'hooks')
+
+# 診斷輸出（CODEX-CHECK-WARNING，2026-10-17；與 codex-consult.ps1／codex-exec.ps1 同一個 exit-code 契約模式）：
+# - 走 [Console]::Error，不走 Write-Warning。Write-Warning 受呼叫端 $WarningPreference 控制：AI-INSTALL 步驟 4 以
+#   `& codex-check.ps1` 同行程呼叫，preference 沿動態 scope 漏進來；呼叫端是 'Stop' 時它會丟終止性例外，
+#   排在後面的哨兵、exit 2、刪快取全都跑不到。另外 warning stream 跨 process 會落到 OS stdout。
+# - best-effort：寫入本身失敗（stderr 壞掉）也吞掉，不得擋住呼叫端的失敗狀態。呼叫端一律**先**完成失敗狀態
+#   （刪快取、定退出碼、印 UPDATE_BASELINE=* 哨兵），診斷排在最後。
+function Write-Diag([string]$Message) {
+  try { [Console]::Error.WriteLine($Message) } catch {}
+}
 
 # H1（前移）：版本抽取原在快取檢查後；能力面 snapshot 要含版本、快取命中要驗版本一致（堵「24h 內
 # 升級仍回報舊結果」的盲點），故每次呼叫先讀。錨定行優先 → 退回第一個版本樣 token → 抽不到留空走 UNKNOWN(installed)。
@@ -272,8 +291,9 @@ function Invoke-BaselineCheck {
     if ($badSections.Count) {
       # 使用者明確要求 mutation 卻被拒 → exit 2（誠實命令契約：exit 0 會讓 automation 誤以為已接受）。
       # marker 行是權威訊號：smoke 失敗 passthrough 也可能 exit 2（clap 慣例），單看 exit code 有歧義。
-      Write-Warning ("codex-check: 盤點含查詢失敗/解析失真段（{0}）→ 拒絕更新 baseline（查不到/解析不了 ≠ 能力消失，不能寫進 baseline）" -f ($badSections -join ', '))
+      # CODEX-CHECK-WARNING：先送權威哨兵，理由（診斷）排在後面、best-effort（見 Write-Diag）。
       Write-Output "UPDATE_BASELINE=REFUSED"
+      Write-Diag ("codex-check: 盤點含查詢失敗/解析失真段（{0}）→ 拒絕更新 baseline（查不到/解析不了 ≠ 能力消失，不能寫進 baseline）" -f ($badSections -join ', '))
       exit 2
     }
     if ($bl -and -not $bl.corrupt) {
@@ -293,11 +313,11 @@ function Invoke-BaselineCheck {
   if ($null -eq $bl) {
     # 不自動建立（Codex 諮詢 2026-07-16 裁決）：自動建立會讓「刪檔重跑」成為第二條更新途徑；
     # baseline 的語義必須是「你接受過的能力面」，不是「上次看到的能力面」。
-    Write-Warning "codex-check: NO_BASELINE -- 尚無能力面 baseline；檢視上方盤點後執行 codex-check.ps1 -UpdateBaseline 建立"
+    Write-Diag "codex-check: NO_BASELINE -- 尚無能力面 baseline；檢視上方盤點後執行 codex-check.ps1 -UpdateBaseline 建立"
     return
   }
   if ($bl.corrupt) {
-    Write-Warning "codex-check: baseline 檔格式不符 → 視為無 baseline（不自動覆寫）；請檢視後用 -UpdateBaseline 重建: $baselineFile"
+    Write-Diag "codex-check: baseline 檔格式不符 → 視為無 baseline（不自動覆寫）；請檢視後用 -UpdateBaseline 重建: $baselineFile"
     return
   }
 
@@ -460,6 +480,7 @@ $lastMsgPath = Join-Path $tmpDir ("codex-check-lastmsg.$PID." + [guid]::NewGuid(
 if (Test-Path -LiteralPath $lastMsgPath) { Remove-Item -LiteralPath $lastMsgPath -Force -ErrorAction SilentlyContinue }
 $smokeExit = 1
 $sawSentinel = $false
+$smokeDiag = $null   # smoke 失敗時的診斷；等失敗狀態都完成後才印（見檔尾）
 try {
   # v3 佈線：cmd /s /c + `< NUL`(空 stdin)，prompt 走引號好的 cmd 參數，避開 PS pipe 編碼坑。
   # stderr 合流（2>&1）必須做在 cmd 層、不可做在 PS 層：真 codex 會往 stderr 印噪音（實測
@@ -472,8 +493,28 @@ try {
     $inner = '"{0}" exec --sandbox read-only --skip-git-repo-check -C "{1}" "Reply with exactly: CODEX_OK" < NUL 2>&1' -f $codexCmd, $tmpDir
   }
   # C2：捕捉輸出並回顯。光看 exit code 會把「壞掉但 exit 0」的 codex 誤判成可用，故要驗真回了 CODEX_OK。
-  $smokeOut = & cmd.exe /d /s /c $inner
-  $smokeExit = $LASTEXITCODE
+  # ══ native capture scope（CODEX-CHECK-WARNING；與 codex-consult.ps1／codex-exec.ps1 的同名段落同一模式）══
+  # 唯一任務：把 smoke 跑完、把退出碼帶出來。在拿到退出碼之前，任何理由的提前中止都會讓 rc 塌成 1、
+  # NOT_APPLIED 哨兵消失、壞快取留著（下次非 -Force 命中舊綠快取，把壞掉的 codex 報成可用）。
+  # 本檔頭自設 EAP=Stop ⇒ 呼叫端只要在 pwsh 7.3+ 開了 ${PSNativeCommandUseErrorActionPreference}，smoke 一非零
+  # 退出就在擷取 $LASTEXITCODE 之前丟 NativeCommandExitException（AI-INSTALL 步驟 4 以 & 同行程呼叫，會繼承它）。
+  # ⇒ 兩個 preference 都在本 scope 內降級，離開時還原。理由與兩 host 實測見 codex-consult.ps1 同名段落。
+  # ⚠️ EAP=Continue 這一半在本檔目前是「等價變異」：stderr 已在 cmd 層合流，拿掉它測試照樣全綠（見
+  #    codex-check.tests.ps1 的 P 系列註解）；保留是為了與 consult／exec 的模式一致，額外防禦未被證明。
+  # ⚠️ 這是 POSIX 版 `set +e` … `smoke=$?` … `set -e` 的平台翻譯，不是新機制。
+  $prevEap = $ErrorActionPreference
+  try {
+    $ErrorActionPreference = 'Continue'
+    # -Scope 0 = 只在本 scope 建立遮蔽變數；finally 移除後，呼叫端原本的值自然重新可見。
+    Set-Variable -Name 'PSNativeCommandUseErrorActionPreference' -Value $false -Scope 0
+    $smokeOut = & cmd.exe /d /s /c $inner
+    $smokeExit = $LASTEXITCODE     # 命令結束後**立刻**擷取
+  }
+  finally {
+    $ErrorActionPreference = $prevEap
+    Remove-Variable -Name 'PSNativeCommandUseErrorActionPreference' -Scope 0 -ErrorAction SilentlyContinue
+  }
+  # ══ capture scope 結束 ══
   $smokeOut | ForEach-Object { Write-Output $_ }
   if ($useLastmsg) {
     # 精確比對：讀 lastmsg 檔，剝 CR、trim、略空白行後「恰一非空行 -ceq CODEX_OK」。
@@ -516,13 +557,15 @@ if ($smokeExit -eq 0 -and $sawSentinel -and -not $flagsCompatible) {
   $smoke = 0
 } else {
   # smoke 失敗（exit≠0，或 exit 0 但沒回 CODEX_OK sentinel）→ 刪快取，別讓已壞的 codex 在 24h 內被舊快取報成 OK
-  if ($smokeExit -eq 0) {
-    Write-Warning "codex-check: smoke exit 0 但無精確 CODEX_OK sentinel（codex 可能壞了）-- 刪快取，下次強制重查"
-  } else {
-    Write-Warning "codex-check: smoke test failed (exit $smokeExit) -- 刪除快取，下次呼叫強制重查"
-  }
+  # CODEX-CHECK-WARNING：先完成失敗狀態（刪快取、定退出碼；NOT_APPLIED 哨兵在下面），診斷排到最後、best-effort。
+  # 舊版把 Write-Warning 排在刪快取之前：呼叫端 $WarningPreference='Stop' 時快取沒刪、rc 塌成 1、哨兵消失。
   Remove-Item -LiteralPath $cache -Force -ErrorAction SilentlyContinue
   $smoke = if ($smokeExit -ne 0) { $smokeExit } else { 1 }
+  if ($smokeExit -eq 0) {
+    $smokeDiag = "codex-check: smoke exit 0 但無精確 CODEX_OK sentinel（codex 可能壞了）-- 刪快取，下次強制重查"
+  } else {
+    $smokeDiag = "codex-check: smoke test failed (exit $smokeExit) -- 刪除快取，下次呼叫強制重查"
+  }
 }
 if ($baselinePending) {
   if ($smokeExit -eq 0 -and $sawSentinel) {
@@ -533,4 +576,5 @@ if ($baselinePending) {
     Write-Output "UPDATE_BASELINE=NOT_APPLIED（smoke 失敗，baseline 未動）"
   }
 }
+if ($smokeDiag) { Write-Diag $smokeDiag }
 exit $smoke

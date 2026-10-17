@@ -116,13 +116,76 @@ echo "抽取：1b=$(wc -c <"$B1B") bytes, 1c=$(wc -c <"$B1C") bytes, rollback=$(
 grep -qF "$PLACEHOLDER" "$BRB" || { echo "回滾區塊找不到 ts 佔位符，抽取邏輯已過期" >&2; exit 2; }
 
 LAST_OUT=""
-run() { LAST_OUT=$(cd "$REPO" && HOME="$2" bash "$1" 2>&1); return $?; }
+# SHIM_ON=1 時讓受測區塊經過假 stat（見下方「掛載點模擬」）。預設 0：既有各案的執行環境不變。
+SHIM_ON=0
+run() {
+  if [ "$SHIM_ON" = 1 ]; then
+    LAST_OUT=$(cd "$REPO" && PATH="$SHIM:$PATH" REAL_STAT="$REAL_STAT" HOME="$2" bash "$1" 2>&1); return $?
+  fi
+  LAST_OUT=$(cd "$REPO" && HOME="$2" bash "$1" 2>&1); return $?
+}
 run_rollback() {
   local f="$WORK/rb.sh"
   awk -v ph="$PLACEHOLDER" -v v="$1" '{ i=index($0,ph); if(i){ $0=substr($0,1,i-1) v substr($0,i+length(ph)) } print }' "$BRB" > "$f"
   if grep -qF "$PLACEHOLDER" "$f"; then echo "佔位符替換失敗" >&2; return 99; fi
   run "$f" "$2"
 }
+
+# ── 掛載點模擬（F4 MOUNT-RMRF）──────────────────────────────────────────
+# CI runner 與 Windows 上建不出 macOS 掛載點，所以用 PATH 前置的假 `stat` 模擬「裝置號不同」。
+# 規則：路徑本身或任一上層目錄裡有 `.fake-mount-dev` → 回報（最近那一個）檔內容當裝置號——
+#   與真的掛載一樣，掛載點**連同底下所有目錄**都是新裝置號（只改掛載點本身會讓「根目錄就是掛載點」
+#   的模擬失真：真實情況下子目錄與根同裝置，只有「根 vs 上一層」那道比對抓得到）；
+# 目錄本身有 `.fake-stat-fail` → 該路徑 stat 失敗；其餘一律原樣交給真的 stat
+# ——所以受測區塊的語法偵測（`stat -c %d /`）看到的是真實的 GNU／BSD。
+# 只認 AI-INSTALL 用到的形狀（`stat -c|-f <fmt> <path>...`），其他格式一律 exit 97，不默默放行。
+# ⚠️ 這只證明「守衛的控制流」。「macOS 掛載點的 st_dev 真的與上一層不同」是整個修法的前提，
+#    要在 Mac 用 hdiutil 拋棄式 APFS image 實測（見 README「已知界線」），在那之前不得宣稱 macOS 已驗證。
+REAL_STAT=$(command -v stat) || { echo "找不到 stat，中止" >&2; exit 2; }
+SHIM="$WORK/shim"; mkdir -p "$SHIM"
+cat > "$SHIM/stat" <<'SHIM_EOF'
+#!/bin/bash
+flag=${1-}; fmt=${2-}
+case "$flag" in -c|-f) ;; *) exec "$REAL_STAT" "$@" ;; esac
+shift 2
+rc=0
+for p in "$@"; do
+  if [ -f "$p/.fake-stat-fail" ]; then echo "fake-stat: 注入的失敗：$p" >&2; rc=1; continue; fi
+  q=$p; mk=''
+  while :; do
+    if [ -f "$q/.fake-mount-dev" ]; then mk="$q/.fake-mount-dev"; break; fi
+    up=$(dirname "$q"); [ "$up" = "$q" ] && break; q=$up
+  done
+  if [ -n "$mk" ]; then
+    dev=$(cat "$mk") || exit 98
+    case "$fmt" in
+      '%d') printf '%s\n' "$dev" ;;
+      '%d %n'|'%d %N') printf '%s %s\n' "$dev" "$p" ;;
+      *) echo "fake-stat: 不認得的格式：$fmt" >&2; exit 97 ;;
+    esac
+    continue
+  fi
+  "$REAL_STAT" "$flag" "$fmt" "$p" || rc=$?
+done
+exit $rc
+SHIM_EOF
+chmod +x "$SHIM/stat"
+if "$REAL_STAT" -c %d / >/dev/null 2>&1; then H_STF=-c; else H_STF=-f; fi
+# 把目錄 $1 假造成掛載點：裝置號＝上一層的真裝置號 +1（保證不同）。
+fake_mount() {
+  local par; par=$("$REAL_STAT" "$H_STF" %d "$(dirname "$1")") || return 1
+  case "$par" in ''|*[!0-9]*) return 1 ;; esac
+  printf '%s' "$((par + 1))" > "$1/.fake-mount-dev"
+}
+# 注入自我檢查（不經過受測區塊）：直接叫假 stat，讀到的裝置號必須是數字、且與上一層的真裝置號不同。
+fake_mount_ok() {
+  local f r
+  f=$(REAL_STAT="$REAL_STAT" "$SHIM/stat" "$H_STF" %d "$1") || return 1
+  r=$("$REAL_STAT" "$H_STF" %d "$(dirname "$1")") || return 1
+  case "$f:$r" in *[!0-9:]*|:*|*:) return 1 ;; esac
+  [ "$f" != "$r" ]
+}
+fake_fail_ok() { ! REAL_STAT="$REAL_STAT" "$SHIM/stat" "$H_STF" %d "$1" >/dev/null 2>&1; }
 
 new_home() { local h="$WORK/$1"; rm -rf "$h"; mkdir -p "$h/.claude/hooks" "$h/.claude/skills"; echo "$h"; }
 seed() { local h="$1"
@@ -401,6 +464,138 @@ else
     [ "$(snap "$H/.claude/skills")" = "$BEFORE" ]; check "[$where] 中止後 live 未變" $? 'live 被動過'
   done
 fi
+
+echo; echo "[M14] 1b：live skill 子樹裡有掛載點（假 stat 模擬）→ 中止、不印 ts、不建 skill 備份"
+SHIM_ON=1
+H=$(new_home m14); seed "$H"
+MNT="$H/.claude/skills/超級模式/references/mnt"; mkdir -p "$MNT/inner"; printf 'MOUNTED' > "$MNT/mounted-payload.txt"
+fake_mount "$MNT" && fake_mount_ok "$MNT"; check '[M14] 前置：假掛載點生效（裝置號與上一層不同）' $? '注入沒生效，本案等於沒測'
+run "$B1B" "$H"; rc=$?
+[ $rc -ne 0 ]; check '[M14] 1b 對掛載點中止' $? "竟然成功：$LAST_OUT"
+[ -z "$(get_ts "$LAST_OUT")" ]; check '[M14] 1b 未印出 ts' $? "竟印出 ts：$LAST_OUT"
+printf '%s' "$LAST_OUT" | grep -qF '底下有掛載點'; check '[M14] 中止理由是掛載點' $? "$LAST_OUT"
+if ls -d "$H/.claude/skills-backup/超級模式.bak-"* >/dev/null 2>&1; then check '[M14] 沒有建立 skill 備份' 1 '掛載內容已被實體化進備份'
+else check '[M14] 沒有建立 skill 備份' 0; fi
+SHIM_ON=0
+
+echo; echo "[M15] 回滾：1b 之後才出現的掛載點（Codex 10/15 情境；假 stat 模擬）"
+# sub＝掛在樹內；root＝live skill 根目錄本身就是掛載點（只比對樹內會漏掉這一種）。
+SHIM_ON=1
+for where in sub root; do
+  H=$(new_home "m15-$where"); seed "$H"
+  run "$B1B" "$H"; TS=$(get_ts "$LAST_OUT")
+  [ -n "$TS" ]; check "[M15][$where] 前置：1b 成功並印出 ts" $? "$LAST_OUT"
+  run "$B1C" "$H"; check "[M15][$where] 前置：1c 安裝成功" $? "$LAST_OUT"
+  printf '{"new":true,"hooks":{"PreToolUse":[]}}' > "$H/.claude/settings.json"
+  ! cmp -s "$H/.claude/settings.json" "$H/.claude/settings.json.bak-$TS"
+  check "[M15][$where] 前置：settings 已與備份不同（否則 settings 型的違規看不見）" $? '注入失敗'
+  if [ "$where" = sub ]; then MNT="$H/.claude/skills/超級模式/references/mnt"; else MNT="$H/.claude/skills/超級模式"; fi
+  mkdir -p "$MNT/inner"; printf 'MOUNTED' > "$MNT/mounted-payload.txt"
+  fake_mount "$MNT" && fake_mount_ok "$MNT"; check "[M15][$where] 前置：假掛載點生效" $? '注入沒生效，本案等於沒測'
+  BEFORE=$(snap "$H/.claude")
+  run_rollback "$TS" "$H"; rc=$?
+  [ $rc -ne 0 ]; check "[M15][$where] 回滾中止" $? "竟然成功：$LAST_OUT"
+  if [ "$where" = sub ]; then WANT='底下有掛載點'; else WANT='本身是掛載點'; fi
+  printf '%s' "$LAST_OUT" | grep -qF "$WANT"; check "[M15][$where] 中止理由是「${WANT}」" $? "$LAST_OUT"
+  [ "$(snap "$H/.claude")" = "$BEFORE" ]; check "[M15][$where] 中止後整個 ~/.claude 未變（hook／settings 也在內）" $? '有東西被動過'
+  [ -f "$MNT/mounted-payload.txt" ]; check "[M15][$where] 掛載內的資料仍在" $? '掛載內的資料被 rm -rf 刪掉'
+done
+SHIM_ON=0
+
+echo; echo "[M16] 回滾：裝置號讀不到必須中止（掛載點守衛本身的 fail-closed）"
+# root＝單一 stat 失敗；sub＝`find -exec stat {} +` 中途失敗（靠 find 回報非零）。兩條路徑各測一次。
+SHIM_ON=1
+for where in sub root; do
+  H=$(new_home "m16-$where"); seed "$H"
+  run "$B1B" "$H"; TS=$(get_ts "$LAST_OUT")
+  [ -n "$TS" ]; check "[M16][$where] 前置：1b 成功並印出 ts" $? "$LAST_OUT"
+  run "$B1C" "$H"; check "[M16][$where] 前置：1c 安裝成功" $? "$LAST_OUT"
+  printf '{"new":true,"hooks":{"PreToolUse":[]}}' > "$H/.claude/settings.json"
+  ! cmp -s "$H/.claude/settings.json" "$H/.claude/settings.json.bak-$TS"
+  check "[M16][$where] 前置：settings 已與備份不同（否則 settings 型的違規看不見）" $? '注入失敗'
+  if [ "$where" = sub ]; then BAD="$H/.claude/skills/超級模式/references/x"; else BAD="$H/.claude/skills/超級模式"; fi
+  mkdir -p "$BAD"; : > "$BAD/.fake-stat-fail"
+  fake_fail_ok "$BAD"; check "[M16][$where] 前置：假 stat 對該路徑確實失敗" $? '注入沒生效，本案等於沒測'
+  BEFORE=$(snap "$H/.claude")
+  run_rollback "$TS" "$H"; rc=$?
+  [ $rc -ne 0 ]; check "[M16][$where] 回滾中止" $? "竟然成功：$LAST_OUT"
+  if [ "$where" = sub ]; then WANT0='掃描 live skill'; else WANT0='讀取 live skill'; fi
+  printf '%s' "$LAST_OUT" | grep -q "^${WANT0}（.*）的裝置號失敗"; check "[M16][$where] 中止理由是「${WANT0}…的裝置號失敗」" $? "$LAST_OUT"
+  [ "$(snap "$H/.claude")" = "$BEFORE" ]; check "[M16][$where] 中止後整個 ~/.claude 未變" $? '有東西被動過'
+done
+SHIM_ON=0
+
+echo; echo "[M17] 1b、1c、回滾段的掛載點守衛逐字相同（三份手抄，防漂移）"
+mfn() { awk '/^if stat -c %d \/ /{p=1} p{print} p&&/^}$/{exit}' "$1"; }
+MF1=$(mfn "$B1B"); MF2=$(mfn "$B1C"); MF3=$(mfn "$BRB")
+[ -n "$MF1" ] && [ "$MF1" = "$MF2" ] && [ "$MF1" = "$MF3" ]
+check '[M17] 三個區塊都有 scan_no_mount 且內容相同' $? "1b=${#MF1} bytes、1c=${#MF2} bytes、rollback=${#MF3} bytes"
+
+echo; echo "[M18] 1c：1b 之後才出現的掛載點（假 stat 模擬）→ 在第一個 mutation 前中止，live 與掛載內資料都不變"
+# sub＝掛載點在 live 的 references（1c 的 cp -R 會把來源的 references/* 寫進去）；root＝live skill 根目錄本身。
+SHIM_ON=1
+for where in sub root; do
+  H=$(new_home "m18-$where"); seed "$H"
+  run "$B1B" "$H"; TS=$(get_ts "$LAST_OUT")
+  [ -n "$TS" ]; check "[M18][$where] 前置：1b 成功並印出 ts" $? "$LAST_OUT"
+  if [ "$where" = sub ]; then MNT="$H/.claude/skills/超級模式/references"; else MNT="$H/.claude/skills/超級模式"; fi
+  mkdir -p "$MNT"; printf 'MOUNTED' > "$MNT/mounted-payload.txt"
+  fake_mount "$MNT" && fake_mount_ok "$MNT"; check "[M18][$where] 前置：假掛載點生效" $? '注入沒生效，本案等於沒測'
+  BEFORE=$(snap "$H/.claude"); BEFORE_MNT=$(snap "$MNT")
+  run "$B1C" "$H"; rc=$?
+  [ $rc -ne 0 ]; check "[M18][$where] 1c 中止" $? "竟然成功：$LAST_OUT"
+  if [ "$where" = sub ]; then WANT='底下有掛載點'; else WANT='本身是掛載點'; fi
+  printf '%s' "$LAST_OUT" | grep -qF "$WANT" && printf '%s' "$LAST_OUT" | grep -qF '（live 未變更）'
+  check "[M18][$where] 中止理由是「${WANT}」且註明 live 未變更" $? "$LAST_OUT"
+  [ "$(snap "$H/.claude")" = "$BEFORE" ]; check "[M18][$where] 中止後整個 ~/.claude 未變" $? '有東西被動過'
+  [ "$(snap "$MNT")" = "$BEFORE_MNT" ]; check "[M18][$where] 掛載內的資料沒有被寫入或改動" $? '1c 的 cp -R 寫進了掛載'
+done
+SHIM_ON=0
+
+echo; echo "[M19] 1c：1b 之後才出現的 symlink → 在第一個 mutation 前中止（與 Windows 1c 的 reparse 掃描等價）"
+# sub＝live 的 references 被換成 symlink；root＝live skill 本身被換成 symlink。兩者都會讓 cp -R 寫穿到別處。
+for where in sub root; do
+  H=$(new_home "m19-$where"); seed "$H"
+  run "$B1B" "$H"; TS=$(get_ts "$LAST_OUT")
+  [ -n "$TS" ]; check "[M19][$where] 前置：1b 成功並印出 ts" $? "$LAST_OUT"
+  TGT="$WORK/m19-$where-target"; mkdir -p "$TGT"; printf 'OUTSIDE' > "$TGT/payload.txt"
+  if [ "$where" = sub ]; then LNK="$H/.claude/skills/超級模式/references"
+  else LNK="$H/.claude/skills/超級模式"; rm -rf "$LNK"; fi
+  ln -s "$TGT" "$LNK"; ln_rc=$?
+  # rc ＋型別雙驗（同 M2）：ln 沒建成時 1c 會走一般路徑，本案的區辨力就是假的。
+  [ "$ln_rc" -eq 0 ] && [ -L "$LNK" ]; check "[M19][$where] 前置：symlink 確實建立" $? "ln rc=$ln_rc 或不是 symlink，本案等於沒測"
+  BEFORE=$(snap "$H/.claude"); BEFORE_T=$(snap "$TGT")
+  run "$B1C" "$H"; rc=$?
+  [ $rc -ne 0 ]; check "[M19][$where] 1c 中止" $? "竟然成功：$LAST_OUT"
+  [ "$(snap "$H/.claude")" = "$BEFORE" ]; check "[M19][$where] 中止後整個 ~/.claude 未變" $? '有東西被動過'
+  [ "$(snap "$TGT")" = "$BEFORE_T" ]; check "[M19][$where] symlink 目標沒有被寫入" $? '1c 的 cp -R 寫穿到 symlink 目標'
+done
+
+echo; echo "[M20] 目錄名含換行、同一裝置 → 1b、1c、回滾照常通過（判定只看 %d，不被名稱拆行騙）"
+# 不經過假 stat：用真的 stat 與真的裝置號。判定若改回「%d 與路徑同一行再切欄位」，
+# 換行後半段會被當成一行裝置號不符的輸出 → 誤報「底下有掛載點」而擋下正常安裝。
+H=$(new_home m20); seed "$H"
+NLDIR="$H/.claude/skills/超級模式/references/a
+b"
+mkdir -p "$NLDIR" && printf 'NL' > "$NLDIR/f.txt"
+[ -f "$NLDIR/f.txt" ]; check '[M20] 前置：名稱含換行的目錄確實建立' $? '建不出含換行的目錄，本案等於沒測'
+SNAP0=$(snap "$H/.claude/skills/超級模式")
+run "$B1B" "$H"; rc=$?; TS=$(get_ts "$LAST_OUT")
+[ $rc -eq 0 ] && [ -n "$TS" ]; check '[M20] 1b 成功並印出 ts' $? "$LAST_OUT"
+run "$B1C" "$H"; check '[M20] 1c 安裝成功' $? "$LAST_OUT"
+run_rollback "$TS" "$H"; check '[M20] 回滾成功' $? "$LAST_OUT"
+[ "$(snap "$H/.claude/skills/超級模式")" = "$SNAP0" ]; check '[M20] 回滾後 skill 等於安裝前（含換行目錄）' $? '還原內容不符'
+
+echo; echo "[C4] 對照組：經過假 stat、但沒有任何注入時，安裝與回滾都必須成功（證明假 stat 是透明的）"
+SHIM_ON=1
+H=$(new_home c4); seed "$H"
+SNAP0=$(snap "$H/.claude/skills/超級模式")
+run "$B1B" "$H"; TS=$(get_ts "$LAST_OUT")
+[ -n "$TS" ]; check '[C4] 1b 成功並印出 ts' $? "$LAST_OUT"
+run "$B1C" "$H"; check '[C4] 1c 安裝成功' $? "$LAST_OUT"
+run_rollback "$TS" "$H"; check '[C4] 回滾成功' $? "$LAST_OUT"
+[ "$(snap "$H/.claude/skills/超級模式")" = "$SNAP0" ]; check '[C4] 回滾後 skill 等於安裝前' $? '還原內容不符'
+SHIM_ON=0
 
 echo; echo "[C3] 對照組（確認上面的斷言不是永遠為真）"
 H=$(new_home c3); seed "$H"

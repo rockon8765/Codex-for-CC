@@ -35,8 +35,8 @@
 
 - **[`CONSULT-TOKEN-REPLACE-FLAKE`](backlog.md#CONSULT-TOKEN-REPLACE-FLAKE)**（2026-10-15 定位）：Windows consult 在憑證已存在時用 `File.Replace` 換掉舊憑證，偶發失敗並走 exit 44（`CONSULT_TOKEN_WRITE_FAILED`）；舊憑證保留，照設計 fail-closed。本機壓力重現：pwsh 1/40、WinPS 5.1 2/40。原因定位到 `File.Replace` 呼叫；「防毒或索引服務短暫開著該檔」仍是推論。
 - 影響：會讓 CI flaky，擋 A1。
-- 狀態：待使用者裁決（[計畫 §9](LTS-ADMISSION-PLAN.md) 第 4 點）。Codex 2026-10-17 建議先備妥最小修補授權方案：只處理憑證替換的短暫失敗，保留原子替換、舊憑證保留與最終 exit 44 的語義；短暫重試只是候選修法；驗證要涵蓋「暫時失敗後成功」與「持續失敗仍正確拒絕」，不得用測試裡先睡一下或 workflow 重跑代替修復。
-- 另一個需要追蹤的候選（不是「第一個」）：[`CC-NOBASH-FAILCLOSED`](backlog.md#CC-NOBASH-FAILCLOSED)（2026-10-17 登錄；§6 第 1 條候選，可能碰 MVS-1、MVS-4，待在沒有 Git Bash 的 Windows 環境 live 確認）。
+- 狀態：待使用者裁決（[計畫 §9](LTS-ADMISSION-PLAN.md) 第 4 點）。Codex 2026-10-17 建議先備妥最小修補授權方案：只處理憑證替換的短暫失敗，保留原子替換、舊憑證保留與最終 exit 44 的語義；短暫重試只是候選修法；驗證要涵蓋「暫時失敗後成功」與「持續失敗仍正確拒絕」，不得用測試裡先睡一下或 workflow 重跑代替修復。 **2026-10-18 更新**：使用者 10/17 裁決修補（[備忘 §8.11](DECISION-MEMO-lts-2026-09-30.md#user-decisions-2026-10-17b)），已在 `lts/build` 修好並通過最後一輪審查（PASS-WITH-NONBLOCKING，細節見 backlog 該列）。修補進 CI 後，仍要在之後的 SHA 上照 A1 規則重新累積「3 個不同 SHA 連續綠」才能說它不再擋 A1；不宣稱統計上 flake 已消失。
+- 另一個需要追蹤的候選（不是「第一個」）：[`CC-NOBASH-FAILCLOSED`](backlog.md#CC-NOBASH-FAILCLOSED)（2026-10-17 登錄；§6 第 1 條候選，可能碰 MVS-1、MVS-4，待在沒有 Git Bash 的 Windows 環境 live 確認）。 **2026-10-18 更新**：使用者裁決 Windows 安裝必須先有 Git for Windows（備忘 §8.11），不再需要找沒有 Git Bash 的環境實測；AI-INSTALL 0a 已在 `lts/build` 實作並通過最後一輪審查。
 
 <a id="mac"></a>
 ## 3. Mac 驗收環境與時段（產物 ③）

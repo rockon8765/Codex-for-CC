@@ -116,7 +116,7 @@ function New-MutantDoc($target) {
 # 所以這裡釘三樣，缺一不可：
 #   (a) **具名失敗集合逐條精確相等**（順序無關、`-ceq` 大小寫敏感、多一條少一條都算 FAIL）；
 #   (b) **精確退出碼**，不是「任意非零」；
-#   (c) 案數守衛型的 control 另外釘 **STOP 那一行的完整字面**（含「實跑 125、預期 126」兩個數字），
+#   (c) 案數守衛型的 control 另外釘 **STOP 那一行的完整字面**（含「實跑 160、預期 161」兩個數字），
 #       不是「log 裡任何地方出現 STOP 就算」。
 function Invoke-Control($label, $sutPath, $docPath, $expect) {
   $log = Join-Path $out "$label-$Shell.log"
@@ -135,7 +135,7 @@ function Invoke-Control($label, $sutPath, $docPath, $expect) {
   foreach ($m in $missing) { $problems += "該紅卻沒紅：$m" }
   foreach ($e in $extra)   { $problems += "不該紅卻紅了：$e" }
   if ($expect.ContainsKey('StopLine')) {
-    # 釘完整字面（含兩個數字）。只找 'STOP 案數不符' 會讓「實跑 100／預期 126」也算過。
+    # 釘完整字面（含兩個數字）。只找 'STOP 案數不符' 會讓「實跑 100／預期 161」也算過。
     if (-not ($lines | Where-Object { $_ -ceq $expect.StopLine })) {
       $problems += "找不到預期的案數守衛訊息（逐字）：$($expect.StopLine)"
     }
@@ -198,8 +198,9 @@ Invoke-Control 'c3-minus-one-check' (New-MutantSut 'c3' ($sutText.Replace($c3a, 
   Rc = 1
   # 刪的是**無副作用**的一條，所以不該有任何具名失敗——紅的只能是案數守衛本身。
   Fails = @()
-  # 釘完整字面含兩個數字：只找 'STOP 案數不符' 的話，「實跑 100、預期 126」也會過。
-  StopLine = '  STOP 案數不符：實跑 125、預期 126 —— 有案被刪除或跳過，或新增後忘了更新 EXPECTED_CHECKS'
+  # 釘完整字面含兩個數字：只找 'STOP 案數不符' 的話，「實跑 100、預期 161」也會過。
+  # 2026-10-17：126 → 161（run-windows.ps1 新增 [G] 23 條、[M18] 12 條），兩個數字跟著改。
+  StopLine = '  STOP 案數不符：實跑 160、預期 161 —— 有案被刪除或跳過，或新增後忘了更新 EXPECTED_CHECKS'
 }
 
 "`n=== control 4：把 settings 還原兩行搬到首掃之前（緊貼 anchor）==="

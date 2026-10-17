@@ -311,6 +311,24 @@ AGENTS.md「LTS 建置期」段與計畫 §4、§5.2 都核准之前，對 `lts/
 | 2026-10-17 | `82fdaa2` | 取消工時上限與截止日、AGENTS.md 核准紀錄 | 使用者送出的訊息：「把這批（取消工時上限、AGENTS.md 核准紀錄）提交成一個 commit，並單次推送到 origin/lts/build；不推 tag、main 不動。」 | success（[38956089580](https://github.com/rockon8765/Codex-for-CC/actions/runs/38956089580)） |
 | 2026-10-17 | `0a2145d` | 計畫 §8 殘留上限文字訂正、DOC-FIX 改名、審查輪數補記、10/28 報告骨架 | 使用者送出的訊息：「把這批提交成一個 commit，並單次推送到 origin/lts/build；不推 tag、main 不動。G2 那一輪保留。」 | success（[38957753829](https://github.com/rockon8765/Codex-for-CC/actions/runs/38957753829)） |
 | 2026-10-17 | `8a0b953` | 10/28 報告 §3、consult 改回跟隨 config 的補記、工時 | 使用者送出的訊息：「把這批（10/28 報告 §3、consult 改回跟隨 config 的補記、工時）提交成一個 commit，並單次推送到 origin/lts/build；不推 tag、main 不動。」 | success（[39036096539](https://github.com/rockon8765/Codex-for-CC/actions/runs/39036096539)） |
-| 2026-10-17 | 本列所在的 commit（SHA 下次更新時補） | push 紀錄集中到本節；AGENTS.md、計畫改成指向本節 | 使用者送出的訊息：「把這批（push 紀錄集中到備忘 §8.10）提交成一個 commit，並單次推送到 origin/lts/build；不推 tag、main 不動。」 | 推送時尚未執行（下次更新時補） |
+| 2026-10-17 | `040b344` | push 紀錄集中到本節；AGENTS.md、計畫改成指向本節 | 使用者送出的訊息：「把這批（push 紀錄集中到備忘 §8.10）提交成一個 commit，並單次推送到 origin/lts/build；不推 tag、main 不動。」 | success（[39037102465](https://github.com/rockon8765/Codex-for-CC/actions/runs/39037102465)；2026-10-18 補記） |
+| 2026-10-18 | 本列所在的 commit（SHA 下次更新時補） | 五項新 MUST 修補（F4、`CONSULT-TOKEN-REPLACE-FLAKE`、`CC-NOBASH-FAILCLOSED`、`CODEX-CHECK-CP437`、`CODEX-CHECK-WARNING`）、新登 `CODEX-CHECK-SH-STDERR`、輪數帳與工時 | 使用者送出的訊息：「把這批（五項 MUST 修補與文件更新）提交成一個 commit，並單次推送到 origin/lts/build；不推 tag、main 不動。」 | 推送時尚未執行（下次更新時補） |
 
-註：後三列的訊息文字是 Claude 在下一步按鈕裡預先擬好、由使用者點選送出的，§8.9 稱為「使用者原話」，精確說法是「使用者送出的訊息」。
+註：後三列的訊息文字是 Claude 在下一步按鈕裡預先擬好、由使用者點選送出的，§8.9 稱為「使用者原話」，精確說法是「使用者送出的訊息」。2026-10-18 那一列同樣是 Claude 擬好、由使用者點選送出的訊息。
+
+<a id="user-decisions-2026-10-17b"></a>
+### 8.11 2026-10-17 晚上使用者裁決：待決缺陷改為修復、Windows 安裝要求 Git
+
+Claude 用白話說明四項待決事項（flake 修補、沒有 Git Bash 時 gate 失敗改為擋下、計畫 §9 的待決小項、Mac 的 F2 同步）後，使用者原話（打字）：
+
+> 1. ok
+> 2. 我沒有沒裝git的電腦，但現在沒有裝 Git 的 Windows 很少了，能不能直接改成裝這個 skill一定要先裝 Git？
+> 3. 能修復就盡量修復，但我就只有這台windows電腦
+> 4. 以下是跑完的結果
+
+落實（Claude 的理解，照實記錄）：
+
+- 第 1 點：授權修補 [`CONSULT-TOKEN-REPLACE-FLAKE`](backlog.md#CONSULT-TOKEN-REPLACE-FLAKE)，加進計畫 §5.1 MUST 清單。
+- 第 2 點：Windows 安裝改為**必須先有 Git for Windows（Git Bash）**——README 前置條件與 AI-INSTALL 安裝前檢查；以此處理 [`CC-NOBASH-FAILCLOSED`](backlog.md#CC-NOBASH-FAILCLOSED)（沒有 Git Bash 的環境不再屬於支援範圍，因此不需要另找環境實測）。加進 MUST 清單。
+- 第 3 點：計畫 §9 中可修的缺陷改為修復、不接受風險：F4 `MOUNT-RMRF`（原預設 ACCEPTED_RISK）、[`CODEX-CHECK-CP437`](backlog.md#CODEX-CHECK-CP437)、[`CODEX-CHECK-WARNING`](backlog.md#CODEX-CHECK-WARNING)，都加進 MUST 清單。「只有這台 Windows 電腦」：Windows 測試帳號（V4）建在同一台電腦上（另一個標準使用者帳號），不需要第二台電腦。tag `pre-lts`、支援終止日、授權條款不屬於「修復」，另行詢問。
+- 第 4 點：Mac 上 F2 同步完成，結果記入 backlog [`OFF-CLEANUP-RECURSIVE`](backlog.md#OFF-CLEANUP-RECURSIVE)。

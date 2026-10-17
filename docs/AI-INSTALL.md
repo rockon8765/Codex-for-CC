@@ -6,8 +6,143 @@
 ## 0. 平台偵測
 
 - 你在 macOS（BSD userland）→ 用 [`macos/`](../macos/)（bash 腳本 `.sh`）。
-- 你在 Windows PowerShell 環境 → 用 [`windows/`](../windows/)（PowerShell 腳本 `.ps1`）。
+- 你在 Windows PowerShell 環境 → 用 [`windows/`](../windows/)（PowerShell 腳本 `.ps1`）。**先做下面的 0a**：Claude Code 會用的 Git Bash 不能用就停止，不要往下做。
 - ⛔ **你在 Linux（GNU userland，包括在 WSL2 的 Linux 環境裡執行）→ 停止，不要執行本文件的任何步驟。** Linux 版已於 2026-10-14 凍結：不修、不驗收、不提供支援。先把這件事告訴使用者。使用者仍堅持要裝時，唯一的做法是**另開一份 clone，或用 `git worktree add <dir> pre-lts`** 取得凍結快照 tag `pre-lts`（＝`80c60a8`；**tag 建立前請用 commit `80c60a8`**），照**該快照內**的 `docs/AI-INSTALL.md` 安裝——**不要在使用者現有的 clone 裡 checkout**（那會切換使用者的工作目錄、甚至打斷進行中的工作）；並明白告知：沒有支援、Linux 從未做過 live 驗收、`codex-check.sh` 的能力面盤點與 baseline diff 沒有移植到 Linux。⚠️ **不要拿 `macos/` 代替**：macOS 的 hook 會把路徑轉成小寫再比對（大小寫敏感的檔案系統會誤判範圍），腳本的 `stat` 也是 BSD 語法。
+
+### 0a. Windows 前置條件：Git for Windows（必要；macOS 跳過本節）
+
+本 skill 在 Windows **必須先裝 Git for Windows**（2026-10-17 使用者裁決）。Claude Code 在 Windows 用 Git Bash 執行 hook；找不到 Git Bash 時，Claude Code 2.1.299 起，本 gate 的 hook 只要無法執行（`node` 不在 PATH、gate 檔不在、逾時），就會**擋下** settings matcher 涵蓋的工具（Edit／Write／PowerShell 等），一般 session 也一樣，連要改回 settings 都可能做不到（backlog [`CC-NOBASH-FAILCLOSED`](backlog.md#CC-NOBASH-FAILCLOSED)）。macOS 不受影響。
+
+在 repo 根目錄、**在 Claude Code 裡**跑下面這段（`~/.claude/settings.json` 的 `env` 只有在 Claude Code 裡才會帶進子行程）。它分兩段：
+
+1. **找**：照 Claude Code 自己的找法（2.1.301 讀碼）找出「它會用的那一個」：`CLAUDE_CODE_GIT_BASH_PATH`（檔名要是 `bash.exe`／`sh.exe`／`bash`／`sh`，且路徑存在）→ `C:\Program Files\Git\bin\bash.exe` → `C:\Program Files (x86)\Git\bin\bash.exe` → `where.exe git` 第一個合格結果往上兩層的 `bin\bash.exe`。**PATH 上的 `bash.exe` 一律不算**。
+2. **驗**：對那一個實際檢查——必須是**檔案**（不是目錄）；不能是 WSL 的位置（`System32`、`WindowsApps` 的 `bash.exe`，認得出來就不執行，免得啟動 WSL）；實際執行 `-c "/usr/bin/uname -s"`（15 秒逾時）要成功，而且輸出是 `MINGW64_NT-…`／`MSYS_NT-…` 這類 Git for Windows（MSYS2）的結果。不合格時**不改試下一個**：Claude Code 不會改試，它就是會用那一個。
+
+另外，Claude Code 判斷「`where.exe` 找到的 git 在不在目前目錄底下」之前會先 realpath。這段不重做 realpath，所以那個 git 的路徑或目前目錄只要經過 junction／symlink 等 reparse point，就判為**無法判定**（`GIT_BASH_UNDECIDABLE`）並停止，請使用者改設 `CLAUDE_CODE_GIT_BASH_PATH`。
+
+**成功條件（兩個都要）：這段跑完沒有以錯誤結束，而且輸出裡恰好一行 `GIT_BASH_OK path=…`。**
+
+- 成功 → 繼續步驟 1。
+- 其他任何結果（`GIT_BASH_MISSING`／`GIT_BASH_INVALID`／`GIT_BASH_UNDECIDABLE`、其他錯誤、沒有輸出、`GIT_BASH_OK` 不只一行）→ **停止，不要執行本文件任何後續步驟**，把訊息原樣轉告使用者。這是 **fail-closed**，與步驟 4「Codex 不可用就跳過」的 fail-open **刻意相反**。
+- 不要代為安裝 Git（安裝程式可能要系統管理員權限，由使用者自己裝），也不要拿 WSL 的 `bash.exe` 湊數。使用者裝好或修好 Git、**完全結束並重開 Claude Code**（它每個 host 只找一次 Git Bash 並快取；Desktop 要結束整個 app）之後，從本節重跑。
+- 這台機器若**已經裝過**本 skill：補裝 Git 之前，gate 一失敗就會擋工具。要先停用，照文末「解除安裝」第 1、2 步只移除 settings 那一筆、開新 session。
+
+> ⚠️ **驗證範圍**：本節的判斷邏輯以測試臺模擬驗證（[`tests/ai-install/run-windows.ps1`](../tests/ai-install/run-windows.ps1) 的 `[G]` 節：當場編出的假 `bash.exe`、改寫寫死的兩個位置、每案明設 `PATH`／`CLAUDE_CODE_GIT_BASH_PATH`／目前目錄）。Claude Code 2.1.299「沒有 Git Bash 就擋下」本身**未 live 重現**（維護者只有一台裝了 Git 的 Windows）。找法是照抄 2.1.301 的讀碼，上游改版就可能分歧（列入上游漂移稽核的檢查項）。
+
+```powershell
+# 步驟 0a（Windows）：Claude Code 會用哪一個 Git Bash？那一個真的能用嗎？
+# (A) 找：照 Claude Code 自己的找法（2.1.301 讀碼）找出「它會用的那一個」。
+# (B) 驗：對那一個實際檢查（是檔案、不是 WSL 的位置、實際執行回 MINGW／MSYS）。不合格不改試下一個——Claude Code 也不會改試。
+# 成功只印一行 GIT_BASH_OK path=<路徑>；其他結果一律 throw（不用 exit：貼進使用者自己的終端機時，exit 會把視窗關掉）。
+# 刻意不設 $ErrorActionPreference = 'Stop'：5.1 會把 where.exe 寫到 stderr 的「找不到」包成錯誤而中止整段。
+function Test-Exists($p) { try { [bool](Test-Path -LiteralPath $p -ErrorAction Stop) } catch { $false } }
+function Get-Entry0a($p) { try { Get-Item -LiteralPath $p -Force -ErrorAction Stop } catch { $null } }
+# 路徑本身或任一上層是 reparse point（junction／symlink 等）就回傳 true。
+function Test-ReparseChain($p) {
+  $q = [IO.Path]::GetFullPath($p)
+  while ($q) {
+    $e = Get-Entry0a $q
+    if ($null -ne $e -and (($e.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0)) { return $true }
+    $up = [IO.Path]::GetDirectoryName($q)
+    if (-not $up -or $up -eq $q) { break }
+    $q = $up
+  }
+  return $false
+}
+function Find-ClaudeGitBash {
+  # (1) CLAUDE_CODE_GIT_BASH_PATH：檔名必須是 bash.exe／sh.exe／bash／sh 且路徑存在（Claude Code 用 existsSync，目錄也算存在）；
+  #     不合格時 Claude Code 只警告、改走自動偵測。
+  $p = $env:CLAUDE_CODE_GIT_BASH_PATH
+  if ($p) {
+    $leaf = ($p.TrimEnd('\', '/') -replace '^.*[\\/]', '').ToLowerInvariant()
+    if ((@('bash.exe', 'sh.exe', 'bash', 'sh') -contains $leaf) -and (Test-Exists $p)) { return $p }
+    Write-Warning "CLAUDE_CODE_GIT_BASH_PATH=${p} 不可用（不存在或不是 bash／sh），Claude Code 會改走自動偵測"
+  }
+  # (2) Claude Code 寫死的兩個位置（字面，不看 $env:ProgramFiles）
+  foreach ($c in @('C:\Program Files\Git\bin\bash.exe', 'C:\Program Files (x86)\Git\bin\bash.exe')) {
+    if (Test-Exists $c) { return $c }
+  }
+  # (3) where.exe git 的第一個合格結果（存在、不在目前目錄底下、副檔名 .com/.exe/.bat/.cmd），往上兩層的 bin\bash.exe。
+  #     Claude Code 只看第一個合格的 git；任何一步都不看 PATH 上的 bash（System32、WindowsApps 的 bash.exe 是 WSL）。
+  $sys = if ($env:SystemRoot) { $env:SystemRoot } else { 'C:\Windows' }
+  $cwdFull = [IO.Path]::GetFullPath((Get-Location).ProviderPath)
+  $cwd = $cwdFull.TrimEnd('\')
+  $hits = @(& (Join-Path $sys 'System32\where.exe') git 2>$null)
+  foreach ($g in $hits) {
+    if (-not $g -or -not (Test-Exists $g)) { continue }
+    # Claude Code 比對「在不在目前目錄底下」之前會先 realpath。這裡不重做 realpath：
+    # 兩邊任一經過 reparse point 就判為無法判定（寧可停下，也不要猜錯 Claude Code 會用哪一個）。
+    if ((Test-ReparseChain $g) -or (Test-ReparseChain $cwdFull)) {
+      throw ("GIT_BASH_UNDECIDABLE：where.exe 找到的 git（${g}）或目前目錄（${cwdFull}）經過 junction／symlink 等 reparse point，" +
+             "無法可靠判定 Claude Code 會用哪一個 Git Bash，停止安裝（本文件後續步驟都不要做）。`n" +
+             "請使用者把 CLAUDE_CODE_GIT_BASH_PATH 設成 Git for Windows 的 bash.exe 完整路徑（例如 ~/.claude/settings.json 的 env），" +
+             "完全結束並重開 Claude Code 後，在 Claude Code 裡重跑本步驟。")
+    }
+    $dir = [IO.Path]::GetDirectoryName([IO.Path]::GetFullPath($g)).TrimEnd('\')
+    if ($dir -ieq $cwd -or $dir.StartsWith($cwd + '\', [StringComparison]::OrdinalIgnoreCase)) { continue }
+    $ext = [IO.Path]::GetExtension($g.TrimEnd('.', ' ')).ToLowerInvariant()
+    if (@('.com', '.exe', '.bat', '.cmd') -notcontains $ext) { continue }
+    $b = [IO.Path]::GetFullPath([IO.Path]::Combine($g, '..', '..', 'bin', 'bash.exe'))
+    if (Test-Exists $b) { return $b }
+    return $null
+  }
+  return $null
+}
+# (B) 驗 Claude Code 會用的那一個：可用就回傳 null，否則回傳不合格的原因。
+function Test-GitBashUsable($bash) {
+  $e = Get-Entry0a $bash
+  if ($null -eq $e) { return '讀不到這個路徑' }
+  if ($e.PSIsContainer) { return '是目錄，不是可執行檔' }
+  $full = [IO.Path]::GetFullPath($bash)
+  # WSL 的 bash.exe（System32／SysWOW64／Sysnative、WindowsApps 的執行別名）：認得出來就不執行（執行會啟動 WSL）。
+  if ($full -match '\\WindowsApps\\' -or [IO.Path]::GetDirectoryName($full) -match '\\(System32|SysWOW64|Sysnative)$') {
+    return '是 WSL 的 bash.exe（System32／WindowsApps），不是 Git Bash'
+  }
+  # 實際執行一次：Git for Windows（MSYS2）的 uname -s 是 MINGW64_NT-…／MSYS_NT-… 這類；WSL 是 Linux、Cygwin 是 CYGWIN_NT-…。
+  # 用絕對路徑 /usr/bin/uname：直接指向 usr\bin\bash.exe 時，PATH 不一定含 /usr/bin。
+  $psi = New-Object System.Diagnostics.ProcessStartInfo
+  $psi.FileName = $full
+  $psi.Arguments = '-c "/usr/bin/uname -s"'
+  $psi.UseShellExecute = $false
+  $psi.CreateNoWindow = $true
+  $psi.RedirectStandardInput = $true
+  $psi.RedirectStandardOutput = $true
+  $psi.RedirectStandardError = $true
+  try { $proc = [System.Diagnostics.Process]::Start($psi) } catch { return "無法執行（$($_.Exception.Message)）" }
+  try {
+    $proc.StandardInput.Close()
+    $so = $proc.StandardOutput.ReadToEndAsync()
+    $null = $proc.StandardError.ReadToEndAsync()   # 一併讀掉，避免 stderr 塞滿管線而卡住
+    if (-not $proc.WaitForExit(15000)) {
+      try { $proc.Kill() } catch {}
+      return '執行 15 秒仍未結束（逾時）'
+    }
+    if (-not $so.Wait(5000)) { return '讀不到執行輸出' }
+    $rc = $proc.ExitCode
+    $uname = $so.Result.Trim()
+  } finally { $proc.Dispose() }
+  if ($rc -ne 0 -or $uname -cnotmatch '\A(MINGW32|MINGW64|MSYS|UCRT64|CLANG32|CLANG64|CLANGARM64)_NT-\S+\z') {
+    return "執行 /usr/bin/uname -s 的結果不是 Git for Windows（MINGW／MSYS）：退出碼=${rc}、輸出=[${uname}]"
+  }
+  return $null
+}
+$gitBash = Find-ClaudeGitBash
+if (-not $gitBash) {
+  throw ("GIT_BASH_MISSING：找不到 Claude Code 會用的 Git Bash，停止安裝（本文件後續步驟都不要做）。`n" +
+         "本 skill 在 Windows 必須先裝 Git for Windows：沒有 Git Bash 時，Claude Code 2.1.299 起 gate hook 一旦無法執行，就會擋下 Edit／Write／PowerShell 等工具，連一般 session 也會被卡住。`n" +
+         "請使用者：(1) 安裝 Git for Windows（https://git-scm.com/downloads/win ，或 winget install --id Git.Git -e --source winget），用預設安裝位置；" +
+         "(2) 完全結束並重開 Claude Code（Desktop 要結束整個 app；它只在啟動時找一次 Git Bash）；(3) 在 Claude Code 裡重跑本步驟。`n" +
+         "裝在其他位置：把 CLAUDE_CODE_GIT_BASH_PATH 設成 bash.exe 的完整路徑（例如 ~/.claude/settings.json 的 env），重開 Claude Code 後在 Claude Code 裡重跑本步驟。`n" +
+         "C:\Windows\System32\bash.exe 與 WindowsApps\bash.exe 是 WSL，不算 Git Bash。")
+}
+$why = Test-GitBashUsable $gitBash
+if ($why) {
+  throw ("GIT_BASH_INVALID：Claude Code 會用的 Git Bash 是 ${gitBash}，但它${why}，停止安裝（本文件後續步驟都不要做）。`n" +
+         "Claude Code 不會改試別的位置，它就是會用這一個。請使用者：(1) 若設了 CLAUDE_CODE_GIT_BASH_PATH，改成 Git for Windows 的 bash.exe（例如 C:\Program Files\Git\bin\bash.exe）或把它移除；" +
+         "(2) 否則修復或重新安裝 Git for Windows（預設安裝位置）；(3) 完全結束並重開 Claude Code 後，在 Claude Code 裡重跑本步驟。")
+}
+"GIT_BASH_OK path=$gitBash"
+```
 
 > ℹ️ **LTS 建置中（2026-10-14 起）**：目前沒有任何經過准入的版本，見 [README](../README.md) 頂端說明與 [`LTS-ADMISSION-PLAN.md`](LTS-ADMISSION-PLAN.md)。
 
@@ -74,13 +209,16 @@ node ".\windows\skills\超級模式\tests\matcher-contract.test.js" --repo # hoo
 > |---|---|---|
 > | symlink | ✅ 有效與斷掉的 junction 已實測；**斷掉的 symlink 未驗證**（見下方註解） | ✅ 有效與斷掉皆已實測 |
 > | junction／NTFS mount point | ✅（都帶 `ReparsePoint` 屬性）| 不適用 |
-> | **bind mount／掛載點** | ✅（同上）| ❌ **偵測不到**——它是目錄不是 symlink，`find -type l` 抓不到 |
+> | **bind mount／掛載點** | ✅（同上；1b、1c 的第一個 mutation 前、回滾的刪除前各掃一次）。NTFS 掛載資料夾本身**未 live 實測**（建立要系統管理員權限），由 junction 案覆蓋同一個屬性（推論） | ⚠️ macOS：以裝置號（st_dev）偵測，1b、1c 的第一個 mutation 前、回滾的 `rm -rf` 前各一次（1b 之後才掛上的也算）。**只以模擬（測試臺的假 `stat`）驗證控制流，macOS 真機待驗**。同裝置號的掛載（Linux bind mount）偵測不到 |
 >
-> ⚠️ **macOS／Linux 的掛載點是已知缺口，且後果嚴重**：若 skill 樹底下有掛載點，1b 會照常
-> 備份（`cp -R` 把掛載內容實體化、`diff -r` 仍相等）並印出 `ts`；之後若需要回滾，
-> `rm -rf ~/.claude/skills/超級模式` 會**跨進掛載樹刪除裡面的真實資料**。
-> 這條路徑在本文件加入 link 守衛之前就存在（回滾一向用 `rm -rf`），**守衛並未縮小它**。
-> 若你的 `~/.claude/skills/超級模式` 底下有任何掛載點，**先卸載或改用手動安裝**，不要跑本流程。
+> ⚠️ **macOS 的掛載點守衛（2026-10-17 加入，F4 `MOUNT-RMRF`）只以模擬驗證**：skill 樹底下（或 skill 根目錄本身）
+> 有掛載點時，1b、1c、回滾都應該在動 live 之前中止，訊息含「掛載點」與「（live 未變更）」——遇到就先卸載再重跑。
+> 這是以測試臺 `run-posix.sh` 的假 `stat` 模擬裝置號，驗的是**控制流**；「macOS 掛載點的 st_dev 真的與上一層不同」
+> 這個前提，以及 macOS 真機（hdiutil 拋棄式 APFS image：根掛載、子樹掛載、1b 後才掛載、payload 保留）**都還待驗**。
+> 修正前的後果很嚴重：1b 會照常備份（`cp -R` 把掛載內容實體化、`diff -r` 仍相等）並印出 `ts`，
+> 回滾的 `rm -rf ~/.claude/skills/超級模式` 會**跨進掛載樹刪除裡面的真實資料**。
+> 殘留：掃描與 mutation 之間的 TOCTOU 窗口；同裝置號的掛載偵測不到。
+> 在真機驗證之前，若你的 `~/.claude/skills/超級模式` 底下有任何掛載點，**仍請先卸載或改用手動安裝**，不要跑本流程。
 > 記在 [`backlog.md`](backlog.md)。
 
 macOS（Windows 的 settings 檔名不同，見下一段）:
@@ -117,15 +255,53 @@ elif [ -f "$h" ]; then
 elif [ -e "$h" ]; then echo "$h 存在但不是一般檔案，狀態不明，中止"; exit 1
 else : > "$hbak.absent"; fi
 
+# 掛載點守衛（F4 MOUNT-RMRF）：1b、1c 與回滾段各有一份**逐字相同**的副本（測試臺 [M17] 比對，防漂移）。
+# `find -type l` 抓不到掛載點（它是目錄不是 symlink），而 1b 的 `cp -R` 會把掛載內容實體化進備份、
+# 1c 的 `cp -R` 會把同名檔寫進掛載裡、回滾的 `rm -rf` 會跨進掛載刪掉裡面的資料。
+# 判準是 st_dev（裝置號）：根目錄要與上一層同裝置（否則它本身就是掛載點），樹內每個目錄要與根目錄同裝置。
+# macOS 上一般使用者建得出的掛載（APFS volume、磁碟映像、SMB／NFS、macFUSE）各有自己的裝置號（推論）；
+# 同裝置號的掛載（Linux bind mount）偵測不到。
+# ⚠️ 驗證範圍：只以模擬（測試臺的假 stat）驗證控制流；macOS 真機（hdiutil 拋棄式 APFS image：
+#    根掛載、子樹掛載、1b 後才掛載、payload 保留）**待驗**。
+# ⚠️ 不能寫死任一種語法：PATH 前面若是 GNU coreutils（例如 Homebrew 的 gnubin），寫死的 `stat -f %d` 在 GNU 上
+#    會失敗（`-f` 是「檔案系統狀態」、`%d` 被當成檔名），每次都被擋下；寫死 `-c` 則 macOS 內建的 stat 不認得。
+#    所以先偵測語法：`-c` 只有 GNU 認得，BSD（macOS 內建）會拒絕。
+# 判定只用 `%d`（一個目錄一行，與目錄名無關：名稱含換行也不會被拆錯行）；路徑只在偵測到之後另外取，當診斷訊息。
+# 讀不到、格式不對、掃描失敗一律中止（fail-closed）。不加 `-xdev`：掛載點之內也掃（與 symlink 掃描同範圍）；
+# `-exec … {} +` 任一次 stat 失敗，find 會回非零（macOS 與 GNU 的 find 皆然）。
+if stat -c %d / >/dev/null 2>&1; then stf=-c; stn='%d %n'; else stf=-f; stn='%d %N'; fi
+scan_no_mount() { # 用途名 路徑
+  local _dev _par _v _all _bad _at
+  [ -d "$2" ] || return 0
+  if ! _dev=$(stat "$stf" %d "$2") || ! _par=$(stat "$stf" %d "$(dirname "$2")"); then
+    echo "讀取 $1（$2）的裝置號失敗，狀態不明，中止（live 未變更）"; exit 1
+  fi
+  for _v in "$_dev" "$_par"; do
+    case "$_v" in ''|*[!0-9]*) echo "$1（$2）的裝置號格式不對（${_v}），狀態不明，中止（live 未變更）"; exit 1 ;; esac
+  done
+  if [ "$_dev" != "$_par" ]; then echo "$1（$2）本身是掛載點，中止（live 未變更）"; exit 1; fi
+  if ! _all=$(find "$2" -type d -exec stat "$stf" %d {} +); then
+    echo "掃描 $1（$2）的裝置號失敗，狀態不明，中止（live 未變更）"; exit 1
+  fi
+  if ! _bad=$(printf '%s\n' "$_all" | awk -v d="$_dev" '
+        !/^[0-9]+$/ { if (f == "") f = "F" $0; next }
+        ($0 "") != (d "") { if (f == "") f = "D" $0 }
+        END { print f }'); then
+    echo "比對 $1（$2）的裝置號失敗，狀態不明，中止（live 未變更）"; exit 1
+  fi
+  case "$_bad" in
+    '') ;;
+    F*) echo "$1（$2）底下有讀不懂的裝置號（[${_bad#F}]），狀態不明，中止（live 未變更）"; exit 1 ;;
+    *)  _at=$(find "$2" -type d -exec stat "$stf" "$stn" {} + 2>/dev/null |
+              awk -v d="$_dev" 'f == "" && ($1 "") != (d "") { f = $0 } END { print f }') || _at='路徑取不到'
+        echo "$1（$2）底下有掛載點（裝置號 ${_bad#D}，根目錄是 ${_dev}；${_at}），中止（live 未變更）"; exit 1 ;;
+  esac
+}
+
 if [ -L "$s" ]; then echo "$s 是 symlink，狀態不明，中止"; exit 1
 elif [ -d "$s" ]; then
   # 樹**內部**也要驗，不能只看頂層（與 Windows 版同一理由：內嵌 link 會在複製時被實體化，
   # 而目標為空時「只比對檔案」的驗證看不出差別）。
-  # ⚠️ 這只攔 symlink。**掛載點（bind mount 等）攔不到**——它是目錄不是 symlink。
-  #    後果見上方表格：回滾的 rm -rf 會跨進掛載樹刪掉裡面的真實資料。
-  #    `find -xdev` 與 `rm --one-file-system` 都不夠（同檔案系統的 bind mount 仍會漏），
-  #    可靠做法要讀平台的 mount table，Linux 與 macOS 寫法不同、本機無權限建立掛載點實測，
-  #    因此不放未經驗證的偵測碼進來。記在 docs/backlog.md。
   # 不用 `-print -quit`（GNU 專屬）也不吞 stderr：實測若 find 因任何原因失敗，
   # `2>/dev/null` 會把錯誤吃掉、變數變成空字串，這道守衛就**靜默失效**（fail-open）。
   # 改成偵測 find 的退出碼，掃描失敗一律中止（fail-closed）。
@@ -133,6 +309,8 @@ elif [ -d "$s" ]; then
   if [ -n "$lnk" ]; then
     echo "$s 底下有 symlink（$(printf '%s\n' "$lnk" | head -n 1)），狀態不明，中止"; exit 1
   fi
+  # 掛載點同樣中止（見上方 scan_no_mount）。這只涵蓋 1b 當下；1c 的第一個 mutation 前與回滾的 rm -rf 前會再各偵測一次。
+  scan_no_mount 'live skill' "$s"
   cp -R "$s" "$sbak"; diff -r "$s" "$sbak" >/dev/null || { echo "skill 備份與 live 不一致，中止"; exit 1; }
 elif [ -e "$s" ]; then echo "$s 存在但不是目錄，狀態不明，中止"; exit 1
 else : > "$sbak.absent"; fi
@@ -242,6 +420,47 @@ src="macos/skills/超級模式"; hooksrc="macos/hooks/super-mode-consult-gate.js
 live=~/.claude/skills/超級模式; hook=~/.claude/hooks/super-mode-consult-gate.js
 [ -f "$src/SKILL.md" ] || { echo "來源不對（請在 repo 根目錄執行），中止"; exit 1; }
 
+# 第一個 live mutation（下面的 cp -R）之前**重新掃描** live skill（F4 MOUNT-RMRF；與 Windows 1c 的 reparse 掃描等價）。
+# 1b 的掃描只涵蓋 1b 當下：1b 之後才出現的 symlink 或掛載點，會讓 cp -R 把檔案寫穿到別處、寫進掛載裡。
+# 偵測到就在任何 mutation 之前中止；1b 的備份仍在。不防同時修改（TOCTOU），與 1b、回滾的掃描同一個限制。
+# 掛載點守衛：與 1b 那份逐字相同（測試臺 [M17] 比對），說明見 1b。
+if stat -c %d / >/dev/null 2>&1; then stf=-c; stn='%d %n'; else stf=-f; stn='%d %N'; fi
+scan_no_mount() { # 用途名 路徑
+  local _dev _par _v _all _bad _at
+  [ -d "$2" ] || return 0
+  if ! _dev=$(stat "$stf" %d "$2") || ! _par=$(stat "$stf" %d "$(dirname "$2")"); then
+    echo "讀取 $1（$2）的裝置號失敗，狀態不明，中止（live 未變更）"; exit 1
+  fi
+  for _v in "$_dev" "$_par"; do
+    case "$_v" in ''|*[!0-9]*) echo "$1（$2）的裝置號格式不對（${_v}），狀態不明，中止（live 未變更）"; exit 1 ;; esac
+  done
+  if [ "$_dev" != "$_par" ]; then echo "$1（$2）本身是掛載點，中止（live 未變更）"; exit 1; fi
+  if ! _all=$(find "$2" -type d -exec stat "$stf" %d {} +); then
+    echo "掃描 $1（$2）的裝置號失敗，狀態不明，中止（live 未變更）"; exit 1
+  fi
+  if ! _bad=$(printf '%s\n' "$_all" | awk -v d="$_dev" '
+        !/^[0-9]+$/ { if (f == "") f = "F" $0; next }
+        ($0 "") != (d "") { if (f == "") f = "D" $0 }
+        END { print f }'); then
+    echo "比對 $1（$2）的裝置號失敗，狀態不明，中止（live 未變更）"; exit 1
+  fi
+  case "$_bad" in
+    '') ;;
+    F*) echo "$1（$2）底下有讀不懂的裝置號（[${_bad#F}]），狀態不明，中止（live 未變更）"; exit 1 ;;
+    *)  _at=$(find "$2" -type d -exec stat "$stf" "$stn" {} + 2>/dev/null |
+              awk -v d="$_dev" 'f == "" && ($1 "") != (d "") { f = $0 } END { print f }') || _at='路徑取不到'
+        echo "$1（$2）底下有掛載點（裝置號 ${_bad#D}，根目錄是 ${_dev}；${_at}），中止（live 未變更）"; exit 1 ;;
+  esac
+}
+if [ -L "$live" ]; then echo "live 端 $live 是 symlink，中止（live 未變更）"; exit 1; fi
+if [ -d "$live" ]; then
+  if ! lnk=$(find "$live" -type l); then echo "掃描 $live 的 symlink 失敗，狀態不明，中止（live 未變更）"; exit 1; fi
+  if [ -n "$lnk" ]; then
+    echo "$live 底下有 symlink（$(printf '%s\n' "$lnk" | head -n 1)），狀態不明，中止（live 未變更）"; exit 1
+  fi
+fi
+scan_no_mount 'live skill' "$live"
+
 cp -R "$src" ~/.claude/skills/
 cp "$hooksrc" "$hook"
 # 已從 payload 移出的檔案（2026-07-27 起 FIX-PLAN.md 改放 repo 的 docs/）：
@@ -266,6 +485,20 @@ $hook = "$env:USERPROFILE\.claude\hooks\super-mode-consult-gate.js"
 # 與 1b 同理，全程 -LiteralPath：家目錄含 `[ ]` 時一般 -Path 會把它當萬用字元，
 # 使「live 缺少某檔」的判斷反過來，讓安裝驗證形同虛設。
 if (-not (Test-Path -LiteralPath "$src\SKILL.md")) { throw "來源不對（請在 repo 根目錄執行），中止" }
+
+# 第一個 live mutation（下面的 Copy-Item）之前**重新掃描** live skill（F4 MOUNT-RMRF；與 macOS 1c 等價）。
+# 1b 的掃描只涵蓋 1b 當下：1b 之後才出現的 junction／symlink／NTFS 掛載資料夾（同為 reparse point），
+# 會讓 Copy-Item 把檔案寫穿到別處、寫進掛載的磁碟裡。偵測到就在任何 mutation 之前中止；1b 的備份仍在。
+# 與 1b 同一種偵測（ReparsePoint 屬性）。本區塊開頭的 Stop 讓列舉失敗（權限等）直接拋出＝fail-closed。
+# 不防同時修改（TOCTOU），與 1b、回滾的掃描同一個限制。
+$le = Get-Item -LiteralPath $live -Force -ErrorAction SilentlyContinue
+if ($null -ne $le) {
+  if (($le.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { throw "live 端 $live 是 link／reparse point，中止（live 未變更）" }
+  $badLink = Get-ChildItem -LiteralPath $live -Recurse -Force |
+             Where-Object { ($_.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 } |
+             Select-Object -First 1
+  if ($badLink) { throw "$live 底下有 link／reparse point（$($badLink.FullName)），狀態不明，中止（live 未變更）" }
+}
 
 Copy-Item -LiteralPath $src -Destination "$env:USERPROFILE\.claude\skills\" -Recurse -Force
 Copy-Item -LiteralPath $hooksrc -Destination $hook -Force
@@ -359,7 +592,7 @@ if (Test-Path -LiteralPath $stale) { throw "安裝驗證失敗：FIX-PLAN.md 未
 > **後置條件**：`settings.json` 的 gate handler **恰 1 個**、`settings.local.json` **0 個**。
 
 - 若 `node` 不在系統 PATH——例如可攜式安裝在 `~/.local/node/bin`——
-  hook 指令開頭的 `node` 必須寫**絕對路徑**，否則 hook 會靜默不跑、gate 形同虛設。（本條原寫給 Linux 的可攜式 node 安裝；Linux 已凍結，macOS 若同樣用可攜式 node 也適用，推論。）（2026-10-17 事實訂正：依 Claude Code hooks 文件，hook 啟動失敗在預設的 `onFailure: "continue"` 下屬於 non-blocking error——動作照常執行，PreToolUse 會在 transcript 顯示 `<hook name> hook error` 提示——所以不是完全「靜默」；gate 形同虛設的結論不變。以上限 macOS／Linux：Windows 沒有 Git Bash 且 Claude Code ≥2.1.299 時，預設改為失敗即擋（見 backlog `CC-NOBASH-FAILCLOSED`）；`onFailure` 欄位自 2.1.295 起才有。）
+  hook 指令開頭的 `node` 必須寫**絕對路徑**，否則 hook 會靜默不跑、gate 形同虛設。（本條原寫給 Linux 的可攜式 node 安裝；Linux 已凍結，macOS 若同樣用可攜式 node 也適用，推論。）（2026-10-17 事實訂正：依 Claude Code hooks 文件，hook 啟動失敗在預設的 `onFailure: "continue"` 下屬於 non-blocking error——動作照常執行，PreToolUse 會在 transcript 顯示 `<hook name> hook error` 提示——所以不是完全「靜默」；gate 形同虛設的結論不變。以上限 macOS／Linux：Windows 沒有 Git Bash 且 Claude Code ≥2.1.299 時，預設改為失敗即擋（見 backlog `CC-NOBASH-FAILCLOSED`），所以 Windows 在步驟 0a 要求先裝 Git for Windows；`onFailure` 欄位自 2.1.295 起才有。）
 
 > ⚠️ **不要用 `~/.claude/settings.local.json`**（2026-07-27 以前本文件的 macOS／Linux 段是這樣寫的，**那是錯的**）。
 >
@@ -385,7 +618,7 @@ if (Test-Path -LiteralPath $stale) { throw "安裝驗證失敗：FIX-PLAN.md 未
 > 📌 **2026-07-28 以前照舊指引裝過的人**：你的 hook 很可能一次都沒生效過。
 > 診斷與修復步驟見 [`MIGRATION-hook-settings-target.md`](MIGRATION-hook-settings-target.md)。
 
-hook 在啟用前是 fail-open 且停用的——安裝它不影響一般 session，只有 `super-mode.{sh,ps1} on` 之後才作用。
+hook 在啟用前是 fail-open 且停用的——安裝它不影響一般 session，只有 `super-mode.{sh,ps1} on` 之後才作用。（Windows 前提是已裝 Git for Windows：沒有 Git Bash 時，Claude Code 2.1.299 起會把 hook 失敗改成擋下，見步驟 0a。）
 
 ## 3. 驗證（跑 live；FAIL 就回滾到步驟 1b 的備份）
 
@@ -515,14 +748,48 @@ scan_no_link() { # 用途名 路徑
 # 兩次掃描（${sbak}、live）與後續刪除之間仍有 TOCTOU 窗口：別的程序在掃完之後才把子樹換成
 # link、或把備份整個移走，這裡看不到。這是複製貼上式安裝流程的固有限制，不是本次新增的回歸。
 # 所以**不要**把它讀成「回滾已經安全了」。
-# 另外 POSIX 這側用 `find -type l`，**抓不到掛載點**（它是目錄不是 symlink）——
-# Windows 的 ReparsePoint 連 mount point 一起抓，兩邊能力並不對等。掛載點缺口見本文上方表格。
+# 另外 `find -type l` **抓不到掛載點**（它是目錄不是 symlink）；掛載點由下面的 scan_no_mount 另外擋
+# （Windows 的 ReparsePoint 屬性則是連 NTFS 掛載資料夾一起抓）。
 #
 # `$sbak` 的條件呼叫是**多一層保險，不是缺一不可**：helper 自己已把「路徑不存在」視為成功
 # （`[ -e "$2" ] || return 0`），所以就算無條件呼叫一個不存在的 `$sbak` 也不會失敗。
 # 保留 `-d` 判斷只是讓意圖更明顯。（2026-08-10 合併前審查指出原註解把它說成必要條件，過強。）
 if [ -d "$sbak" ]; then scan_no_link 'skill 備份' "$sbak"; fi
 scan_no_link 'live skill' ~/.claude/skills/超級模式
+
+# 掛載點守衛（F4 MOUNT-RMRF）：與 1b 那份逐字相同（測試臺 [M17] 比對），說明見 1b。
+if stat -c %d / >/dev/null 2>&1; then stf=-c; stn='%d %n'; else stf=-f; stn='%d %N'; fi
+scan_no_mount() { # 用途名 路徑
+  local _dev _par _v _all _bad _at
+  [ -d "$2" ] || return 0
+  if ! _dev=$(stat "$stf" %d "$2") || ! _par=$(stat "$stf" %d "$(dirname "$2")"); then
+    echo "讀取 $1（$2）的裝置號失敗，狀態不明，中止（live 未變更）"; exit 1
+  fi
+  for _v in "$_dev" "$_par"; do
+    case "$_v" in ''|*[!0-9]*) echo "$1（$2）的裝置號格式不對（${_v}），狀態不明，中止（live 未變更）"; exit 1 ;; esac
+  done
+  if [ "$_dev" != "$_par" ]; then echo "$1（$2）本身是掛載點，中止（live 未變更）"; exit 1; fi
+  if ! _all=$(find "$2" -type d -exec stat "$stf" %d {} +); then
+    echo "掃描 $1（$2）的裝置號失敗，狀態不明，中止（live 未變更）"; exit 1
+  fi
+  if ! _bad=$(printf '%s\n' "$_all" | awk -v d="$_dev" '
+        !/^[0-9]+$/ { if (f == "") f = "F" $0; next }
+        ($0 "") != (d "") { if (f == "") f = "D" $0 }
+        END { print f }'); then
+    echo "比對 $1（$2）的裝置號失敗，狀態不明，中止（live 未變更）"; exit 1
+  fi
+  case "$_bad" in
+    '') ;;
+    F*) echo "$1（$2）底下有讀不懂的裝置號（[${_bad#F}]），狀態不明，中止（live 未變更）"; exit 1 ;;
+    *)  _at=$(find "$2" -type d -exec stat "$stf" "$stn" {} + 2>/dev/null |
+              awk -v d="$_dev" 'f == "" && ($1 "") != (d "") { f = $0 } END { print f }') || _at='路徑取不到'
+        echo "$1（$2）底下有掛載點（裝置號 ${_bad#D}，根目錄是 ${_dev}；${_at}），中止（live 未變更）"; exit 1 ;;
+  esac
+}
+# 這是**回滾當下**的重新偵測（Codex 10/15）：1b 之後才掛上的掛載點也攔得到。
+# 只掃 live：`rm -rf` 只刪 live；備份只被讀取（`cp -R` 從掛載讀資料不會刪任何東西）。
+# 與 scan_no_link 同樣**不防同時修改**（TOCTOU），不構成「回滾已經安全」的保證。
+scan_no_mount 'live skill' ~/.claude/skills/超級模式
 
 rm -rf ~/.claude/skills/超級模式
 [ -d "$sbak" ] && cp -R "$sbak" ~/.claude/skills/超級模式
@@ -654,11 +921,17 @@ elseif (Get-Entry $setf) { Remove-Item -LiteralPath $setf -Force }
 
 ## 解除安裝
 
-1. 刪 `~/.claude/skills/超級模式/` 與 `~/.claude/hooks/super-mode-consult-gate.js`。
-2. 從 settings 檔移除該 hook 區塊。
-3. 從 `~/.claude/CLAUDE.md` 刪掉 `BEGIN CODEX-DISCUSSION-PARTNER` 到 `END CODEX-DISCUSSION-PARTNER` 的區塊。
-4. 清掉殘留旗標／憑證（若存在）：`~/.claude/.super-mode-active`、`~/.claude/.super-mode-consult-ok`。
-5. 安裝留下的備份**不會自動清除**——確認不再需要回滾後自行刪除。共三處，別漏掉第三個：
+> ⚠️ **順序不可對調：先改 settings、開新 session，再刪檔。** 先刪 gate 檔的話，settings 裡那筆 hook 每次都會因為找不到檔案而失敗：
+> 有 Git Bash 時只是每次多一則 hook error 提示；沒有 Git Bash 的 Windows（Claude Code ≥2.1.299）則會擋下 Edit／Write／PowerShell 等工具，
+> 連要改回 settings 都做不到（backlog [`CC-NOBASH-FAILCLOSED`](backlog.md#CC-NOBASH-FAILCLOSED)）。
+> Windows 使用者日後要移除 Git for Windows，也要先做完下面第 1、2 步。
+
+1. 從 `~/.claude/settings.json` 移除本 gate 那一筆 hook handler（`command` 指向 `super-mode-consult-gate.js` 的那一筆；同一個 entry 若還有別的 handler，只刪這一筆，entry 因此變空才連 entry 一起刪）。
+2. 關掉目前的 Claude Code session、開一個新的，再做下一步（hook 設定可能要到新 session 才生效；熱載入的實際行為未 live 確認）。
+3. 刪 `~/.claude/skills/超級模式/` 與 `~/.claude/hooks/super-mode-consult-gate.js`。
+4. 從 `~/.claude/CLAUDE.md` 刪掉 `BEGIN CODEX-DISCUSSION-PARTNER` 到 `END CODEX-DISCUSSION-PARTNER` 的區塊。
+5. 清掉殘留旗標／憑證（若存在）：`~/.claude/.super-mode-active`、`~/.claude/.super-mode-consult-ok`。
+6. 安裝留下的備份**不會自動清除**——確認不再需要回滾後自行刪除。共三處，別漏掉第三個：
    - `~/.claude/skills-backup/超級模式.bak-*`（含 `.absent` 標記）
    - `~/.claude/hooks/super-mode-consult-gate.js.bak-*`
    - **settings 備份**：三平台都是 `~/.claude/settings.json.bak-*`。

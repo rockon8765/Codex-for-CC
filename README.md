@@ -10,7 +10,7 @@
 
 > ⚠️ **定位與界線（請先讀）：這道 gate 是「諮詢紀律提醒」，不是安全邊界。**
 > 它的用途是讓一個**合作的** Claude 在動手前先諮詢、避免不小心跳過流程——**不是**用來圍堵一個蓄意繞過、或被 prompt-injection 挾持的 agent。具體來說，它：
-> - **設計上 fail-open**：沒有旗標、或 hook 出任何錯／輸入異常時一律放行；
+> - **設計上 fail-open**：沒有旗標、或 hook 出任何錯／輸入異常時一律放行（Windows 前提是已裝 Git for Windows：沒有 Git Bash 時，Claude Code 2.1.299 起會把 hook 失敗改成擋下，見「環境假設」）；
 > - **可被 agent 自己關掉**：`super-mode off` 就在放行白名單內、會刪掉旗標與憑證（這是設計，gate 的 deny 訊息本身就這樣教）；
 > - **不攔子程序副作用**：測試 runner（`npm test`／`pytest`）、以及某些 shell／MCP 寫法本來就會通過（一個惡意 repo 的測試腳本能以你的權限任意執行）。
 > - **consult 的「唯讀」只是 sandbox 設定，不是完整隔離**（2026-09-14 驗收，[`docs/ACCEPTANCE-capability-boundary-2026-09-14.md`](docs/ACCEPTANCE-capability-boundary-2026-09-14.md)）：`codex-consult` 的 `--sandbox read-only` 只約束受沙箱保護的指令。使用者 execpolicy `.rules` 裡命中 `decision="allow"` 的指令會在沙箱外執行（2026-09-23 macOS live 已確認；見 backlog [`EXECPOLICY-ALLOW-INHERIT`](docs/backlog.md#EXECPOLICY-ALLOW-INHERIT)）；即使沒有這類 allow，也不能推論 MCP／apps／hooks 的外部副作用受到同樣限制。9/14 同一次執行仍觀察到帳號已連結的 connector MCP（Gmail／Google Drive／Calendar／Notion 等）被註冊、工具目錄含寫入操作，且 `approval_policy=never`。這些 connector 的認證、敏感資料讀取、外部寫入及其核准行為**尚未驗證**，所以**不保證** consult 整體唯讀或只存取你給的證據——敏感資料照隱私條款先去識別化。 2026-09-24 讀碼補充（Codex 0.156.1，未 live 驗證）：consult 可免核准執行預設 `auto` 下標為唯讀的 MCP／帳號 app 工具，以及使用者設為 `approval_mode = "approve"` 或按過「永遠允許」的工具（後者可能改變狀態），實際能力取決於使用者的 Codex 設定，skill 本身不限制這些工具（見 [`CONNECTOR-EXPOSURE`](docs/backlog.md#CONNECTOR-EXPOSURE)）。
@@ -32,7 +32,7 @@
 
 | | [`windows/`](windows/) | [`macos/`](macos/) | [`linux/`](linux/)（🧊 已凍結） |
 |---|---|---|---|
-| Hook/腳本執行環境 | PowerShell 5.1／pwsh 7（主要呼叫 host）+ Node | bash/zsh + Node | bash + Node |
+| Hook/腳本執行環境 | PowerShell 5.1／pwsh 7（主要呼叫 host）+ Node + **Git for Windows（必裝；Claude Code 用其中的 Git Bash 執行 hook，見「環境假設」）** | bash/zsh + Node | bash + Node |
 | 執行腳本 | `*.ps1` | `*.sh` | `*.sh` |
 | Codex CLI 位置 | `C:\npm\codex.cmd`（寫死） | `PATH` 上的 `codex`（Homebrew npm global） | `PATH` 上的 `codex`（npm global） |
 | Gate 拒絕機制 | stderr + exit 2（2026-10-17 事實訂正：原寫 `permissionDecision` / exit 2；Windows gate 實際不輸出 `permissionDecision`） | stderr + exit 2 | stderr + exit 2 |
@@ -195,7 +195,7 @@ linux/                           # 🧊 已凍結（2026-10-14）：bash 版（G
 6. **里程碑回寫** — 勾掉 spec md 的項目，然後 commit（commit 會把憑證降到剩 3 分鐘，逼下一個里程碑重新諮詢）。
 7. **關閉** — `super-mode.sh off`（清掉旗標 + 憑證，並順手清舊逐字稿：清理範圍（Windows／macOS 只清頂層、檔名符合 `codex_consult_<時間戳>.txt`／`codex_exec_<時間戳>.txt`／`codex_exec_<時間戳>_last.txt`、超過 14 天；Linux 凍結快照仍遞迴且不限檔名）以上方「[功能差距](#功能差距各平台實作狀態)」那一條為準，本處不另記一份。⚠️ **跑 off 前先保全要留的逐字稿／驗收證據**：Windows／macOS 移出頂層即可，Linux 要移出整個 `super-mode-logs/`；見 [`OFF-CLEANUP-RECURSIVE`](docs/backlog.md#OFF-CLEANUP-RECURSIVE)。這個清理只在 `off` 路徑觸發，日常「討論夥伴」諮詢從不觸發，所以 `~/.claude/super-mode-logs/` 實際會一直累積；見 [`docs/backlog.md`](docs/backlog.md)「逐字稿清理」列）。hook 也會自癒：超過 8 小時的旗標會被視為殘留並自動移除。
 
-**設計上就是 fail-open：** 沒有旗標、或 hook 出任何錯 / 輸入異常時，gate 一律放行 — 一般（非超級模式）的 session 絕不會被卡住。
+**設計上就是 fail-open：** 沒有旗標、或 hook 出任何錯 / 輸入異常時，gate 一律放行 — 一般（非超級模式）的 session 絕不會被卡住。（Windows 前提是已裝 Git for Windows：沒有 Git Bash 時，Claude Code 2.1.299 起會把 hook 失敗改成擋下，見「環境假設」。）
 
 ## 安裝
 
@@ -253,6 +253,7 @@ bash "$HOME/.claude/skills/超級模式/tests/run-e2e.sh"               # 應全
 
 **Windows**
 ```powershell
+# 0. 先確認已裝 Git for Windows（必裝）：在 Claude Code 裡照 docs\AI-INSTALL.md 步驟 0a 跑檢查，沒有恰好一行 GIT_BASH_OK 就先別裝。
 Copy-Item -Recurse ".\windows\skills\超級模式" "$env:USERPROFILE\.claude\skills\"
 Copy-Item ".\windows\hooks\super-mode-consult-gate.js" "$env:USERPROFILE\.claude\hooks\"
 # 然後把 hook 接到 ~/.claude/settings.json（見 windows/settings.snippet.json）。
@@ -271,7 +272,7 @@ node "$env:USERPROFILE\.claude\skills\超級模式\tests\matcher-contract.test.j
 > ⚠️ **不驗 `once`**：官方明訂它只在 skill frontmatter 生效、**在 settings 檔會被忽略**，所以擋它是誤紅（本批曾一度擋了，已改回）。也不驗 `timeout` 的大小。
 > **但也別高估它**：它做的是**靜態比對**。它**不**驗證 `command` 路徑真的存在、**不**證明 Claude Code runtime 真的載入了那份 settings，也**不**數重複註冊（那是 `tools/probe-gate-registration.js` 的職責）。而且「`command` 含 gate 檔名」只代表 needle **candidate**——`command: "echo super-mode-consult-gate"` 同樣會被算進去，但它根本不跑 gate。要確認端到端接上，仍需在新 session 實際觸發一次。
 
-hook **在啟用前是 fail-open 且停用的** — 安裝它不會影響一般 session；只有在 `super-mode.{sh,ps1} on` 之後才會作用。
+hook **在啟用前是 fail-open 且停用的** — 安裝它不會影響一般 session；只有在 `super-mode.{sh,ps1} on` 之後才會作用。（Windows 前提是已裝 Git for Windows：沒有 Git Bash 時，Claude Code 2.1.299 起會把 hook 失敗改成擋下，見「環境假設」。）
 
 **（建議的最後一步）啟用「Codex 討論夥伴」全域規則**（行為說明見開頭「兩個並列能力」第 2 點）：把對應平台的 `CLAUDE-global-rule.md`（[`macos/`](macos/CLAUDE-global-rule.md)、[`windows/`](windows/CLAUDE-global-rule.md)；Linux 已凍結：[`linux/`](linux/CLAUDE-global-rule.md)）**全文** append 到你的 `~/.claude/CLAUDE.md`（已有 `CODEX-DISCUSSION-PARTNER` marker 就別重複加；完整防護與冪等細節見 [`docs/AI-INSTALL.md`](docs/AI-INSTALL.md) 步驟 5）。前提是 Codex CLI 已登入可用（步驟 4 的 `codex-check`）。
 
@@ -287,6 +288,7 @@ hook **在啟用前是 fail-open 且停用的** — 安裝它不會影響一般 
 
 **Windows**
 - **Windows 11**、**PowerShell 5.1**（Claude Code 的 PowerShell 工具實際以 **pwsh 7** 呼叫腳本，是主要呼叫 host；測試套件在 pwsh 7 與 WinPS 5.1 兩個 host 都跑，BOM 規則照舊）。**Codex CLI** 在 `C:\npm\codex.cmd`（位置不同就改 `$codexCmd`）。使用者家目錄在 settings matcher 指令與部分文件中寫死為 `C:\Users\user`。
+- **Git for Windows（必裝，2026-10-17 起）**：Claude Code 在 Windows 用 Git Bash 執行 hook。沒有 Git Bash 時，Claude Code 2.1.299 起 gate hook 只要無法執行（`node` 不在 PATH、gate 檔不在、逾時）就會擋下 matcher 涵蓋的工具，一般 session 也一樣，與 gate 的 fail-open 設計相反（backlog [`CC-NOBASH-FAILCLOSED`](docs/backlog.md#CC-NOBASH-FAILCLOSED)）。[`docs/AI-INSTALL.md`](docs/AI-INSTALL.md) 步驟 0a 先用與 Claude Code 相同的找法找出它會用的那一個（`CLAUDE_CODE_GIT_BASH_PATH` → `C:\Program Files\Git\bin\bash.exe` → `C:\Program Files (x86)\Git\bin\bash.exe` → PATH 上第一個 `git` 往上兩層的 `bin\bash.exe`），再實際執行確認它是 Git for Windows 的 bash（MINGW／MSYS），不合格就停止安裝；`C:\Windows\System32\bash.exe`／`WindowsApps\bash.exe` 是 WSL，不算。裝完 Git 要完全結束並重開 Claude Code。macOS 沒有這個條件。
 
 **各平台共通**
 - 執行環境與 settings 檔目標見上方「三個平台版本」表；腳本與 hook 都沒寫死路徑（Windows 家目錄例外，見上），只有 settings 裡的 hook 指令需要你的絕對家目錄路徑。

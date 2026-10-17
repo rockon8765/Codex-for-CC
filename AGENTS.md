@@ -60,10 +60,11 @@ LTS-BUILD <ID>
 
 ## 安裝本 repo
 
-安裝流程的唯一真相：[`docs/AI-INSTALL.md`](docs/AI-INSTALL.md)。步驟摘要：平台偵測（windows/ 或 macos/；Linux 已凍結，偵測到就停止，見 AI-INSTALL §0）→ 複製 skill 與 hook → 合併 settings snippet → 跑測試驗證 → `codex-check` 確認 Codex CLI 可用 → （經使用者同意後）把 `CLAUDE-global-rule.md` snippet append 進使用者的 `~/.claude/CLAUDE.md`。
+安裝流程的唯一真相：[`docs/AI-INSTALL.md`](docs/AI-INSTALL.md)。步驟摘要：平台偵測（windows/ 或 macos/；Linux 已凍結，偵測到就停止，見 AI-INSTALL §0）→ Windows 先做 0a（Git for Windows 前置檢查）→ 複製 skill 與 hook → 合併 settings snippet → 跑測試驗證 → `codex-check` 確認 Codex CLI 可用 → （經使用者同意後）把 `CLAUDE-global-rule.md` snippet append 進使用者的 `~/.claude/CLAUDE.md`。
 
 硬性防護（不可省略）：
 
 - 改 `~/.claude/CLAUDE.md` 前：**徵得使用者同意、展示將寫入的全文、先備份、冪等**（檔內已有 `CODEX-DISCUSSION-PARTNER` marker → 不重複 append，只替換 marker 區塊）。
+- Windows：AI-INSTALL 0a 沒印 `GIT_BASH_OK` 就停止（fail-closed，和 Codex 不可用時的 fail-open 相反）。成功條件是區塊沒有以錯誤結束、而且恰好一行 `GIT_BASH_OK path=…`；不要代裝 Git，也不要拿 WSL 的 `bash.exe` 湊數。
 - Codex CLI 不可用 → **跳過**討論夥伴規則步驟並明確告知使用者；skill 本體照常安裝（fail-open）。
 - 測試有 FAIL → 停下來回報，不要繼續。

@@ -75,6 +75,65 @@ function Read-TextSmart([string]$path) {
   return [System.Text.Encoding]::UTF8.GetString($b)
 }
 
+# ── 憑證 commit：「檔案暫時被占用」的有限重試（CONSULT-TOKEN-REPLACE-FLAKE，2026-10-17）──────
+# 2026-10-15 壓力重現：舊憑證剛寫入時 File.Replace 偶發失敗（pwsh 1/40、5.1 2/40）→ exit 44。
+# 「防毒／索引服務短暫開著檔」仍是推論。兩 host 實測確定的是：別的行程以不含 FILE_SHARE_DELETE
+# 的方式開著目標或暫存檔時，ReplaceFile／MoveFileEx 會失敗（錯誤 32）、兩個檔都留在原名，
+# 對方放手後重做就成功。
+#   - 只對下列「可重試」的錯誤重試：sharing violation(32)、lock violation(33)、ReplaceFile 的
+#     1175／1176／1177，以及 access denied(5，UnauthorizedAccessException)。
+#     「可重試」只代表值得再試，**不代表已證明是暫時性**：5 也可能是持續性的權限問題（唯讀檔、ACL），
+#     那種情況只是退避走完後照舊拋回、exit 44。
+#     其餘（找不到檔、路徑太長、磁碟滿、非 Win32 的 HResult…）一律不重試、立刻原樣拋回。
+#   - 最多 6 次嘗試，退避 50/100/200/400/800ms。1.55 秒是退避的**名目合計**，不是總耗時上限
+#     （不含每次嘗試本身的時間與排程誤差）。用盡就把最後一次的例外原樣拋回（裸 throw），
+#     呼叫端照舊清暫存檔、印 CONSULT_TOKEN_WRITE_FAILED、exit 44。
+#   - 每次嘗試都重新判斷 Replace 或 Move：舊憑證若在兩次嘗試之間已不在（例如 ReplaceFile 回 1176），
+#     下一次就改走 Move。
+# ⚠️ 失敗時舊憑證的狀態**不是**無條件保證「不動」：
+#   - 32／33／1175／5：依 Win32 文件與兩 host 實測，兩個檔都留在原名 ⇒ 多數情況舊憑證保留。
+#   - 1176／1177 是 ReplaceFile 的「部分完成」：舊憑證可能已被刪除（1176），或被改成同目錄裡的
+#     另一個名字（1177），只剩暫存檔在原名。重試會改走 Move 把 commit 補完；若之後仍失敗，
+#     可能**沒有任何憑證留在原位**＝fail-closed：gate 找不到憑證就會擋下後續動作、要求重新諮詢。
+#   - 這兩種部分完成狀態從 user mode 造不出來；consult-credential.tests.ps1 用「在兩次嘗試之間
+#     刪掉目標檔」模擬（§12 的 E／F、§14 的 vanish-persist）。
+# ⚠️ PowerShell 呼叫 .NET 方法丟的例外會被包成 MethodInvocationException ⇒ 要沿 InnerException 找。
+# ⚠️ 退避一定要用 Start-Sleep，不要換成 [Threading.Thread]::Sleep：consult-credential.tests.ps1 的
+#    §12 與 §14 靠遮蔽 Start-Sleep 在兩次嘗試之間確定性地放開鎖；換掉就等於拔掉測試的牙齒
+#    （§12s 另有 AST 守衛）。
+function Test-TransientTokenCommitError($err) {
+  $e = $err
+  while ($null -ne $e) {
+    if ($e -is [System.UnauthorizedAccessException]) { return $true }
+    if ($e -is [System.IO.IOException]) {
+      $hr = $e.HResult
+      if ((($hr -band 0xFFFF0000) -eq (0x80070000 -band 0xFFFF0000)) -and
+          (@(32, 33, 1175, 1176, 1177) -contains ($hr -band 0xFFFF))) { return $true }
+    }
+    $e = $e.InnerException
+  }
+  return $false
+}
+
+function Move-ConsultTokenIntoPlace([string]$tmp, [string]$target) {
+  $delaysMs = @(50, 100, 200, 400, 800)
+  $attempt = 0
+  while ($true) {
+    try {
+      if (Test-Path -LiteralPath $target) {
+        [System.IO.File]::Replace($tmp, $target, [NullString]::Value)
+      } else {
+        [System.IO.File]::Move($tmp, $target)
+      }
+      return
+    } catch {
+      if (($attempt -ge $delaysMs.Count) -or -not (Test-TransientTokenCommitError $_.Exception)) { throw }
+      Start-Sleep -Milliseconds $delaysMs[$attempt]
+      $attempt++
+    }
+  }
+}
+
 # ── validator（憑證鑄造判準）─────────────────────────────────────────────────
 # 判準是三平台共用的單一 node 模組 lib/consult-answer.js。這裡只負責「找到 node、
 # 找到模組、確認它真的活著」——任何判準邏輯都不在這支裡（那正是要消除的副本）。
@@ -408,15 +467,19 @@ if ($code -eq 0) {
       #    改用 .NET 的單次取代：目標存在 → File::Replace()；不存在 → File::Move()。
       # ⚠️ Replace 的第三參數要用 [NullString]::Value 不能用 $null——PowerShell 會把 $null
       #    轉成空字串，實測會丟 ArgumentException（我第一版就是被這個絆倒）。
-      if (Test-Path -LiteralPath $token) {
-        [System.IO.File]::Replace($tokenTmp, $token, [NullString]::Value)
-      } else {
-        [System.IO.File]::Move($tokenTmp, $token)
-      }
+      # 2026-10-17（CONSULT-TOKEN-REPLACE-FLAKE）：上面「目標存在 → Replace、不存在 → Move」的單次取代
+      # 搬進 Move-ConsultTokenIntoPlace（每次嘗試都重新判斷 Replace／Move），只多了對「可重試」錯誤的
+      # 有限重試；用盡或遇到不可重試的錯誤，就照舊落到下面的 catch → 清暫存檔、exit 44。
+      # 失敗時舊憑證多半仍在原位；但 ReplaceFile 部分完成（1176／1177）後若仍失敗，可能已沒有任何
+      # 憑證留在原位（fail-closed，gate 會要求重新諮詢）。詳見 Move-ConsultTokenIntoPlace 上方註解。
+      # 下面 catch 的訊息因此不再無條件宣稱「既有憑證未被移除」（單次 Replace 時就不精確；2026-10-18 改寫）。
+      # macOS 的 os.replace（rename(2)）沒有這種部分完成狀態，codex-consult.sh 的同一則訊息維持原說法。
+      Move-ConsultTokenIntoPlace $tokenTmp $token
     } catch {
       Remove-Item -LiteralPath $tokenTmp -Force -ErrorAction SilentlyContinue
       [Console]::Error.WriteLine("CONSULT_TOKEN_WRITE_FAILED: 諮詢完成且回覆合格，但憑證寫入失敗: $_ 。" +
-        "**既有憑證（若有）未被移除**。請檢查 $token 的權限後重跑。transcript: $log")
+        "既有憑證（若有）通常仍在原位；但若 Windows 的 ReplaceFile 已部分完成（錯誤 1176／1177），" +
+        "可能已沒有憑證留在原位（gate 會要求重新諮詢）。請檢查 $token 的權限後重跑。transcript: $log")
       exit 44
     }
     $verdictNote = ($v.Out.Trim() -split '\s+')[-1]

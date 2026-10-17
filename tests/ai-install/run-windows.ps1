@@ -29,7 +29,8 @@ function Pick($needle) {
 $B1b = Pick 'backup ts='
 $B1c = Pick 'install OK'
 $Brb = Pick 'Test-Exactly1'
-"抽取：1b=$($B1b.Length) 字元, 1c=$($B1c.Length) 字元, rollback=$($Brb.Length) 字元"
+$B0a = Pick 'GIT_BASH_OK'
+"抽取：0a=$($B0a.Length) 字元, 1b=$($B1b.Length) 字元, 1c=$($B1c.Length) 字元, rollback=$($Brb.Length) 字元"
 
 $PLACEHOLDER = '<貼上 1b 印出的值>'
 if ($Brb -notlike "*$PLACEHOLDER*") { throw '回滾區塊找不到 ts 佔位符，抽取邏輯已過期' }
@@ -69,6 +70,107 @@ function Invoke-Block($code, $fakeHome) {
 }
 function Invoke-Rollback($ts, $fakeHome) { Invoke-Block ($Brb.Replace($PLACEHOLDER, $ts)) $fakeHome }
 
+# ── 步驟 0a（Git Bash 前置條件）的執行器 ─────────────────────────────────
+# 寫死的兩個位置用字串替換換成假路徑（[G] 第一條自檢它恰一處）；PATH 與 CLAUDE_CODE_GIT_BASH_PATH 每案明設或明刪；
+# 需要時另外切換目前目錄（子行程繼承它）。不這樣做的話，結果會取決於跑測試的機器有沒有裝 Git
+# （CI runner 與維護機都有），「找不到」那幾條分支永遠測不到。
+$GB_FIXED = "@('C:\Program Files\Git\bin\bash.exe', 'C:\Program Files (x86)\Git\bin\bash.exe')"
+$GB_TOKENS = @('GIT_BASH_MISSING', 'GIT_BASH_INVALID', 'GIT_BASH_UNDECIDABLE')
+function Invoke-GitBashCheck($fixed1, $fixed2, $pathDirs, $envGb, $cwd) {
+  $code = $B0a.Replace($GB_FIXED, ("@('{0}', '{1}')" -f $fixed1.Replace("'", "''"), $fixed2.Replace("'", "''")))
+  $f = Join-Path $work 'gitbash.ps1'
+  [IO.File]::WriteAllText($f, $code, (New-Object Text.UTF8Encoding $true))
+  $prevPath = $env:PATH; $prevGb = $env:CLAUDE_CODE_GIT_BASH_PATH
+  $ErrorActionPreference = 'Continue'   # 與 Invoke-Block 同理：只在函式作用域降級
+  $global:LASTEXITCODE = $null
+  if ($cwd) { Push-Location -LiteralPath $cwd }
+  try {
+    $env:PATH = (@($pathDirs) + (Join-Path $env:SystemRoot 'System32')) -join ';'
+    if ($envGb) { $env:CLAUDE_CODE_GIT_BASH_PATH = $envGb } else { Remove-Item Env:\CLAUDE_CODE_GIT_BASH_PATH -ErrorAction SilentlyContinue }
+    $out = & $exe -NoProfile -NonInteractive -File $f 2>&1 | Out-String
+    $rc = $LASTEXITCODE
+  } finally {
+    if ($cwd) { Pop-Location }
+    $env:PATH = $prevPath
+    if ($null -ne $prevGb) { $env:CLAUDE_CODE_GIT_BASH_PATH = $prevGb } else { Remove-Item Env:\CLAUDE_CODE_GIT_BASH_PATH -ErrorAction SilentlyContinue }
+  }
+  if ($rc -isnot [int]) { throw "子行程沒有回傳整數退出碼（rc=[$rc]），無法判定成敗：$f" }
+  [pscustomobject]@{ Ok = ($rc -eq 0); Out = ("$out").Trim() }
+}
+# 「停止」＝退出碼非 0、沒有任何一行以 GIT_BASH_OK path= 開頭、含預期的那個代號、且不含另外兩個代號。
+function Test-GbStop($r, $token) {
+  if ($r.Ok -or ($r.Out -cmatch '(?m)^GIT_BASH_OK path=')) { return $false }
+  if ($r.Out -cnotmatch $token) { return $false }
+  foreach ($t in $GB_TOKENS) { if (($t -cne $token) -and ($r.Out -cmatch $t)) { return $false } }
+  $true
+}
+# 「通過」＝退出碼 0，且**恰好一行** GIT_BASH_OK path=…，路徑等於預期（Windows 路徑不分大小寫）。
+function Test-GbOk($r, $want) {
+  $okLines = @(($r.Out -split "\r?\n") | Where-Object { $_ -cmatch '^GIT_BASH_OK path=' })
+  $r.Ok -and ($okLines.Count -eq 1) -and ($okLines[0] -ieq "GIT_BASH_OK path=$want")
+}
+# 8.3 短檔名換成長檔名：GitHub runner 的 $env:TEMP 是 C:\Users\RUNNER~1\…，而 where.exe 回的是長檔名，
+# 不換的話「路徑等於預期」那幾案會在 CI 誤紅。
+function Get-LongPath($p) {
+  $full = [IO.Path]::GetFullPath($p)
+  $acc = [IO.Path]::GetPathRoot($full)
+  foreach ($seg in @($full.Substring($acc.Length).Split('\') | Where-Object { $_ })) {
+    $hit = @([IO.Directory]::GetFileSystemEntries($acc, $seg))
+    $acc = if ($hit.Count -eq 1) { $hit[0] } else { Join-Path $acc $seg }
+  }
+  $acc
+}
+# 假 bash.exe：測試臺當場用 .NET Framework 內建的 csc.exe 編一支小程式。它回應旁邊 <exe>.reply 的內容
+# （HANG＝睡 10 分鐘；RC1:<文字>＝印文字並以 1 結束），並把收到的參數附加到 <exe>.args。
+# 這樣正向案用的是**真的可執行檔、真的回 MINGW**，不是內容為 FAKE 的檔案；
+# 而產品區塊沒有任何只為測試存在的開關——注入全在測試臺這一側（區塊文字、環境變數、目前目錄、檔案系統）。
+$FAKE_BASH_CS = @'
+using System;
+using System.IO;
+using System.Threading;
+static class FakeBash {
+  static int Main(string[] args) {
+    string self = System.Diagnostics.Process.GetCurrentProcess().MainModule.FileName;
+    File.AppendAllText(self + ".args", string.Join("|", args) + "\n");
+    string reply = File.ReadAllText(self + ".reply");
+    if (reply.StartsWith("HANG")) { Thread.Sleep(600000); return 0; }
+    int rc = 0;
+    if (reply.StartsWith("RC1:")) { rc = 1; reply = reply.Substring(4); }
+    Console.Out.Write(reply);
+    return rc;
+  }
+}
+'@
+function Build-FakeBash($exePath) {
+  $ErrorActionPreference = 'Continue'
+  $cs = [IO.Path]::ChangeExtension($exePath, '.cs')
+  [IO.File]::WriteAllText($cs, $FAKE_BASH_CS)
+  $csc = @((Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319\csc.exe'),
+           (Join-Path $env:WINDIR 'Microsoft.NET\Framework\v4.0.30319\csc.exe')) |
+         Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+  if (-not $csc) { return '找不到 .NET Framework 的 csc.exe' }
+  $global:LASTEXITCODE = $null
+  $o = & $csc /nologo /target:exe "/out:$exePath" $cs 2>&1 | Out-String
+  ("csc=$csc rc=$LASTEXITCODE " + $o).Trim()
+}
+function Test-FakeBashRuns($exePath) {
+  $ErrorActionPreference = 'Continue'
+  if (-not (Test-Path -LiteralPath $exePath -PathType Leaf)) { return $false }
+  [IO.File]::WriteAllText("$exePath.reply", 'MINGW64_NT-10.0-99999')
+  $global:LASTEXITCODE = $null
+  $o = (& $exePath -c '/usr/bin/uname -s' 2>&1 | Out-String).Trim()
+  ($LASTEXITCODE -eq 0) -and ($o -ceq 'MINGW64_NT-10.0-99999')
+}
+function New-FakeBash($rel, $reply) {
+  $p = Join-Path $gbRoot $rel
+  New-Item -ItemType Directory -Force -Path (Split-Path -Parent $p) | Out-Null
+  if (Test-Path -LiteralPath $gbFakeExe -PathType Leaf) { Copy-Item -LiteralPath $gbFakeExe -Destination $p -Force }
+  [IO.File]::WriteAllText("$p.reply", $reply)
+  $p
+}
+function Get-GbArgs($p) { if (Test-Path -LiteralPath "$p.args") { ("" + (Get-Content -LiteralPath "$p.args" -Raw)).Trim() } else { '' } }
+function Clear-GbArgs($p) { Remove-Item -LiteralPath "$p.args" -Force -ErrorAction SilentlyContinue }
+
 function New-FakeHome($name) {
   $h = Join-Path $work $name
   if (Test-Path -LiteralPath $h) { Remove-Item -LiteralPath $h -Recurse -Force }
@@ -104,7 +206,9 @@ function Get-Ts($out) { if ($out -match 'backup ts=(\d{8}-\d{6})') { $Matches[1]
 # 沒有這一條，刪掉任何一個 Check 仍會印 `PASS=111 FAIL=0` 並 exit 0 ——「少一案」是抓不到的假綠。
 # ⚠️ 這個總數與受測文件**無關**（反向驗證只會改變 PASS/FAIL 的分佈，不會改變案數），
 # 所以它是穩定的不變量。新增或移除案時必須同步更新，那是刻意的摩擦。
-$EXPECTED_CHECKS = 126
+# 2026-10-17：126 → 161（+23 條 [G] 步驟 0a、+12 條 [M18] 1c 重掃）。同步點：run-mutation-controls.ps1 control 3 的
+# StopLine、.github/workflows/windows.yml 的 PASS 數與 step 名稱、tests/ai-install/README.md 的 control 表。
+$EXPECTED_CHECKS = 161
 $script:pass = 0; $script:fail = 0
 function Check($name, $cond, $detail) {
   if ($cond) { $script:pass++; "  PASS  $name" }
@@ -114,6 +218,96 @@ function Check($name, $cond, $detail) {
 New-Item -ItemType Directory -Force -Path $work | Out-Null
 Push-Location $repo
 try {
+
+"`n[G] 步驟 0a：Claude Code 會用哪一個 Git Bash、那一個能不能用（不能用就停止安裝）"
+# 判準：「停止」見 Test-GbStop（代號要對：MISSING／INVALID／UNDECIDABLE 互不相混）；「通過」見 Test-GbOk（恰好一行）。
+# fixture 建不起來時**不跳過**：案數固定，該紅的案自然變紅（同 [M13b] 的慣例）。
+# ⚠️ 假目錄都在 $env:TEMP 底下、目前目錄是 repo。若有人把 repo 放進 %TEMP%，假 git 會落在目前目錄底下而被排除，
+#    「where.exe 找到 git → 通過」那案會誤紅（假紅，不會假綠）。
+$gbRoot = Join-Path (Get-LongPath $work) 'gitbash'
+New-Item -ItemType Directory -Force -Path $gbRoot | Out-Null
+$gbFakeExe = Join-Path $gbRoot 'fakebash.exe'
+$gbBuild = Build-FakeBash $gbFakeExe
+$gbHits = ([regex]::Matches($B0a, [regex]::Escape($GB_FIXED))).Count
+Check '[G] 替換錨點（Claude Code 寫死的兩個位置）在區塊內恰一處（否則本節等於沒測）' ($gbHits -eq 1) "命中 $gbHits 處"
+Check '[G] 前置：假 bash.exe 編譯成功，直接執行會回 MINGW64_NT-…（否則正向案等於沒測）' (Test-FakeBashRuns $gbFakeExe) $gbBuild
+$gbPf      = New-FakeBash 'pf\Git\bin\bash.exe'        'MINGW64_NT-10.0-26100'
+$gbPf86    = New-FakeBash 'pf86\Git\bin\bash.exe'      'MSYS_NT-10.0-26100'
+$gbEnvOk   = New-FakeBash 'custom\bash.exe'            'MINGW64_NT-10.0-26100'
+$gbEnvNo   = New-FakeBash 'custom\git.exe'             'MINGW64_NT-10.0-26100'
+$gbGit     = New-FakeBash 'Git\cmd\git.exe'            'git version 0.0.0'
+$gbGitBash = New-FakeBash 'Git\bin\bash.exe'           'MINGW64_NT-10.0-26100'
+$gbGitNo   = New-FakeBash 'GitNoBash\cmd\git.exe'      'git version 0.0.0'
+$gbWsl     = New-FakeBash 'wsl\bash.exe'               'Linux'                    # 模擬 WSL：可執行，但 uname -s 是 Linux
+$gbWslApp  = New-FakeBash 'wsl\WindowsApps\bash.exe'   'MINGW64_NT-10.0-26100'    # 位置像 WSL 的執行別名；回應刻意是 MINGW，只有位置規則擋得到
+$gbRc1     = New-FakeBash 'rc1\bash.exe'               'RC1:MINGW64_NT-10.0-26100'
+$gbHang    = New-FakeBash 'hang\bash.exe'              'HANG'
+$gbText    = Join-Path $gbRoot 'text\bash.exe'      # 不可執行的文字檔
+New-Item -ItemType Directory -Force -Path (Split-Path -Parent $gbText) | Out-Null
+Set-Content -LiteralPath $gbText -Value 'FAKE' -NoNewline
+$gbDir     = Join-Path $gbRoot 'dir\bash.exe'       # 名叫 bash.exe 的目錄
+$gbPfDir   = Join-Path $gbRoot 'pfdir\Git\bin\bash.exe'
+New-Item -ItemType Directory -Force -Path $gbDir, $gbPfDir | Out-Null
+$gbAbs1 = Join-Path $gbRoot 'absent1\bash.exe'; $gbAbs2 = Join-Path $gbRoot 'absent2\bash.exe'
+$gbGitCmd = Split-Path -Parent $gbGit; $gbGitNoCmd = Split-Path -Parent $gbGitNo
+# 兩個 junction：jgit → Git（where.exe 找到的 git 經過 reparse point）、jcwd → cwd-target（目前目錄經過 reparse point）
+$gbJGit = Join-Path $gbRoot 'jgit'; $gbJCwd = Join-Path $gbRoot 'jcwd'; $gbCwdT = Join-Path $gbRoot 'cwd-target'
+New-Item -ItemType Directory -Force -Path $gbCwdT | Out-Null
+cmd /c "mklink /J `"$gbJGit`" `"$(Split-Path -Parent $gbGitCmd)`"" | Out-Null; $gbJr1 = $LASTEXITCODE
+cmd /c "mklink /J `"$gbJCwd`" `"$gbCwdT`"" | Out-Null; $gbJr2 = $LASTEXITCODE
+$gbJOk = ($gbJr1 -eq 0) -and ($gbJr2 -eq 0) -and (@($gbJGit, $gbJCwd | Where-Object {
+  $je = Get-Item -LiteralPath $_ -Force -ErrorAction SilentlyContinue
+  ($null -ne $je) -and (($je.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) }).Count -eq 2)
+Check '[G] 前置：兩個 junction 確實建立（否則 UNDECIDABLE 兩案等於沒測）' $gbJOk "mklink rc=$gbJr1/$gbJr2"
+
+$r = Invoke-GitBashCheck $gbAbs1 $gbAbs2 @() $null $null
+Check '[G] 什麼都沒有 → 停止（GIT_BASH_MISSING）' (Test-GbStop $r 'GIT_BASH_MISSING') $r.Out
+$r = Invoke-GitBashCheck $gbAbs1 $gbAbs2 @((Split-Path -Parent $gbWsl)) $null $null
+Check '[G] PATH 上只有 WSL 的 bash.exe → 仍然停止（PATH 上的 bash 不算）' (Test-GbStop $r 'GIT_BASH_MISSING') $r.Out
+Clear-GbArgs $gbEnvOk
+$r = Invoke-GitBashCheck $gbAbs1 $gbAbs2 @() $gbEnvOk $null
+$gbArgs = Get-GbArgs $gbEnvOk
+Check '[G] CLAUDE_CODE_GIT_BASH_PATH 指向可用的 bash.exe → 通過、用它，而且恰好實際執行過一次 uname 探測' ((Test-GbOk $r $gbEnvOk) -and ($gbArgs -ceq '-c|/usr/bin/uname -s')) "$($r.Out)`n        args=[$gbArgs]"
+$r = Invoke-GitBashCheck $gbAbs1 $gbAbs2 @() $gbEnvNo $null
+Check '[G] CLAUDE_CODE_GIT_BASH_PATH 檔名不是 bash／sh → 退回自動偵測（此案找不到 → 停止）' (Test-GbStop $r 'GIT_BASH_MISSING') $r.Out
+$r = Invoke-GitBashCheck $gbAbs1 $gbAbs2 @() (Join-Path $gbRoot 'nope\bash.exe') $null
+Check '[G] CLAUDE_CODE_GIT_BASH_PATH 指向不存在的檔 → 退回自動偵測（此案找不到 → 停止）' (Test-GbStop $r 'GIT_BASH_MISSING') $r.Out
+$r = Invoke-GitBashCheck $gbPf $gbAbs2 @() $null $null
+Check '[G] 第一個寫死位置（Program Files）可用 → 通過' (Test-GbOk $r $gbPf) $r.Out
+$r = Invoke-GitBashCheck $gbAbs1 $gbPf86 @() $null $null
+Check '[G] 第二個寫死位置（Program Files (x86)）可用、uname 是 MSYS_NT → 通過' (Test-GbOk $r $gbPf86) $r.Out
+$r = Invoke-GitBashCheck $gbAbs1 $gbAbs2 @($gbGitCmd) $null $null
+Check '[G] PATH 上的 git 在 <Git>\cmd、<Git>\bin\bash.exe 可用 → 通過' (Test-GbOk $r $gbGitBash) $r.Out
+$r = Invoke-GitBashCheck $gbAbs1 $gbAbs2 @($gbGitNoCmd) $null $null
+Check '[G] PATH 上的 git 旁邊沒有 bin\bash.exe → 停止' (Test-GbStop $r 'GIT_BASH_MISSING') $r.Out
+$r = Invoke-GitBashCheck $gbAbs1 $gbAbs2 @($gbGitNoCmd, $gbGitCmd) $null $null
+Check '[G] 只看 where.exe 的第一個 git（與 Claude Code 相同）→ 第一個旁邊沒有 bash 就停止' (Test-GbStop $r 'GIT_BASH_MISSING') $r.Out
+$r = Invoke-GitBashCheck $gbAbs1 $gbAbs2 @($gbGitCmd) $null (Split-Path -Parent $gbGitCmd)
+Check '[G] where.exe 找到的 git 在目前目錄底下 → 排除（與 Claude Code 相同）→ 停止' (Test-GbStop $r 'GIT_BASH_MISSING') $r.Out
+$r = Invoke-GitBashCheck $gbAbs1 $gbAbs2 @() $gbDir $null
+Check '[G] CLAUDE_CODE_GIT_BASH_PATH 指向名叫 bash.exe 的目錄 → Claude Code 會用它，判為不可用（GIT_BASH_INVALID）' (Test-GbStop $r 'GIT_BASH_INVALID') $r.Out
+$r = Invoke-GitBashCheck $gbAbs1 $gbAbs2 @() $gbText $null
+Check '[G] CLAUDE_CODE_GIT_BASH_PATH 指向不可執行的文字檔 → GIT_BASH_INVALID' (Test-GbStop $r 'GIT_BASH_INVALID') $r.Out
+$r = Invoke-GitBashCheck $gbAbs1 $gbAbs2 @() $gbWsl $null
+Check '[G] CLAUDE_CODE_GIT_BASH_PATH 指向 uname -s 回 Linux 的 bash（WSL）→ GIT_BASH_INVALID' (Test-GbStop $r 'GIT_BASH_INVALID') $r.Out
+Clear-GbArgs $gbWslApp
+$r = Invoke-GitBashCheck $gbAbs1 $gbAbs2 @() $gbWslApp $null
+$gbArgs = Get-GbArgs $gbWslApp
+Check '[G] CLAUDE_CODE_GIT_BASH_PATH 指向 WindowsApps\bash.exe → GIT_BASH_INVALID，而且根本沒有執行它' ((Test-GbStop $r 'GIT_BASH_INVALID') -and ($gbArgs -eq '')) "$($r.Out)`n        args=[$gbArgs]"
+$r = Invoke-GitBashCheck $gbAbs1 $gbAbs2 @() $gbRc1 $null
+Check '[G] 探測輸出像 MINGW 但退出碼非 0 → GIT_BASH_INVALID' (Test-GbStop $r 'GIT_BASH_INVALID') $r.Out
+# 另外釘耗時：假 bash 睡 10 分鐘後會以 0 結束、沒有輸出，所以「沒有逾時、一直等」的寫法最後也會判 INVALID ——
+# 只看代號的話那種寫法照樣綠。產品逾時是 15 秒，這裡給 90 秒的餘裕（含子行程啟動）。
+$gbSw = [Diagnostics.Stopwatch]::StartNew()
+$r = Invoke-GitBashCheck $gbAbs1 $gbAbs2 @() $gbHang $null
+$gbSecs = [int]$gbSw.Elapsed.TotalSeconds
+Check '[G] 探測卡住不結束 → 逾時後 GIT_BASH_INVALID（不會卡死安裝）' ((Test-GbStop $r 'GIT_BASH_INVALID') -and ($gbSecs -lt 90)) "耗時 ${gbSecs} 秒`n        $($r.Out)"
+$r = Invoke-GitBashCheck $gbPfDir $gbPf86 @() $null $null
+Check '[G] 第一個寫死位置是目錄、第二個可用 → Claude Code 會用第一個，判為不可用（不改試第二個）' (Test-GbStop $r 'GIT_BASH_INVALID') $r.Out
+$r = Invoke-GitBashCheck $gbAbs1 $gbAbs2 @((Join-Path $gbJGit 'cmd')) $null $null
+Check '[G] where.exe 找到的 git 經過 junction → 無法判定，停止（GIT_BASH_UNDECIDABLE）' (Test-GbStop $r 'GIT_BASH_UNDECIDABLE') $r.Out
+$r = Invoke-GitBashCheck $gbAbs1 $gbAbs2 @($gbGitCmd) $null $gbJCwd
+Check '[G] 目前目錄經過 junction → 無法判定，停止（GIT_BASH_UNDECIDABLE）' (Test-GbStop $r 'GIT_BASH_UNDECIDABLE') $r.Out
 
 "`n[C1] 既有安裝 -> 安裝 -> 回滾（含冪等）"
 $h = New-FakeHome 'c1'; Add-ExistingInstall $h
@@ -595,6 +789,37 @@ foreach ($tgt in @(
   # 後者證明**加寬確實抓得到**。少了前者，讀者無從判斷加寬有沒有買到東西。
   Check "[M13c][$($tgt.n)] 窄 oracle（只看 skills）看不到這個違規" ((Get-Snapshot "$h\.claude\skills") -eq $beforeSkills) 'skills 也變了，本案已無法示範窄 oracle 的盲點'
   Check "[M13c][$($tgt.n)] 寬 oracle（整個假家目錄）抓到預掃前的 mutation" ((Get-Snapshot $h) -ne $beforeHome) '寬 oracle 也沒抓到 —— 搬移沒生效或加寬無效'
+}
+
+"`n[M18] 1c：1b 之後才出現的 reparse point（junction）→ 在第一個 mutation 前中止，live 與 junction 目標都不變"
+# 與 POSIX 的 [M18]（假 stat 模擬掛載點）對應（F4 MOUNT-RMRF，Codex 反方：1c 前也要重掃）。
+# Windows 用 junction：它與 NTFS 掛載資料夾同為 IO_REPARSE_TAG_MOUNT_POINT，偵測走同一個 ReparsePoint 屬性；
+# 建真的掛載資料夾要系統管理員權限，這裡不做（以 junction 覆蓋同一個屬性，推論）。
+# sub＝live 的 references 是 junction（1c 的 Copy-Item 會把來源的 references\* 寫進去）；root＝live skill 本身是 junction。
+foreach ($case in @(@{ n='子樹'; where='sub' }, @{ n='頂層'; where='root' })) {
+  $tag = "m18-$($case.where)"
+  $h = New-FakeHome $tag; Add-ExistingInstall $h
+  $r = Invoke-Block $B1b $h; $ts = Get-Ts $r.Out
+  Check "[M18][$($case.n)] 前置：1b 成功並印出 ts" ($r.Ok -and $ts) $r.Out
+  $tgt = Join-Path $work "$tag-target"
+  New-Item -ItemType Directory -Force -Path $tgt | Out-Null
+  Set-Content -LiteralPath "$tgt\mounted-payload.txt" -Value 'MOUNTED' -NoNewline
+  $jp = if ($case.where -eq 'sub') { "$h\.claude\skills\超級模式\references" } else { "$h\.claude\skills\超級模式" }
+  if ($case.where -eq 'root') { Remove-Item -LiteralPath $jp -Recurse -Force }
+  cmd /c "mklink /J `"$jp`" `"$tgt`"" | Out-Null
+  $mkRc = $LASTEXITCODE
+  $e = Get-Item -LiteralPath $jp -Force -ErrorAction SilentlyContinue
+  $isJ = ($null -ne $e) -and ((($e.Attributes -band [IO.FileAttributes]::ReparsePoint)) -ne 0)
+  # rc ＋型別雙驗（同 M3）：注入沒成功的話，1c 會走一般路徑，本案的區辨力就是假的。
+  Check "[M18][$($case.n)] 前置：junction 確實建立" (($mkRc -eq 0) -and $isJ) "mklink rc=$mkRc, isJunction=$isJ"
+  $beforeHome = Get-Snapshot $h
+  $beforeTgt  = Get-Snapshot $tgt
+  $r = Invoke-Block $B1c $h
+  Check "[M18][$($case.n)] 1c 中止" (-not $r.Ok) "竟然成功：$($r.Out)"
+  Check "[M18][$($case.n)] 中止理由是 link／reparse point 且註明 live 未變更" (($r.Out -match 'reparse point') -and ($r.Out -match '（live 未變更）')) $r.Out
+  # 契約是「任何 mutation 之前中止」：看整個假家目錄（1c 在 skill 之後還會複製 hook），不是只看 skills。
+  Check "[M18][$($case.n)] 中止後整個假家目錄未變" ((Get-Snapshot $h) -eq $beforeHome) '假家目錄有東西被動過'
+  Check "[M18][$($case.n)] junction 目標（模擬掛載的磁碟）沒有被寫入" ((Get-Snapshot $tgt) -eq $beforeTgt) '1c 的 Copy-Item 寫穿到 junction 目標'
 }
 
 "`n[C3] 對照組（確認上面的斷言不是永遠為真）"

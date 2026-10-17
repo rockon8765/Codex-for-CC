@@ -166,13 +166,14 @@ jobs:
       - name: 證據：環境
         run: ./.github/scripts/windows-ci.ps1 -Action Evidence -Name ai-install-${{ matrix.host }}
 
-      # 精確比對摘要行（含兩個空白）。126 與 run-windows.ps1 的 EXPECTED_CHECKS 要一起改：
+      # 精確比對摘要行（含兩個空白）。161 與 run-windows.ps1 的 EXPECTED_CHECKS 要一起改：
       # 測試臺自己也會擋「案數不符」，YAML 端再釘一次是為了防兩邊被同一個 commit 一起改小。
-      - name: tests/ai-install/run-windows.ps1（必須 PASS=126 FAIL=0）
+      # 2026-10-17：126 → 161（[G] 步驟 0a 的 Git Bash 前置檢查 23 條、[M18] 1c 重掃 12 條）。
+      - name: tests/ai-install/run-windows.ps1（必須 PASS=161 FAIL=0）
         run: >-
           ./.github/scripts/windows-ci.ps1 -Action Run -Name ai-install-${{ matrix.host }} -Exe '${{ matrix.host }}'
           -ArgList @('-NoProfile', '-File', 'tests/ai-install/run-windows.ps1', '-Shell', '${{ matrix.host }}')
-          -Require @('^${{ matrix.host }}  PASS=126  FAIL=0$')
+          -Require @('^${{ matrix.host }}  PASS=161  FAIL=0$')
           -Forbid @('^  STOP ')
 
       # 證明測試臺有牙齒：4 個 control 各自要「具名失敗集合 ＋ 精確 rc」都符合。

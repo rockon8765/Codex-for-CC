@@ -42,6 +42,13 @@ $script:tracePath = ''
 $script:currentTest = ''
 $script:fakeHomes = @()
 $script:origUserProfile = $env:USERPROFILE
+# CODEX-CHECK-CP437：console code page 狀態。實際的記錄、設定與還原都在檔尾的主 try／finally 內（見那裡的註解）；
+# 這裡只先宣告，好讓 finally 在 try 一開頭就失敗時也能判斷「有沒有東西要還原」。
+$script:origOutEnc = $null
+$script:origInEnc = $null
+$script:envConsoleCp = $null   # runner 啟動時共用 console 的 output code page（＝環境值）
+$script:sutConsoleCp = $null   # 下一次 Invoke-SutProcess 讓 child 以哪個 code page 起跑；$null ＝ 不切
+$script:sutCpOk = $false       # 上一次 Invoke-SutProcess 啟動 child 前，實量的 output code page 是否等於 sutConsoleCp
 
 # 受測 host 先解析成絕對路徑（同 tests/ai-install/run-windows.ps1 的理由：executable 不存在時
 # `& $exe` 不會設定 $LASTEXITCODE，會沿用上一次的值 → 「找不到 host 卻判定成功」）。
@@ -59,7 +66,8 @@ $stubVars = @('CODEX_STUB_VERSION','CODEX_STUB_VERSION_PREFIX','CODEX_STUB_SUPPO
               'CODEX_STUB_EXEC_STDERR','NPM_STUB_MODE','NPM_STUB_VERSION',
               'CODEX_STUB_PLUGINS','CODEX_STUB_MCP','CODEX_STUB_FEATURES','CODEX_STUB_CAP_FAIL','CODEX_STUB_HELP_DROP_FLAG',
               'CODEX_STUB_PLUGINS_GARBAGE','CODEX_STUB_HELP_NEARFLAG',
-              'CODEX_STUB_LIST_STDERR','CODEX_STUB_HELP_STDERR','CODEX_STUB_LIST_BOILERPLATE')
+              'CODEX_STUB_LIST_STDERR','CODEX_STUB_HELP_STDERR','CODEX_STUB_LIST_BOILERPLATE',
+              'CODEX_STUB_EXEC_RC','CCHK_WARN','CCHK_NATIVE','CCHK_ERR_BROKEN','CCHK_TARGET')
 
 # --- stub 生成（寫進 $env:TEMP\codex-check-test-<GUID>\，UTF-8 無 BOM；cmd batch 有 BOM 會壞）---
 # 讀同名 CODEX_STUB_* / NPM_STUB_* env（語義同 bash stub，含 SUPPORTS / TRACE / help / print-then-hang）。
@@ -156,6 +164,8 @@ $codexStubLines = @(
   'if not defined CODEX_STUB_LASTMSG goto :emit',
   '>"%lastmsg_file%" echo %CODEX_STUB_LASTMSG%',
   ':emit',
+  'rem CODEX_STUB_EXEC_RC=n: print the smoke transcript, then exit n (smoke-failure fault injection, CODEX-CHECK-WARNING)',
+  'if defined CODEX_STUB_EXEC_RC goto :emit_fail',
   'if not defined CODEX_STUB_MODE set "CODEX_STUB_MODE=ok"',
   'if /I "%CODEX_STUB_MODE%"=="echo-only" goto :emit_echo',
   'if /I "%CODEX_STUB_MODE%"=="ansi" goto :emit_ansi',
@@ -181,6 +191,11 @@ $codexStubLines = @(
   'echo tokens used',
   'echo 123',
   'exit /b 0',
+  ':emit_fail',
+  'echo user',
+  'echo Reply with exactly: CODEX_OK',
+  'echo SIMULATED_SMOKE_FAILURE',
+  'exit /b %CODEX_STUB_EXEC_RC%',
   '',
   ':exechelp',
   'rem 預設 help 含 skill 依賴旗標（鏡像真 codex）；CODEX_STUB_HELP_DROP_FLAG=<flag> 讓單一旗標消失；',
@@ -251,6 +266,31 @@ $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
 [System.IO.File]::WriteAllText($script:codexStub, (($codexStubLines -join "`r`n") + "`r`n"), $utf8NoBom)
 [System.IO.File]::WriteAllText($script:npmStub,   (($npmStubLines   -join "`r`n") + "`r`n"), $utf8NoBom)
 
+# preference wrapper（CODEX-CHECK-WARNING）：-File 啟動的 child 拿不到呼叫端的 preference，而 AI-INSTALL 步驟 4
+# 是在呼叫端 session 內以 & 同行程呼叫 SUT ⇒ 要重現就得「wrapper 先設 preference、再 & SUT」。
+# CCHK_ERR_BROKEN=1 另把 [Console]::Error 換成一寫就丟例外的 writer（底層 stream 已關閉），模擬 stderr 壞掉。
+# 只轉送 SUT 自己的兩個 switch（不用 @args：陣列 splat 不保證保留參數名）。內容純 ASCII、仍寫 BOM（同 exit-code-contract）。
+$script:prefWrapper = Join-Path $stubRoot 'pref-wrapper.ps1'
+$prefWrapperLines = @(
+  'param([switch]$Force, [switch]$UpdateBaseline)',
+  'if ($env:CCHK_WARN) { $WarningPreference = $env:CCHK_WARN }',
+  "if (`$env:CCHK_NATIVE -eq 'true') { `$PSNativeCommandUseErrorActionPreference = `$true }",
+  "`$errState = 'normal'",
+  "if (`$env:CCHK_ERR_BROKEN -eq '1') {",
+  '  $ms = New-Object System.IO.MemoryStream',
+  '  $bw = New-Object System.IO.StreamWriter($ms)',
+  '  $bw.AutoFlush = $true',
+  '  $ms.Dispose()',
+  '  [Console]::SetError($bw)',
+  "  try { [Console]::Error.WriteLine('stderr probe'); `$errState = 'writable' } catch { `$errState = 'throws' }",
+  '}',
+  '# self-attest: Invoke-Check asserts this line, so a broken wrapper cannot make P cases pass vacuously',
+  "[Console]::Out.WriteLine('PREF-WRAPPER-ATTEST W=' + [string]`$WarningPreference + ' N=' + [string]`$PSNativeCommandUseErrorActionPreference + ' E=' + `$errState)",
+  '& $env:CCHK_TARGET -Force:$Force -UpdateBaseline:$UpdateBaseline',
+  'exit $LASTEXITCODE'
+)
+[System.IO.File]::WriteAllText($script:prefWrapper, (($prefWrapperLines -join "`r`n") + "`r`n"), (New-Object System.Text.UTF8Encoding($true)))
+
 # --- runner infra ------------------------------------------------------------
 function Assert {
   param([string]$name, [string]$desc, [int]$code)
@@ -293,11 +333,27 @@ function BaselineFile { return (Join-Path $script:fakeHome '.claude\.codex-check
 # 唯一的 SUT 啟動點：案例（Invoke-Check）與 host 自檢（Test-SutHost）共用，
 # 自檢量到的才是案例真正走的那條路；Test-SutLaunchSite 以 AST 擋「繞過本函式直接啟動 SUT」。
 function Invoke-SutProcess([string]$File, [string[]]$SutArgv = @()) {
+  # CODEX-CHECK-CP437：child 起跑時繼承共用 console 的 output code page，而 runner 的 UTF-8 解碼設定與每一次
+  # 新版 SUT 都會把共用 console 切到 65001 ⇒ 每次啟動前明確切回 ${script:sutConsoleCp}（預設＝環境值）。
+  # chcp 同時設 input／output；成功與否用 GetConsoleOutputCP 實量（chcp 印的是 input code page，不能拿來量）。
+  $script:sutCpOk = $false
+  if ($null -ne $script:sutConsoleCp) {
+    $null = & cmd.exe /d /c ('chcp ' + $script:sutConsoleCp) 2>&1 | Out-String
+    $chcpRc = $LASTEXITCODE
+    $measured = Get-ConsoleOutputCp
+    $script:sutCpOk = ($chcpRc -eq 0) -and ($measured -eq $script:sutConsoleCp)
+  }
   & $script:sutExe -NoProfile -ExecutionPolicy Bypass -File $File @SutArgv 2>&1
+}
+function Get-ConsoleOutputCp {
+  # 直接量共用 console 的 output code page（kernel32!GetConsoleOutputCP；沒有 console 時是 0）。量不到回 ${null}。
+  try { return [int][CodexCheckTests.ConsoleCp]::GetConsoleOutputCP() } catch { return $null }
 }
 # 唯一進入點；stub 預設在此統一注入（後傳 hashtable 可覆寫；空字串=移除該 env=bash「定義但空」的 no-write 語義）。
 function Invoke-Check {
-  param([string]$Mode, [hashtable]$Overrides = @{})
+  # -Prefs @{ Warn='Stop'; Native='true'; ErrBroken='1' }：經 pref-wrapper 同行程呼叫 SUT（重現呼叫端 preference
+  # 外洩與 stderr 壞掉，CODEX-CHECK-WARNING）。沒給 -Prefs ＝ 舊行為（直接 -File 跑 SUT）。
+  param([string]$Mode, [hashtable]$Overrides = @{}, [hashtable]$Prefs = @{})
   foreach ($n in $stubVars) { if (Test-Path "Env:$n") { Remove-Item "Env:$n" } }
   $env:CODEX_CHECK_CODEX_CMD = $script:codexStub   # seam → stub（永遠注入，絕不打 live）
   $env:CODEX_CHECK_NPM_CMD   = $script:npmStub
@@ -310,6 +366,14 @@ function Invoke-Check {
     if ($null -eq $v -or $v -eq '') { if (Test-Path "Env:$k") { Remove-Item "Env:$k" } }
     else { Set-Item "Env:$k" -Value $v }
   }
+  $sutFile = $script:sut
+  if ($Prefs.Count -gt 0) {
+    $sutFile = $script:prefWrapper
+    $env:CCHK_TARGET = [System.IO.Path]::GetFullPath($script:sut)
+    if ($Prefs.ContainsKey('Warn'))      { $env:CCHK_WARN       = [string]$Prefs['Warn'] }
+    if ($Prefs.ContainsKey('Native'))    { $env:CCHK_NATIVE     = [string]$Prefs['Native'] }
+    if ($Prefs.ContainsKey('ErrBroken')) { $env:CCHK_ERR_BROKEN = [string]$Prefs['ErrBroken'] }
+  }
   $sutArgs = @()
   if ($Mode -eq 'force') { $sutArgs = @('-Force') }
   elseif ($Mode -eq 'update') { $sutArgs = @('-Force','-UpdateBaseline') }
@@ -319,7 +383,13 @@ function Invoke-Check {
   $prevEap = $ErrorActionPreference
   $ErrorActionPreference = 'Continue'
   # SUT host 由 -Shell 決定（見檔頭）；預設 powershell ＝ 舊行為（原本這裡寫死 powershell.exe）。
-  $raw = Invoke-SutProcess $script:sut $sutArgs | Out-String
+  # child 的 stderr 行經 2>&1 會變成 ErrorRecord。還原成 child 實際寫出的那一行（Exception.Message）再串接：
+  # 5.1 runner 的 Out-String 會替第一行加「powershell.exe : 」標頭與位置資訊，並依 console 寬度折行
+  # （2026-10-17 實測：寬 120 時中文長行被拆成兩行）。CODEX-CHECK-WARNING 之後 SUT 的診斷全走 stderr，
+  # 不還原的話，斷言能不能命中就取決於跑測試的主控台寬度。
+  $raw = Invoke-SutProcess $sutFile $sutArgs | ForEach-Object {
+    if ($_ -is [System.Management.Automation.ErrorRecord]) { $_.Exception.Message } else { $_ }
+  } | Out-String
   $script:rc = $LASTEXITCODE
   $ErrorActionPreference = $prevEap
   $script:out = $raw
@@ -331,13 +401,24 @@ function Invoke-Check {
   }
   if ($script:out -match [regex]::Escape('C:\npm')) { $antiHit = $true }
   if ($antiHit) { Assert $script:currentTest 'anti-live: 無 C:\npm 痕跡' 1 } else { Assert $script:currentTest 'anti-live: 無 C:\npm 痕跡' 0 }
+  # 注入前置檢查：wrapper 自報的 preference／stderr 狀態必須是要求的值（否則 P 案可能以錯誤的理由變綠）
+  if ($Prefs.Count -gt 0) {
+    $wantW = if ($Prefs.ContainsKey('Warn')) { [regex]::Escape([string]$Prefs['Warn']) } else { '\S+' }
+    $wantN = if ([string]$Prefs['Native'] -eq 'true') { 'True' } else { '\S*' }
+    $wantE = if ([string]$Prefs['ErrBroken'] -eq '1') { 'throws' } else { 'normal' }
+    if ($script:out -match ('(?m)^PREF-WRAPPER-ATTEST W=' + $wantW + ' N=' + $wantN + ' E=' + $wantE + '\r?$')) { Assert $script:currentTest 'preference／stderr 注入已生效（wrapper 自報）' 0 }
+    else { Assert $script:currentTest 'preference／stderr 注入已生效（wrapper 自報）' 1 }
+  }
 }
 function Run-Check { param([hashtable]$Overrides = @{}); Invoke-Check -Mode force -Overrides $Overrides }
 
-# --- 47 測試案例（27 案鏡像 bash runner；含 H4 全欄位/H2 大 help/H1 巨型 banner 反方檢核同步案；
+# --- 59 測試案例（27 案鏡像 bash runner；含 H4 全欄位/H2 大 help/H1 巨型 banner 反方檢核同步案；
 #     +1 Windows 專屬 smoke stderr 噪音回歸案——bash 無此失敗模式故無對應案；
 #     +19 B 系列能力面 baseline diff 案（2026-07-16，Windows 先行、bash 移植待 handoff；
-#        含 Workflow 對抗審查後補的 stderr 免疫/boilerplate/mcp/marketplace 識別/hooks 失真/快取對稱守衛案）---
+#        含 Workflow 對抗審查後補的 stderr 免疫/boilerplate/mcp/marketplace 識別/hooks 失真/快取對稱守衛案）；
+#     +2 Windows 專屬 console code page 案（CODEX-CHECK-CP437，2026-10-17）——POSIX 沒有 code page 概念，bash runner 無對應案；
+#     +10 Windows 專屬 P 系列（CODEX-CHECK-WARNING，2026-10-17）——呼叫端 preference 外洩是 PowerShell 機制，
+#        POSIX 沒有對應物；stderr 壞掉的那一案在 macOS 的對應缺陷另列殘留，bash runner 目前無對應案）---
 function t_happy_path {
   $script:currentTest = 'happy_path'
   Setup; Run-Check
@@ -707,6 +788,180 @@ function t_b_flag_incompat_cache_not_trusted {  # 命中側對稱守衛：本次
   Assert 'b_flag_nohit' 'exit 0' $script:rc
 }
 
+# --- CODEX-CHECK-CP437（2026-10-17）：child 以 code page 437（en-US 主控台）起跑，中文經 pipe 仍須完整 ---
+# 舊版 SUT 沒有設輸出編碼 ⇒ 依 437 編碼，'能力面（唯讀盤點）' 變成 '???(????)'。這兩案在案內自行切 437，
+# 與環境 code page 無關，所以在 65001 的 CI 上也能確定性地抓到舊版。只挑兩條有代表性的路徑（全檢、快取命中），
+# 不把整套翻倍；在非 UTF-8 主控台本機跑時，其餘各案本來就以環境 code page 起跑（見檔尾主 try 的註解）。
+function Assert-Cp437Premise([string]$name, [bool]$ok, [string]$label) {
+  # 前提沒成立（chcp 失敗、實量不是 437、沒有 console）時本案量不到東西 —— 必須紅，不可空轉成綠。
+  if ($ok) { Assert $name ('前提：' + $label + ' 啟動前共用 console 的 output code page 實量為 437') 0 }
+  else { Assert $name ('前提：' + $label + ' 切不到 code page 437（chcp 失敗或實量不符；沒有 console？）—— 本案量不到東西') 1 }
+}
+function t_console_cp437_utf8 {  # 全檢路徑：SUT 最早的兩個輸出點（stdout 的能力面標題、NO_BASELINE 診斷）
+  $script:currentTest = 'cp437_utf8'
+  Setup
+  $prevCp = $script:sutConsoleCp; $script:sutConsoleCp = 437
+  try { Run-Check @{} } finally { $script:sutConsoleCp = $prevCp }
+  Assert-Cp437Premise 'cp437_utf8' $script:sutCpOk '全檢'
+  Assert 'cp437_utf8' 'exit 0' $script:rc
+  AssertMatch 'cp437_utf8' '中文完整：能力面標題（stdout）' '(?m)^=== Codex worker 能力面（唯讀盤點）===\r?$'
+  # 不綁 WARNING:／警告: 前綴（pwsh 會依 UI 語系翻譯；CODEX-CHECK-WARNING 之後也不再走 warning stream）
+  AssertMatch 'cp437_utf8' '中文完整：NO_BASELINE 診斷' 'NO_BASELINE -- 尚無能力面 baseline'
+}
+function t_console_cp437_cache_hit {  # 快取命中路徑（另一個 exit 0 出口）＋快取內容回顯的中文 verdict
+  $script:currentTest = 'cp437_cache_hit'
+  Setup
+  $prevCp = $script:sutConsoleCp; $script:sutConsoleCp = 437
+  $firstOk = $false; $firstRc = -1
+  try {
+    Run-Check @{ NPM_STUB_MODE = 'fail' }   # 離線 → verdict 是含中文的 UNKNOWN，連同 smoke=OK 寫進快取
+    $firstOk = $script:sutCpOk; $firstRc = $script:rc
+    Invoke-Check -Mode noforce -Overrides @{ NPM_STUB_MODE = 'fail' }
+  } finally { $script:sutConsoleCp = $prevCp }
+  Assert-Cp437Premise 'cp437_cache_hit' $firstOk '建快取的全檢'
+  Assert-Cp437Premise 'cp437_cache_hit' $script:sutCpOk '快取命中的那一跑'
+  Assert 'cp437_cache_hit' '建快取 exit 0' $firstRc
+  Assert 'cp437_cache_hit' '快取命中 exit 0' $script:rc
+  AssertMatch 'cp437_cache_hit' '中文完整：快取命中行' '(?m)^codex-check: \d+h 前查過，跳過（-f 強制重查）。上次結果：\r?$'
+  AssertMatch 'cp437_cache_hit' '中文完整：快取回顯的 verdict' 'verdict=UNKNOWN \(latest 查不到，可能離線\) -- 無法判定新舊，改看下方 smoke test 認定可用性 smoke=OK at '
+}
+
+# --- P 系列：呼叫端 preference 外洩與診斷 best-effort（CODEX-CHECK-WARNING，2026-10-17）---
+# 舊版：Write-Warning 在 $WarningPreference='Stop' 下變終止性例外（:275／:296／:300／:520／:522，HEAD 040b344 行號）；
+# smoke 的 native 非零退出在 ${PSNativeCommandUseErrorActionPreference}=${true}（pwsh 7.3+）＋本 SUT 檔頭 EAP=Stop 下，
+# 於擷取 rc 之前丟 NativeCommandExitException（:475）。
+# ⚠️ Native 案的牙齒只在 -Shell pwsh 腿（5.1 沒有這個 preference，新舊版都綠）；Warn 案兩條腿都有牙齒。
+# ⚠️ 等價變異（2026-10-17 實測，寫明以免被讀成「每一行都有牙齒」）：SUT capture scope 裡的
+#    `$ErrorActionPreference = 'Continue'` 拿掉之後，本檔全部照樣綠 —— smoke 的 stderr 已在 cmd 層合流，
+#    5.1 的 NativeCommandError 路徑目前碰不到。保留它只是為了與 consult／exec 的模式一致，額外防禦未被證明。
+#    同理，「診斷排在刪快取／哨兵之後」這個**順序**在 t_p_broken_stderr_failure_state 的注入下也是等價變異
+#    （best-effort 的 try/catch 已經吞掉例外）；順序是為 writer 卡住或行程被殺的情況保底，同樣未被證明。
+function Test-NoPrefLeak([string]$name) {
+  # Invoke-Check 已把 child 的 stderr ErrorRecord 還原成原始行，所以 runner 端不會再冒出 NativeCommandError 標記；
+  # 這裡出現的 NativeCommandError 只可能來自 SUT 自己（5.1 把 native stderr 包成 ErrorRecord 的那條路）。
+  AssertNoMatch $name '不得洩漏 preference／native 例外文字' 'WarningPreference|ActionPreferenceStopException|NativeCommandExitException|NativeCommandError'
+}
+function Seed-GreenCache([string]$name) {
+  Invoke-Check -Mode force
+  if (($script:rc -eq 0) -and (Test-Path -LiteralPath (CacheFile))) { Assert $name '前置：綠快取已建立' 0 } else { Assert $name "前置：綠快取已建立（rc=$($script:rc)）" 1 }
+}
+function Assert-NoStaleCacheHit([string]$name) {
+  # 壞快取若沒刪，下一次非 -Force 會命中舊綠快取、把剛壞掉的 codex 報成可用
+  Invoke-Check -Mode noforce
+  AssertMatch $name '下一次非 -Force 走全檢（壞快取已刪）' 'read-only smoke test'
+  AssertNoMatch $name '下一次非 -Force 不得命中舊綠快取' '跳過（-f 強制重查）'
+}
+function t_p_warn_refused_marker {   # :275 → REFUSED 哨兵與 exit 2 必須都在
+  $script:currentTest = 'p_warn_refused'
+  Setup; Invoke-Check -Mode update -Overrides @{ CODEX_STUB_CAP_FAIL = 'features' } -Prefs @{ Warn = 'Stop' }
+  if ($script:rc -eq 2) { Assert 'p_warn_refused' 'W=Stop 下被拒仍 exit 2' 0 } else { Assert 'p_warn_refused' "W=Stop 下被拒仍 exit 2（實際 $($script:rc)）" 1 }
+  AssertMatch 'p_warn_refused' 'REFUSED 哨兵仍在' '(?m)^UPDATE_BASELINE=REFUSED\r?$'
+  AssertMatch 'p_warn_refused' '拒絕理由仍印出' '拒絕更新 baseline'
+  if (-not (Test-Path -LiteralPath (BaselineFile))) { Assert 'p_warn_refused' '未產 baseline' 0 } else { Assert 'p_warn_refused' '未產 baseline' 1 }
+  Test-NoPrefLeak 'p_warn_refused'
+}
+function t_p_warn_no_baseline_smoke_runs {   # :296 → 首次安裝（無 baseline）smoke 仍要跑
+  $script:currentTest = 'p_warn_nobl'
+  Setup; Invoke-Check -Mode force -Prefs @{ Warn = 'Stop' }
+  Assert 'p_warn_nobl' 'W=Stop 下無 baseline 仍 exit 0' $script:rc
+  AssertMatch 'p_warn_nobl' 'NO_BASELINE 仍印出' 'NO_BASELINE'
+  AssertMatch 'p_warn_nobl' 'smoke 有跑' 'read-only smoke test'
+  if (Test-Path -LiteralPath (CacheFile)) { Assert 'p_warn_nobl' '快取寫入' 0 } else { Assert 'p_warn_nobl' '快取寫入' 1 }
+  Test-NoPrefLeak 'p_warn_nobl'
+}
+function t_p_warn_corrupt_baseline_smoke_runs {   # :300 → 壞 baseline 時 smoke 仍要跑、壞檔不覆寫
+  $script:currentTest = 'p_warn_corrupt'
+  Setup; Set-Content -LiteralPath (BaselineFile) -Value 'this is junk not a baseline' -Encoding utf8
+  Invoke-Check -Mode force -Prefs @{ Warn = 'Stop' }
+  Assert 'p_warn_corrupt' 'W=Stop 下壞 baseline 仍 exit 0' $script:rc
+  AssertMatch 'p_warn_corrupt' '格式不符仍印出' '格式不符'
+  AssertMatch 'p_warn_corrupt' 'smoke 有跑' 'read-only smoke test'
+  if ((Get-Content -LiteralPath (BaselineFile) -Raw) -match 'this is junk') { Assert 'p_warn_corrupt' '壞檔未被覆寫' 0 } else { Assert 'p_warn_corrupt' '壞檔未被覆寫' 1 }
+  Test-NoPrefLeak 'p_warn_corrupt'
+}
+function t_p_warn_smoke_fail_deletes_cache {   # :522 → smoke 失敗：rc 原樣、刪快取、NOT_APPLIED
+  $script:currentTest = 'p_warn_smokefail'
+  Setup; Seed-GreenCache 'p_warn_smokefail'
+  Invoke-Check -Mode update -Overrides @{ CODEX_STUB_EXEC_RC = '7' } -Prefs @{ Warn = 'Stop' }
+  if ($script:rc -eq 7) { Assert 'p_warn_smokefail' 'smoke rc 原樣傳回 7（不是 1）' 0 } else { Assert 'p_warn_smokefail' "smoke rc 原樣傳回 7（實際 $($script:rc)）" 1 }
+  AssertMatch 'p_warn_smokefail' '失敗診斷仍印出' 'smoke test failed \(exit 7\)'
+  AssertMatch 'p_warn_smokefail' 'NOT_APPLIED 哨兵仍在' '(?m)^UPDATE_BASELINE=NOT_APPLIED'
+  if (-not (Test-Path -LiteralPath (CacheFile))) { Assert 'p_warn_smokefail' '壞快取已刪' 0 } else { Assert 'p_warn_smokefail' '壞快取已刪' 1 }
+  if (-not (Test-Path -LiteralPath (BaselineFile))) { Assert 'p_warn_smokefail' 'baseline 未落檔' 0 } else { Assert 'p_warn_smokefail' 'baseline 未落檔' 1 }
+  Test-NoPrefLeak 'p_warn_smokefail'
+  Assert-NoStaleCacheHit 'p_warn_smokefail'
+}
+function t_p_warn_nosentinel_deletes_cache {   # :520 → exit 0 無 sentinel：rc 1、刪快取（rc 新舊都是 1，牙齒在快取與診斷）
+  $script:currentTest = 'p_warn_nosentinel'
+  Setup; Seed-GreenCache 'p_warn_nosentinel'
+  Invoke-Check -Mode force -Overrides @{ CODEX_STUB_LASTMSG = 'NOT_CODEX_OK' } -Prefs @{ Warn = 'Stop' }
+  if ($script:rc -eq 1) { Assert 'p_warn_nosentinel' 'exit 1' 0 } else { Assert 'p_warn_nosentinel' "exit 1（實際 $($script:rc)）" 1 }
+  AssertMatch 'p_warn_nosentinel' '無 sentinel 診斷仍印出' '無精確 CODEX_OK sentinel'
+  if (-not (Test-Path -LiteralPath (CacheFile))) { Assert 'p_warn_nosentinel' '壞快取已刪' 0 } else { Assert 'p_warn_nosentinel' '壞快取已刪' 1 }
+  Test-NoPrefLeak 'p_warn_nosentinel'
+  Assert-NoStaleCacheHit 'p_warn_nosentinel'
+}
+function t_p_native_smoke_fail_keeps_rc {   # :475 → native=true：rc 原樣（23，非 1）、刪快取、NOT_APPLIED
+  $script:currentTest = 'p_native_smokefail'
+  Setup; Seed-GreenCache 'p_native_smokefail'
+  Invoke-Check -Mode update -Overrides @{ CODEX_STUB_EXEC_RC = '23' } -Prefs @{ Native = 'true' }
+  if ($script:rc -eq 23) { Assert 'p_native_smokefail' 'smoke rc 原樣傳回 23（不是 1）' 0 } else { Assert 'p_native_smokefail' "smoke rc 原樣傳回 23（實際 $($script:rc)）" 1 }
+  AssertMatch 'p_native_smokefail' 'smoke transcript 有回顯' 'SIMULATED_SMOKE_FAILURE'
+  AssertMatch 'p_native_smokefail' '失敗診斷仍印出' 'smoke test failed \(exit 23\)'
+  AssertMatch 'p_native_smokefail' 'NOT_APPLIED 哨兵仍在' '(?m)^UPDATE_BASELINE=NOT_APPLIED'
+  if (-not (Test-Path -LiteralPath (CacheFile))) { Assert 'p_native_smokefail' '壞快取已刪' 0 } else { Assert 'p_native_smokefail' '壞快取已刪' 1 }
+  Test-NoPrefLeak 'p_native_smokefail'
+  Assert-NoStaleCacheHit 'p_native_smokefail'
+}
+function t_p_all_stop_smoke_fail {   # 兩個都開（最壞呼叫端）：兩條腿對舊版都有牙齒
+  $script:currentTest = 'p_allstop_smokefail'
+  Setup; Seed-GreenCache 'p_allstop_smokefail'
+  Invoke-Check -Mode force -Overrides @{ CODEX_STUB_EXEC_RC = '7' } -Prefs @{ Warn = 'Stop'; Native = 'true' }
+  if ($script:rc -eq 7) { Assert 'p_allstop_smokefail' 'smoke rc 原樣傳回 7' 0 } else { Assert 'p_allstop_smokefail' "smoke rc 原樣傳回 7（實際 $($script:rc)）" 1 }
+  if (-not (Test-Path -LiteralPath (CacheFile))) { Assert 'p_allstop_smokefail' '壞快取已刪' 0 } else { Assert 'p_allstop_smokefail' '壞快取已刪' 1 }
+  Test-NoPrefLeak 'p_allstop_smokefail'
+}
+function t_p_native_success_unaffected {   # native=true 但 smoke 成功：行為不變（回歸）
+  $script:currentTest = 'p_native_ok'
+  Setup; Invoke-Check -Mode force -Prefs @{ Warn = 'Stop'; Native = 'true' }
+  Assert 'p_native_ok' 'exit 0' $script:rc
+  AssertMatch 'p_native_ok' 'verdict UP-TO-DATE' 'UP-TO-DATE'
+  if (Test-Path -LiteralPath (CacheFile)) { Assert 'p_native_ok' '快取寫入' 0 } else { Assert 'p_native_ok' '快取寫入' 1 }
+  Test-NoPrefLeak 'p_native_ok'
+}
+function t_p_broken_stderr_failure_state {   # 診斷 writer 本身丟例外（stderr 壞掉）：失敗狀態與哨兵仍須完成
+  # 牙齒對象是「改走 [Console]::Error 但寫入沒有 best-effort」的版本（10/17 設計原型即如此：診斷排在刪快取之前、
+  # 沒有 try/catch）。舊版 SUT（Write-Warning）不經 [Console]::Error，本案對它是綠的 —— 舊版的缺陷由上面各 P 案抓。
+  $script:currentTest = 'p_broken_stderr'
+  Setup; Seed-GreenCache 'p_broken_stderr'
+  Invoke-Check -Mode update -Overrides @{ CODEX_STUB_EXEC_RC = '7' } -Prefs @{ ErrBroken = '1' }
+  if ($script:rc -eq 7) { Assert 'p_broken_stderr' 'smoke 失敗：rc 原樣傳回 7' 0 } else { Assert 'p_broken_stderr' "smoke 失敗：rc 原樣傳回 7（實際 $($script:rc)）" 1 }
+  AssertMatch 'p_broken_stderr' 'smoke 失敗：NOT_APPLIED 哨兵仍在' '(?m)^UPDATE_BASELINE=NOT_APPLIED'
+  if (-not (Test-Path -LiteralPath (CacheFile))) { Assert 'p_broken_stderr' 'smoke 失敗：壞快取已刪' 0 } else { Assert 'p_broken_stderr' 'smoke 失敗：壞快取已刪' 1 }
+  if (-not (Test-Path -LiteralPath (BaselineFile))) { Assert 'p_broken_stderr' 'smoke 失敗：baseline 未落檔' 0 } else { Assert 'p_broken_stderr' 'smoke 失敗：baseline 未落檔' 1 }
+  Invoke-Check -Mode update -Overrides @{ CODEX_STUB_CAP_FAIL = 'features' } -Prefs @{ ErrBroken = '1' }
+  if ($script:rc -eq 2) { Assert 'p_broken_stderr' '被拒：仍 exit 2' 0 } else { Assert 'p_broken_stderr' "被拒：仍 exit 2（實際 $($script:rc)）" 1 }
+  AssertMatch 'p_broken_stderr' '被拒：REFUSED 哨兵仍在' '(?m)^UPDATE_BASELINE=REFUSED\r?$'
+  Invoke-Check -Mode force -Prefs @{ ErrBroken = '1' }   # 無 baseline：NO_BASELINE 診斷寫不出去，smoke 仍要跑
+  Assert 'p_broken_stderr' '無 baseline：仍 exit 0' $script:rc
+  AssertMatch 'p_broken_stderr' '無 baseline：smoke 有跑' 'read-only smoke test'
+  if (Test-Path -LiteralPath (CacheFile)) { Assert 'p_broken_stderr' '無 baseline：快取寫入' 0 } else { Assert 'p_broken_stderr' '無 baseline：快取寫入' 1 }
+}
+function t_p_no_write_warning_ast {   # 靜態守衛：SUT 不得有靜態可解析的 Write-Warning（動態命令名/$PSCmdlet.WriteWarning 抓不到）
+  $script:currentTest = 'p_no_ww_ast'
+  $perr = $null
+  $ast = [System.Management.Automation.Language.Parser]::ParseFile([System.IO.Path]::GetFullPath($script:sut), [ref]$null, [ref]$perr)
+  if (($null -eq $perr) -or ($perr.Count -eq 0)) { Assert 'p_no_ww_ast' 'SUT 無 parse error' 0 } else { Assert 'p_no_ww_ast' "SUT 有 $($perr.Count) 個 parse error" 1 }
+  $hits = @()
+  if ($ast) {
+    foreach ($c in @($ast.FindAll({ param($x) $x -is [System.Management.Automation.Language.CommandAst] }, $true))) {
+      $nm = $c.GetCommandName(); if (-not $nm) { continue }
+      if ((($nm -split '\\')[-1]) -ieq 'Write-Warning') { $hits += ('L' + $c.Extent.StartLineNumber) }
+    }
+  }
+  if ($hits.Count -eq 0) { Assert 'p_no_ww_ast' 'SUT 無 Write-Warning（0 處）' 0 } else { Assert 'p_no_ww_ast' ('SUT 有 Write-Warning ' + $hits.Count + ' 處（' + ($hits -join ',') + '）；改用 [Console]::Error.WriteLine') 1 }
+}
+
 $allTests = @(
   't_happy_path','t_offline_unknown','t_fake_pass_rejected','t_ansi_stripped',
   't_h1_leading_warning','t_h1_warning_has_version','t_h1_no_version',
@@ -720,7 +975,11 @@ $allTests = @(
   't_b_empty_ambiguous_unknown','t_b_query_fail_unknown_update_refused','t_b_unparseable_blocks_update','t_b_corrupt_baseline',
   't_b_flag_missing_no_cache','t_b_near_flag_not_matched','t_b_version_empty_no_cache_hit','t_b_cache_version_mismatch_miss',
   't_b_probe_stderr_immune','t_b_boilerplate_zero_is_empty','t_b_mcp_drift_and_fail','t_b_mcp_all_unknown_unparseable',
-  't_b_marketplace_identity_drift','t_b_hooks_unparseable','t_b_flag_incompat_cache_not_trusted'
+  't_b_marketplace_identity_drift','t_b_hooks_unparseable','t_b_flag_incompat_cache_not_trusted',
+  't_console_cp437_utf8','t_console_cp437_cache_hit',
+  't_p_warn_refused_marker','t_p_warn_no_baseline_smoke_runs','t_p_warn_corrupt_baseline_smoke_runs',
+  't_p_warn_smoke_fail_deletes_cache','t_p_warn_nosentinel_deletes_cache','t_p_native_smoke_fail_keeps_rc',
+  't_p_all_stop_smoke_fail','t_p_native_success_unaffected','t_p_broken_stderr_failure_state','t_p_no_write_warning_ast'
 )
 
 # 受測 host 自檢：真的用 $script:sutExe 跑一支探針，讓 child 自報 PSEdition／PSVersion。
@@ -768,6 +1027,25 @@ function Test-SutLaunchSite {
 }
 
 try {
+  # ── CODEX-CHECK-CP437：console code page（記錄、設定、還原都在本 try／finally 之內）────────────────
+  # SUT 的輸出契約是 UTF-8（codex-check.ps1 檔頭）⇒ runner 一律以 UTF-8 解碼 child 輸出。
+  # ⚠️ 這個 setter 會呼叫 SetConsoleOutputCP，把共用 console 切到 65001 —— 所以 child 的起跑 code page
+  #    由 Invoke-SutProcess 每次明確切回 ${script:sutConsoleCp}：預設是這裡記下的**環境值**（CI／維護機是 65001；
+  #    在非 UTF-8 主控台本機跑時，既有各案也照樣在該 code page 下跑），437 由 t_console_cp437_* 案內指定。
+  # ⚠️ 必須在本 try 之內：放在檔頭的話，找不到受測 host 的 exit 2 等提前結束會跳過 finally 的還原。
+  $script:origOutEnc = [Console]::OutputEncoding
+  $script:origInEnc  = [Console]::InputEncoding
+  try {
+    if (-not ('CodexCheckTests.ConsoleCp' -as [type])) {
+      Add-Type -Namespace CodexCheckTests -Name ConsoleCp -MemberDefinition '[System.Runtime.InteropServices.DllImport("kernel32.dll")] public static extern uint GetConsoleOutputCP();'
+    }
+  } catch { Write-Output ("note: 無法載入 GetConsoleOutputCP（" + $_.Exception.Message + "）—— code page 案的前提會紅") }
+  $script:envConsoleCp = Get-ConsoleOutputCp
+  if (-not $script:envConsoleCp) { $script:envConsoleCp = $script:origOutEnc.CodePage }
+  $script:sutConsoleCp = $script:envConsoleCp
+  try { [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding $false } catch {}
+  Write-Output ("console code page = " + $script:envConsoleCp + "（環境值；既有各案的 child 以它起跑）；runner 以 UTF-8 解碼 child 輸出")
+
   Assert-Bom $script:sut 'SUT'           # 檔頭 BOM 斷言（SUT 與 tests）
   Assert-Bom $script:testsFile 'tests'
   $sutHostOk = $false
@@ -789,5 +1067,9 @@ try {
   foreach ($h in $script:fakeHomes) { if ($h -and (Test-Path -LiteralPath $h)) { Remove-Item -LiteralPath $h -Recurse -Force -ErrorAction SilentlyContinue } }
   if ($stubRoot -and (Test-Path -LiteralPath $stubRoot)) { Remove-Item -LiteralPath $stubRoot -Recurse -Force -ErrorAction SilentlyContinue }
   $env:USERPROFILE = $script:origUserProfile
+  # CODEX-CHECK-CP437：還原 runner 的 console 編碼。setter 會連共用 console 的 code page 一起改回
+  # （chcp 改過 input code page，所以 InputEncoding 也要還原）。
+  if ($script:origOutEnc) { try { [Console]::OutputEncoding = $script:origOutEnc } catch {} }
+  if ($script:origInEnc)  { try { [Console]::InputEncoding  = $script:origInEnc } catch {} }
 }
 if ($script:fails -gt 0) { exit 1 } else { exit 0 }

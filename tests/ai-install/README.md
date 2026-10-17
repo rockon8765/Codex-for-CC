@@ -1,7 +1,7 @@
 # `docs/AI-INSTALL.md` 的安裝流程測試臺
 
-驗證 [`docs/AI-INSTALL.md`](../../docs/AI-INSTALL.md) 步驟 1b（備份）、1c（安裝）、
-步驟 3（回滾）的 code block 真的具備文件所聲稱的性質。
+驗證 [`docs/AI-INSTALL.md`](../../docs/AI-INSTALL.md) 步驟 0a（Windows 的 Git Bash 前置檢查，只有 Windows 版測）、
+1b（備份）、1c（安裝）、步驟 3（回滾）的 code block 真的具備文件所聲稱的性質。
 
 **做法**：程式化抽出文件裡的 code block（依 powershell / bash fence 標記，以內容關鍵字
 定位）→ 用**假 `USERPROFILE`／`HOME`** 執行 → 檢查檔案系統狀態。測的是**文件本身**，
@@ -146,7 +146,7 @@ pwsh -NoProfile -File tests\ai-install\run-mutation-controls.ps1
 |---|---|---|
 | 1 | `Set-Step2Settings` 寫入行改 no-op（保留 `Check`） | 四條「前置：settings 已與備份不同」＋ **`[M13c][settings]` 的寬 oracle**；`[M13c][hook]` 的寬 oracle **必須保持綠** |
 | 2 | 產品文件的 **hook** 還原兩行搬到首掃前（**緊貼** anchor） | `[M13]` 兩條寬 oracle ＋ `[M13c][hook]` 的兩道守衛；`[M13c][settings]` **必須保持綠** |
-| 3 | 刪掉 `[C3]` 一條無副作用的 `Check` | **零條具名失敗** ＋ 案數守衛那行的完整字面（含「實跑 125、預期 126」） |
+| 3 | 刪掉 `[C3]` 一條無副作用的 `Check` | **零條具名失敗** ＋ 案數守衛那行的完整字面（含「實跑 160、預期 161」；2026-10-17 以前是 125／126） |
 | 4 | 產品文件的 **settings** 還原兩行搬到首掃前（**緊貼** anchor） | 與 2 對稱；`[M13c][hook]` **必須保持綠** |
 
 ⚠️ **不要退回「只比 PASS／FAIL 總數」**。那樣的話「該紅的牙齒變綠 ＋ 不相關的斷言變紅」
@@ -219,6 +219,90 @@ harness 印 **109 PASS／3 FAIL**、**總案數仍為 112**（**2026-08-12 的�
 現行案數見 `run-windows.ps1` 的 `$EXPECTED_CHECKS`），紅的恰好是那三條 `[M13b]`。
 ⚠️ 注意這只證明「錨點失效不會**少**案」，**不等於**「案數已釘死」——後者要靠上面的
 `EXPECTED_CHECKS`（這個區別是合併前 Codex 審查指出的，我原本把兩件事混為一談）。
+
+### Windows 的 `[G]`：步驟 0a 的 Git Bash 前置檢查（2026-10-17，`CC-NOBASH-FAILCLOSED`）
+
+0a 先照 Claude Code 2.1.301 的讀碼找出「它會用的那一個 Git Bash」，再對那一個做實際檢查（是檔案、不是 WSL 的位置、
+執行 `-c "/usr/bin/uname -s"` 要成功且回 `MINGW…_NT-`／`MSYS_NT-…`、15 秒逾時）；`where.exe` 找到的 git 或目前目錄
+經過 reparse point 時判為無法判定。代號三種：`GIT_BASH_MISSING`（找不到）、`GIT_BASH_INVALID`（找到了但不能用）、
+`GIT_BASH_UNDECIDABLE`（無法判定）；成功只印恰好一行 `GIT_BASH_OK path=…`。
+
+**怎麼隔離本機**：寫死的兩個位置用字串替換換成假路徑（第一條自檢它在區塊內恰一處）；`PATH`、
+`CLAUDE_CODE_GIT_BASH_PATH` 每案明設或明刪；部分案另外切換目前目錄（子行程繼承它）。所以結果與跑測試的機器
+有沒有裝 Git 無關——CI runner 與維護機都有 Git，不隔離的話「找不到」那幾條分支永遠測不到。
+
+**假 bash.exe**：正向案**不再**用內容為 `FAKE` 的檔案（那只能證明「存在」）。測試臺當場用 .NET Framework 內建的
+`csc.exe` 編一支小程式：回應旁邊 `<exe>.reply` 的內容（`HANG`＝睡 10 分鐘；`RC1:<文字>`＝印文字並以 1 結束），
+並把收到的參數附加到 `<exe>.args`。所以「通過」的案是真的執行了一支回 MINGW 的程式，而且可以斷言「探測恰好執行一次、
+參數是 `-c|/usr/bin/uname -s`」，以及 `WindowsApps\bash.exe`「根本沒有被執行」。**產品區塊沒有任何只為測試存在的開關**：
+注入全在測試臺這一側（改寫抽出來的區塊文字、環境變數、目前目錄、檔案系統）。編譯或自我執行失敗時那條前置會紅，
+後面的正向案自然變紅，不跳過（案數固定）。
+
+**判準**：「停止」＝退出碼非 0、沒有任何一行以 `GIT_BASH_OK path=` 開頭、含預期代號、且**不含另外兩個代號**；
+「通過」＝退出碼 0、**恰好一行** `GIT_BASH_OK path=<預期路徑>`（路徑不分大小寫比對）。
+8.3 短檔名：GitHub runner 的 `$env:TEMP` 是 `C:\Users\RUNNER~1\…`，而 `where.exe` 回長檔名，所以假目錄的根先換成長檔名。
+
+23 條：3 條前置／自檢（替換錨點恰一處、假 bash 可執行、兩個 junction 建成）＋ 20 個行為案——
+什麼都沒有、PATH 上只有 WSL 的 bash、環境變數可用／檔名不對／不存在、兩個寫死位置、`where.exe` 的 git 可用／旁邊沒有 bash／
+只看第一個／在目前目錄底下被排除、環境變數指向目錄／文字檔／回 Linux 的 bash／`WindowsApps\bash.exe`／退出碼非 0／卡住
+（另釘耗時 < 90 秒，否則「沒有逾時、一直等到假 bash 自己結束」的寫法也會綠）、第一個寫死位置是目錄而第二個可用
+（Claude Code 不改試，所以要判不可用）、git 經過 junction、目前目錄經過 junction。
+
+**牙齒（2026-10-17 本機實測）**：
+- 修正前文件（`040b344`）：兩個 host 都在抽取時中止，`抽取失敗：'GIT_BASH_OK' 命中 0 個區塊（預期 1）`，exit 1。
+- 把 0a 換回設計原型（只檢查「存在」、不執行、不判 reparse）：兩個 host 都是 `151／10` exit 1，紅的**恰好**是 10 條——
+  環境變數可用（沒執行探測）、目錄、文字檔、回 Linux、`WindowsApps`、退出碼非 0、卡住、第一個寫死位置是目錄、
+  git 經過 junction、目前目錄經過 junction。
+- 單點變異（pwsh，各自 `160／1`，紅的恰好是預期那一條）：拿掉 WSL 位置規則 → `WindowsApps`；拿掉退出碼檢查 → 退出碼非 0；
+  拿掉 uname 輸出比對 → 回 Linux；拿掉目前目錄的 reparse 判定 → 目前目錄經過 junction；拿掉 git 的 reparse 判定 →
+  git 經過 junction；逾時從 15 秒改成 700 秒 → 卡住那條（耗時 655 秒才結束，被「< 90 秒」擋下）。
+- 已知的等價變異：拿掉「是目錄」那道檢查不會被殺——目錄餵給 `Process.Start` 一樣啟動失敗、一樣判 `GIT_BASH_INVALID`。
+  保留它是為了訊息清楚，不是為了區辨力。
+
+⚠️ Claude Code 2.1.299「沒有 Git Bash 就擋下」本身**沒有 live 重現**（維護者只有一台裝了 Git 的 Windows）；
+本節只證明 0a 的判斷邏輯。找法照抄讀碼，上游改版就可能分歧。
+
+### `[M14]`–`[M20]`、`[C4]`（POSIX）與 Windows 的 `[M18]`：掛載點守衛（2026-10-17，F4 `MOUNT-RMRF`）
+
+macOS 區塊的 `scan_no_mount` 以裝置號（st_dev）判斷掛載點，1b、1c 的第一個 mutation 前、回滾的 `rm -rf` 前各一份，
+三份逐字相同（`[M17]` 比對）。判定只用 `stat %d`（一個目錄一行），路徑只在偵測到之後另外取，當診斷訊息。
+
+**假 stat**：CI 與 Windows 上建不出 macOS 掛載點，所以 `run-posix.sh` 用 PATH 前置的假 `stat`（`SHIM_ON=1` 的案才經過它，
+其餘案的執行環境不變）：路徑本身或任一上層有 `.fake-mount-dev` 就回報那個裝置號（掛載點連同底下都是新裝置號）、
+目錄有 `.fake-stat-fail` 就讓該路徑 stat 失敗，其餘原樣交給真的 stat——所以受測區塊的 GNU／BSD 語法偵測看到的是真的。
+**這只證明控制流**；「macOS 掛載點的 st_dev 真的與上一層不同」與 macOS 真機行為（hdiutil 拋棄式 APFS image：
+根掛載、子樹掛載、1b 後才掛載、payload 保留）**待驗**，不得宣稱 macOS 已驗證。
+
+| 區塊 | 情境 | 條數 |
+|---|---|---|
+| `[M14]` | 1b 時子樹已有掛載點 → 中止、不印 ts、理由、不建 skill 備份 | 5 |
+| `[M15]` | 回滾時 1b 之後才掛上（sub／root）→ 中止、理由、整個 `~/.claude` 不變、掛載內 payload 仍在 | 16 |
+| `[M16]` | 回滾時裝置號讀不到（sub 走 `find -exec`、root 走單一 stat）→ fail-closed | 14 |
+| `[M17]` | 1b、1c、回滾三份守衛逐字相同 | 1 |
+| `[M18]` | 1c 前才掛上（sub＝`references` 本身是掛載點、root＝skill 根目錄）→ 第一個 mutation 前中止、整個 `~/.claude` 與掛載內容都不變 | 12 |
+| `[M19]` | 1c 前才出現的 symlink（sub／root）→ 中止、不寫穿（與 Windows 1c 的 reparse 掃描等價） | 10 |
+| `[M20]` | 目錄名含換行、同一裝置（真的 stat）→ 1b、1c、回滾照常通過 | 5 |
+| `[C4]` | 經過假 stat 但不注入 → 安裝、回滾都成功（假 stat 是透明的） | 4 |
+
+`run-posix.sh` 總案數 95 → 162。Windows 的 `[M18]`（12 條）用 junction 對應：它與 NTFS 掛載資料夾同為
+`IO_REPARSE_TAG_MOUNT_POINT`，偵測走同一個 `ReparsePoint` 屬性（真的掛載資料夾要系統管理員權限才建得出來，推論覆蓋）。
+
+**本機（Windows 11 的 Git Bash：bash 5.3 cygwin 版、GNU coreutils 8.32）2026-10-17 實測**：
+- 現行文件：`bash  PASS=126  FAIL=36`。36＝原本的 30 條天花板（建不出 symlink、`chmod 000` 無效）＋ `[M19]` 6 條
+  （同樣因為建不出 symlink：前置、1c 中止、`~/.claude` 未變各兩條）。既有 95 條的 PASS／FAIL 逐條與改動前相同（只差時間戳與 `[M8]` 的跨秒分支）。
+  Mac／Linux 上預期 `162／0`（推論，待跑；Linux CI 的 `run-posix-args.test.sh` 會跑到）。
+- 修正前文件（`040b344`）：`99／63`，比現行多紅的**恰好** 27 條：`[M14]` 4、`[M15]` 8、`[M16]` 6、`[M17]` 1、`[M18]` 8。
+  （Mac／Linux 上 `[M19]` 也會紅，條數待真機記錄。）
+- 三份守衛都換回設計原型的判準（`%d %n` 同一行再用 awk 切欄位）：多紅**恰好** 3 條＝`[M20]` 的 1b、1c、回滾
+  ——名稱含換行的目錄被拆成兩行，後半行被當成「裝置號不同」而誤擋。這是 Codex 反方 C.2 的牙齒。
+- 只刪 1c 的那一行 `scan_no_mount` 呼叫：多紅**恰好** 8 條＝`[M18]`（Codex 反方 C.1 的牙齒）。
+- Windows：1c 拿掉重掃 → 兩個 host 都多紅**恰好** 8 條＝`[M18]` 的「1c 中止」「理由」「假家目錄未變」「junction 目標沒有被寫入」×2。
+
+Mac 真機驗證步驟（使用者在自己的 Mac 上請 Claude 照做；全部在拋棄式目錄與拋棄式 dmg 裡，不碰真的 `~/.claude`）：
+跑 `run-posix.sh`（預期 162／0）與對 `040b344` 的反向；`hdiutil create -fs APFS` 一個小映像，掛在假 HOME 的
+skill 樹內（子樹）與 skill 根目錄本身（root），先記錄 `stat -f '%d %N'` 確認掛載點裝置號與上一層不同（整個修正的前提），
+再依序驗 1b 中止、1b 後才掛上時 1c 中止、1c 後才掛上時回滾中止且 payload 保留；有 gnubin 才另跑 GNU stat 變體（不要安裝）；
+最後用舊文件的回滾在拋棄式映像上確認「payload 被刪」的舊行為。清理前先確認沒有殘留掛載。
 
 ## 反向驗證（改動守衛後務必做）
 
@@ -338,12 +422,15 @@ Windows 的 M13 斷言名稱一律帶 `[M13]` 前綴：M11 也用 `[備份子樹
   其後 `[M5]` 也補了同型前置檢查，案數增為 **68**，已在同一台 Mac 對 `e1ec53f`
   複跑 **68/68 exit 0**；兩次比對確認 +1 全部落在 `[M5]` —— 本檔共 **13 個具名區塊**
   （`C1`／`C2`／`M1`–`M10`／`C3`），其餘 **12 個**案數逐項相同。
-- **抽取靠關鍵字定位**（`backup ts=`／`install OK`／`Test-Exactly1`／`precheck skill`）。
+  （以上「13 個具名區塊」是 2026-08-04 的量測；之後陸續加了 `M11`–`M20`、`C4`，現行區塊以 `run-posix.sh` 為準。）
+- **抽取靠關鍵字定位**（`backup ts=`／`install OK`／`Test-Exactly1`／`precheck skill`；Windows 另有 0a 的 `GIT_BASH_OK`）。
   命中數不等於 1 時直接 abort，不會猜。
 - **Windows 快照忽略** `AppData\Local\Microsoft\PowerShell\*`——`pwsh` 自己會在被重導的
   家目錄下建 `StartupProfileData-NonInteractive`，那是測試臺雜訊。其餘整個假家目錄都比對。
 - **`run-posix.sh` 抽取時做 `tr -d '\r'`**：Windows 工作目錄的檔可能是 CRLF，會讓
   `set -euo pipefail` 假炸成 `pipefail: invalid option name`。committed blob 依
   [`.gitattributes`](../../.gitattributes) 是 LF，所以這等同真實 Unix checkout。
-- **測不到的東西**：NTFS symlink（需管理員權限或開發者模式）、掛載點／bind mount（需 root）。
-  這兩項的殘留風險記在 [`docs/backlog.md`](../../docs/backlog.md)。
+- **測不到的東西**：NTFS symlink（需管理員權限或開發者模式）；真的掛載點——POSIX 側只以假 stat 模擬控制流、
+  Windows 側以 junction 覆蓋同一個 `ReparsePoint` 屬性，macOS 真機（hdiutil）與 NTFS 掛載資料夾都還沒實測（見上方
+  「掛載點守衛」一節）；同裝置號的掛載（Linux bind mount）偵測不到。Windows 0a 的「沒有 Git Bash 時 Claude Code 擋下 hook」
+  本身也沒有 live 重現。殘留風險記在 [`docs/backlog.md`](../../docs/backlog.md)。
