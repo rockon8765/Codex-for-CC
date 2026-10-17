@@ -194,7 +194,7 @@ consult／exec 沒有清 notify，codex-check 也不盤點。上游維護者給�
 
 ## 6. 對 repo 的影響（依 LTS 建置期授權分桶；**稽核當下全部未執行**）
 
-> **執行紀錄（2026-10-17，使用者裁決後）**：§6.1 DF1–DF12 只做了事實部分（右欄規則部分未動；`linux/` 未動；DF9 依審查補了 (h)(i)，與 DF4、DF11 同一批事實）；§6.2、§6.3 已登錄進 [`backlog.md`](backlog.md#drift-1017)。使用者對 §6.5 的三項裁決：consult 固定 effort `high` 並設 `agents.enabled=false`——落實在本機 fork 的 `codex-consult.ps1`（repo 與 `~/.codex/config.toml` 都未改），live consult banner 為 `reasoning effort: high`，另一次要求它嘗試派子代理的 consult 自述沒有任何子代理工具、未嘗試；不重現 #53943；接受 codex-check 新外掛清單（已備份舊檔後 `-UpdateBaseline`，`UPDATE_BASELINE=OK`；這也一併寫入 features +14／−3，該部分使用者同日追認）。§6.1 範圍外、經使用者同意一併訂正的同型事實：`windows/…/orchestration.md:147`、`README.md` 兩處 Linux 段的「靜默不跑」，以及 Windows `SKILL.md:10`「它 fail-open」的 2.1.299 例外。細節見 backlog「10/17 登錄」D 段。
+> **執行紀錄（2026-10-17，使用者裁決後）**：§6.1 DF1–DF12 只做了事實部分（右欄規則部分未動；`linux/` 未動；DF9 依審查補了 (h)(i)，與 DF4、DF11 同一批事實）；§6.2、§6.3 已登錄進 [`backlog.md`](backlog.md#drift-1017)。使用者對 §6.5 的三項裁決：consult 固定 effort `high` 並設 `agents.enabled=false`——落實在本機 fork 的 `codex-consult.ps1`（repo 與 `~/.codex/config.toml` 都未改），live consult banner 為 `reasoning effort: high`，另一次要求它嘗試派子代理的 consult 自述沒有任何子代理工具、未嘗試；不重現 #53943；接受 codex-check 新外掛清單（已備份舊檔後 `-UpdateBaseline`，`UPDATE_BASELINE=OK`；這也一併寫入 features +14／−3，該部分使用者同日追認）。§6.1 範圍外、經使用者同意一併訂正的同型事實：`windows/…/orchestration.md:147`、`README.md` 兩處 Linux 段的「靜默不跑」，以及 Windows `SKILL.md:10`「它 fail-open」的 2.1.299 例外。細節見 backlog「10/17 登錄」D 段。（同日稍後補記：使用者改裁決，consult 改與 `~/.codex/config.toml` 同設定；本機腳本已還原，與 repo 版逐位元相同。）
 
 ### 6.1 DOC-FIX 候選（文件事實訂正，屬 AGENTS.md 授權 5；改 `windows/`＋`macos/`，`linux/` 不動）
 
