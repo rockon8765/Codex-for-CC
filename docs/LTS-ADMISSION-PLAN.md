@@ -1,7 +1,7 @@
 # LTS 准入計畫（Windows 先、macOS 隨後）
 
 > 建立：2026-10-14｜依據：使用者 2026-10-14 裁決（[備忘 §8](DECISION-MEMO-lts-2026-09-30.md#lts-decision-2026-10-14)）｜建置期規則：[`AGENTS.md`](../AGENTS.md)「LTS 建置期」段｜工時：[`LTS-timelog.md`](LTS-timelog.md)
-> **狀態：草案。** [§4](#admission) 的准入條件與驗收清單、[§5.2](#downgrades) 的劃出文字，由使用者核准原文後凍結（核准日記入備忘 §8），之後只有使用者能改。PASS 只由使用者簽核。使用者已指示即刻開工（備忘 §8.1）；AGENTS.md 建置期段的原文已於 2026-10-17 由使用者核准（[備忘 §8.9](DECISION-MEMO-lts-2026-09-30.md#user-decisions-2026-10-17)）；本檔 §4、§5.2 的原文核准之前，工作仍只留在本機的 `lts/build`，不 push、不動 `main`（已授權的例外都是對 `lts/build` 的單次 push：2026-10-15 批次 1，見[備忘 §8.7](DECISION-MEMO-lts-2026-09-30.md#user-decisions-2026-10-15)；2026-10-17 四次：10/17 上游漂移稽核、取消工時上限與 AGENTS.md 核准紀錄、計畫 §8 訂正與 10/28 報告骨架、10/28 報告 §3 與 consult 補記四個 commit，見[備忘 §8.9](DECISION-MEMO-lts-2026-09-30.md#user-decisions-2026-10-17)。之後每次 push 仍要逐次同意）。
+> **狀態：草案。** [§4](#admission) 的准入條件與驗收清單、[§5.2](#downgrades) 的劃出文字，由使用者核准原文後凍結（核准日記入備忘 §8），之後只有使用者能改。PASS 只由使用者簽核。使用者已指示即刻開工（備忘 §8.1）；AGENTS.md 建置期段的原文已於 2026-10-17 由使用者核准（[備忘 §8.9](DECISION-MEMO-lts-2026-09-30.md#user-decisions-2026-10-17)）；本檔 §4、§5.2 的原文核准之前，工作仍只留在本機的 `lts/build`，不 push、不動 `main`（已授權的例外都是對 `lts/build` 的單次 push，逐筆記在[備忘 §8.10](DECISION-MEMO-lts-2026-09-30.md#push-ledger)；之後每次 push 仍要逐次同意）。
 > 本檔是公開文件：只放雜湊、條數、類別，不放個人路徑、帳號或專案名。「（推論）」標沒有直接證據的判斷。
 
 ## 0. 摘要
@@ -19,7 +19,7 @@
 | 項目 | 規則 |
 |---|---|
 | `main` | 凍結快照，准入時才從 `lts/build` 以 PR 合併。准入前只收兩種例外，每一次都要使用者逐案核准：① 純文件 commit；② 帶 `UNFREEZE <ID>` 四行、針對已出貨（`main` 上）的 security／資料遺失／上游 breakage 修復（AGENTS.md「地點」與「歷史」）。AGENTS.md 建置期段（2026-10-17 已核准）與本檔 §4、§5.2 都核准之前，這兩種例外也不做 |
-| `lts/build` | 建置分支；CI 跑這條分支和它的 PR。退出時保留、不合併，`main` 不會停在半遷移狀態。AGENTS.md 建置期段（2026-10-17 已核准）與本檔 §4、§5.2 都核准之前只在本機，不 push（例外：使用者授權的單次 push——2026-10-15 批次 1 的 SHA（備忘 §8.7）、2026-10-17 的四個 commit：10/17 稽核、取消工時上限與 AGENTS.md 核准紀錄、計畫 §8 訂正與 10/28 報告骨架、10/28 報告 §3 與 consult 補記（備忘 §8.9）） |
+| `lts/build` | 建置分支；CI 跑這條分支和它的 PR。退出時保留、不合併，`main` 不會停在半遷移狀態。AGENTS.md 建置期段（2026-10-17 已核准）與本檔 §4、§5.2 都核准之前只在本機，不 push（例外：使用者逐次授權的單次 push，逐筆記在[備忘 §8.10](DECISION-MEMO-lts-2026-09-30.md#push-ledger)） |
 | tag `pre-lts` | annotated，指向 `80c60a8`（凍結期最後狀態），同時當 Linux 的最終快照（只用這一個名稱，不另取名）。**尚未建立**；建立與 push 都要使用者同意。**tag 建立前請用 commit `80c60a8`** |
 | RC 與正式 tag | RC 用 `rc-lts-v<版本>-<n>`，訊息註明「release candidate，未經准入」。正式 tag `lts/v<版本>` 在使用者簽核 PASS 後才建立（[§4.6](#a9-post)） |
 | badge、Release | 准入前不加 windows／macos badge、不發 GitHub Release。README 原有的 `linux.yml` badge 已在 Linux 凍結第一階段移除（2026-10-14）；`linux.yml` 本身留到第二階段才刪 |
@@ -365,7 +365,7 @@ G3（push 分支、單一 PR 合併）屬工作方式，移出 MUST：10/14 的�
 
 ## 9. 待使用者核准或決定
 
-1. 本檔 [§4](#admission)、[§5.2](#downgrades) 的原文（核准後凍結）。AGENTS.md 建置期段的原文已於 2026-10-17 由使用者逐字核准（備忘 §8.9）。本檔這兩段核准前所有工作只留在本機的 `lts/build`，不 push、不動 `main`。使用者授權過五次對 `lts/build` 的單次 push：2026-10-15 一次、2026-10-17 四次（備忘 §8.7、§8.9），這不等於本點已核准。
+1. 本檔 [§4](#admission)、[§5.2](#downgrades) 的原文（核准後凍結）。AGENTS.md 建置期段的原文已於 2026-10-17 由使用者逐字核准（備忘 §8.9）。本檔這兩段核准前所有工作只留在本機的 `lts/build`，不 push、不動 `main`。使用者逐次授權的單次 push 記在[備忘 §8.10](DECISION-MEMO-lts-2026-09-30.md#push-ledger)；這些授權不等於本點已核准。
 2. tag `pre-lts` 的建立與 push（LTS 前的凍結快照與 Linux 最終快照共用這一個名稱）。
 3. F2：2026-10-15 使用者已確認列入 MUST，並選擇收緊白名單（備忘 §8.7；實作取捨見 backlog [`OFF-CLEANUP-RECURSIVE`](backlog.md#OFF-CLEANUP-RECURSIVE)）。**仍待裁決**：F4 的 ACCEPTED_RISK。Codex 10/15 補充：若接受，風險範圍應涵蓋回滾當下才存在的掛載點（包括備份之後才掛上的）；日後若授權技術修補，優先評估在 `rm -rf` 前重新偵測並中止，而不是只做安裝前偵測。
 4. 待裁決的缺陷：[`CODEX-CHECK-CP437`](backlog.md#CODEX-CHECK-CP437)（en-US／cp437 主控台的中文輸出變 `?`）、[`CODEX-CHECK-WARNING`](backlog.md#CODEX-CHECK-WARNING)（原本延後的前提已失效），以及 2026-10-15 新發現的 [`CONSULT-TOKEN-REPLACE-FLAKE`](backlog.md#CONSULT-TOKEN-REPLACE-FLAKE)（覆蓋既有憑證偶發 exit 44；會讓 CI flaky、擋 A1；修法屬產品變更）。

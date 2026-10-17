@@ -201,7 +201,7 @@ Windows rules 分類（40 條，**刪除前**；只列類別，不列個人路�
 | 每週投入 8–10h 是否可行 | 使用者選擇的選項：可以 | 選項 |
 | 何時開始 | 「我以為你已經開始修改了，結果花一堆時間在評估時間嗎」（解讀為：即刻開工，不再延長評估） | 原話 |
 
-這些裁決**不包含** AGENTS.md「LTS 建置期」段的逐字措辭與計畫 §4／§5.2 的原文：那些仍待使用者逐字核准（計畫 §9 第 1 點），核准前所有工作只留在本機的 `lts/build`，不 push、不動 `main`（2026-10-15 使用者授權批次 1 的 SHA 單次 push，見 [8.7](#user-decisions-2026-10-15)）。
+這些裁決**不包含** AGENTS.md「LTS 建置期」段的逐字措辭與計畫 §4／§5.2 的原文：那些仍待使用者逐字核准（計畫 §9 第 1 點），核准前所有工作只留在本機的 `lts/build`，不 push、不動 `main`（2026-10-15 使用者授權批次 1 的 SHA 單次 push，見 [8.7](#user-decisions-2026-10-15)）（2026-10-17 補記：之後每次單次 push 逐筆記在 [§8.10](#push-ledger)。）。
 
 ### 8.2 與本備忘建議的關係（照實記錄，不重議）
 
@@ -296,5 +296,21 @@ Windows rules 分類（40 條，**刪除前**；只列類別，不列個人路�
 - 同日追問的三題，使用者選擇的選項原文：截止日 2027-01-15「一併取消」；工時記錄「繼續記錄，不設上限」；修改範圍「一起改」（AGENTS.md、計畫 §0、§1、§3.1–§3.3、§9、工時記錄檔頭；本備忘只加紀錄、不改舊文）。
 - 落實：§8.4 的「總工時硬上限 115h、日曆截止 2027-01-15，先到者為準；到上限停工、預設退出」不再有效。計畫 §3.1 的分配數字改當預估與預警；工時照記，不再計算剩餘。其他停止規則照舊：每個 ID 最多 2 輪審查、新缺陷規則、計畫 §3.3 的檢查點。原 2027-01-15 一列改為目標日，沒達成時交使用者重新裁決、不預設退出；10/28、11/25、12/16 三列沒達成時仍是「交使用者重新裁決，預設退出」（使用者同日被問到時選擇「維持預設退出」）。
 - 與先前立場的關係（照實記錄，不重議）：10/14 Codex 反方主張「總額要當硬上限，階段數字只當預警」（§8.6），本裁決取消了這個硬上限。本次沒有另外諮詢 Codex：這是使用者的明示裁決，Claude 只做文字落實。
-- 同日另授權四次對 `lts/build` 的單次 push（都不推 tag、不動 `main`）：10/17 上游漂移稽核 commit `0d7b358`；取消工時上限、記錄 AGENTS.md 核准的 commit `82fdaa2`（使用者原話：「把這批（取消工時上限、AGENTS.md 核准紀錄）提交成一個 commit，並單次推送到 origin/lts/build；不推 tag、main 不動。」）；以及計畫 §8 殘留上限文字訂正、DOC-FIX 改名、審查輪數補記與 10/28 檢查點報告骨架的 commit（使用者原話：「把這批提交成一個 commit，並單次推送到 origin/lts/build；不推 tag、main 不動。G2 那一輪保留。」，`0a2145d`）；以及 10/28 報告 §3、consult 改回跟隨 config 的補記與工時的 commit（使用者原話：「把這批（10/28 報告 §3、consult 改回跟隨 config 的補記、工時）提交成一個 commit，並單次推送到 origin/lts/build；不推 tag、main 不動。」）。
+- 同日另授權四次對 `lts/build` 的單次 push（都不推 tag、不動 `main`；之後的 push 一律記在 [§8.10](#push-ledger)）：10/17 上游漂移稽核 commit `0d7b358`；取消工時上限、記錄 AGENTS.md 核准的 commit `82fdaa2`（使用者原話：「把這批（取消工時上限、AGENTS.md 核准紀錄）提交成一個 commit，並單次推送到 origin/lts/build；不推 tag、main 不動。」）；以及計畫 §8 殘留上限文字訂正、DOC-FIX 改名、審查輪數補記與 10/28 檢查點報告骨架的 commit（使用者原話：「把這批提交成一個 commit，並單次推送到 origin/lts/build；不推 tag、main 不動。G2 那一輪保留。」，`0a2145d`）；以及 10/28 報告 §3、consult 改回跟隨 config 的補記與工時的 commit（使用者原話：「把這批（10/28 報告 §3、consult 改回跟隨 config 的補記、工時）提交成一個 commit，並單次推送到 origin/lts/build；不推 tag、main 不動。」，`8a0b953`）。
 - AGENTS.md 建置期段：使用者對修改後的全文選擇「核准」（2026-10-17，逐字核准；計畫 §9 第 1 點的 AGENTS.md 部分了結）。⚠️ 段改成核准紀錄。計畫 §4、§5.2 的原文仍待核准；依計畫 §9 第 1 點與 §8.7，在那之前工作仍只留在本機的 `lts/build`，push 照舊逐次授權。
+
+<a id="push-ledger"></a>
+### 8.10 單次 push 授權紀錄（2026-10-17 起集中記在這裡）
+
+AGENTS.md「LTS 建置期」段與計畫 §4、§5.2 都核准之前，對 `lts/build` 的每一次 push 都要使用者逐次授權；每次推到指定的 commit 為止（連帶第一次上遠端的祖先 commit 在該列註明），不推 tag、不動 `main`。新增列時用 `git log origin/lts/build..<SHA>` 列出這次實際上遠端的所有 commit。一個 commit 無法在自己的內容裡寫出自己的 SHA 與 CI 結果，所以新增列時，順手把上一列的 SHA 與 CI 補齊。AGENTS.md 與計畫不再逐筆列舉，只指向本表；之後每次 push 都在本表加一列。
+
+| 日期（UTC+8） | commit | 內容 | 授權方式 | windows.yml 首次執行 |
+|---|---|---|---|---|
+| 2026-10-15 | `06b0bab` | LTS 批次 1（S0、C1、C3、F2）。這次 push 第一次建立 `origin/lts/build`，連帶把父 commit `16aca2d`（10/14 補記，純文件）也推上遠端；§8.7 的授權寫的是批次 1 的 commit，這裡照實記錄 | 見 §8.7 第 4 題 | success（[38616121393](https://github.com/rockon8765/Codex-for-CC/actions/runs/38616121393)） |
+| 2026-10-17 | `0d7b358` | 10/17 上游漂移稽核、事實訂正、backlog 登錄 | 使用者在提問中選擇選項「提交＋單次推送 (Recommended)」 | success（[38953090180](https://github.com/rockon8765/Codex-for-CC/actions/runs/38953090180)） |
+| 2026-10-17 | `82fdaa2` | 取消工時上限與截止日、AGENTS.md 核准紀錄 | 使用者送出的訊息：「把這批（取消工時上限、AGENTS.md 核准紀錄）提交成一個 commit，並單次推送到 origin/lts/build；不推 tag、main 不動。」 | success（[38956089580](https://github.com/rockon8765/Codex-for-CC/actions/runs/38956089580)） |
+| 2026-10-17 | `0a2145d` | 計畫 §8 殘留上限文字訂正、DOC-FIX 改名、審查輪數補記、10/28 報告骨架 | 使用者送出的訊息：「把這批提交成一個 commit，並單次推送到 origin/lts/build；不推 tag、main 不動。G2 那一輪保留。」 | success（[38957753829](https://github.com/rockon8765/Codex-for-CC/actions/runs/38957753829)） |
+| 2026-10-17 | `8a0b953` | 10/28 報告 §3、consult 改回跟隨 config 的補記、工時 | 使用者送出的訊息：「把這批（10/28 報告 §3、consult 改回跟隨 config 的補記、工時）提交成一個 commit，並單次推送到 origin/lts/build；不推 tag、main 不動。」 | success（[39036096539](https://github.com/rockon8765/Codex-for-CC/actions/runs/39036096539)） |
+| 2026-10-17 | 本列所在的 commit（SHA 下次更新時補） | push 紀錄集中到本節；AGENTS.md、計畫改成指向本節 | 使用者送出的訊息：「把這批（push 紀錄集中到備忘 §8.10）提交成一個 commit，並單次推送到 origin/lts/build；不推 tag、main 不動。」 | 推送時尚未執行（下次更新時補） |
+
+註：後三列的訊息文字是 Claude 在下一步按鈕裡預先擬好、由使用者點選送出的，§8.9 稱為「使用者原話」，精確說法是「使用者送出的訊息」。

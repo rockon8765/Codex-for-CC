@@ -16,15 +16,19 @@
 <a id="ci"></a>
 ## 1. Windows CI（產物 ①）
 
+截至 2026-10-17 21:25。之後的 push 與其 CI 首跑結果逐筆記在[備忘 §8.10](DECISION-MEMO-lts-2026-09-30.md#push-ledger)；10/28 定稿時用 `gh run list` 一次重整本表。
+
 | SHA | 內容 | CI run | 嘗試次數 | 結論 |
 |---|---|---|---|---|
 | `06b0bab` | 批次 1（S0、C1、C3、F2） | [38616121393](https://github.com/rockon8765/Codex-for-CC/actions/runs/38616121393) | 1 | success |
 | `0d7b358` | 10/17 上游漂移稽核、事實訂正、backlog 登錄 | [38953090180](https://github.com/rockon8765/Codex-for-CC/actions/runs/38953090180) | 1 | success |
 | `82fdaa2` | 取消工時上限、AGENTS.md 核准紀錄 | [38956089580](https://github.com/rockon8765/Codex-for-CC/actions/runs/38956089580) | 1 | success |
+| `0a2145d` | 計畫 §8 訂正、DOC-FIX 改名、輪數帳、本報告骨架 | [38957753829](https://github.com/rockon8765/Codex-for-CC/actions/runs/38957753829) | 1 | success |
+| `8a0b953` | 本報告 §3、consult 改回跟隨 config 的補記 | [39036096539](https://github.com/rockon8765/Codex-for-CC/actions/runs/39036096539) | 1 | success |
 
-- 三個 run 的 5 個 job 全部 success：`suite -Mode repo + lint + 8.3 mutation`、`ai-install harness (pwsh)`、`ai-install harness (powershell)`、`node tests (node 22)`、`node tests (node 24)`。
+- 截至 2026-10-17 21:25 的五個 run，5 個 job 全部 success：`suite -Mode repo + lint + 8.3 mutation`、`ai-install harness (pwsh)`、`ai-install harness (powershell)`、`node tests (node 22)`、`node tests (node 24)`。
 - host 涵蓋：`suite` 以 pwsh 當 runner 跑全套，其中 codex-check、consult-schema 有 pwsh／5.1 兩條腿，off-cleanup 有兩個 child host；5.1 當 runner 只跑 `-Filter` smoke（全套以 5.1 當 runner 只有本機證據，見 `windows.yml` 檔頭）。`ai-install harness` 以 matrix 在 pwsh 與 Windows PowerShell 5.1 各跑一輪，兩邊都是 `PASS=126 FAIL=0`。
-- 附帶觀察：三個不同 SHA 都是首次執行就綠，沒有重跑，已符合 11/25 目標裡「3 個不同 SHA 連續綠」這一項；只改文件的 SHA 也算數（C1 不設 paths 過濾）。但 A1 是在 RC SHA 上判定，而且已知的 `CONSULT-TOKEN-REPLACE-FLAKE` 仍未處理——**三綠不代表它已消失**。
+- 附帶觀察：五個不同 SHA 都是首次執行就綠，沒有重跑，已符合 11/25 目標裡「3 個不同 SHA 連續綠」這一項；只改文件的 SHA 也算數（C1 不設 paths 過濾）。但 A1 是在 RC SHA 上判定，而且已知的 `CONSULT-TOKEN-REPLACE-FLAKE` 仍未處理——**三綠不代表它已消失**。
 
 <a id="first-blocker"></a>
 ## 2. 第一個阻擋問題（產物 ②）
