@@ -1,5 +1,7 @@
 # LTS 准入計畫（Windows 先、macOS 隨後）
 
+> ⛔ **2026-10-19 起停止適用**：使用者決定停止 LTS，本 repo 改為個人工具（[備忘 §8.16](DECISION-MEMO-lts-2026-09-30.md#user-decisions-2026-10-19)）。本檔只供歷史查閱，內容不構成目前的規則、待辦或授權。
+
 > 建立：2026-10-14｜依據：使用者 2026-10-14 裁決（[備忘 §8](DECISION-MEMO-lts-2026-09-30.md#lts-decision-2026-10-14)）｜建置期規則：[`AGENTS.md`](../AGENTS.md)「LTS 建置期」段｜工時：[`LTS-timelog.md`](LTS-timelog.md)
 > **狀態：草案。** [§4](#admission) 的准入條件與驗收清單、[§5.2](#downgrades) 的劃出文字，由使用者核准原文後凍結（核准日記入備忘 §8），之後只有使用者能改。PASS 只由使用者簽核。使用者已指示即刻開工（備忘 §8.1）；AGENTS.md 建置期段的原文已於 2026-10-17 由使用者核准（[備忘 §8.9](DECISION-MEMO-lts-2026-09-30.md#user-decisions-2026-10-17)）；本檔 §4、§5.2 的原文核准之前，工作仍只留在本機的 `lts/build`，不 push、不動 `main`（已授權的例外都是對 `lts/build` 的單次 push，逐筆記在[備忘 §8.10](DECISION-MEMO-lts-2026-09-30.md#push-ledger)；之後每次 push 仍要逐次同意）。
 > 本檔是公開文件：只放雜湊、條數、類別，不放個人路徑、帳號或專案名。「（推論）」標沒有直接證據的判斷。

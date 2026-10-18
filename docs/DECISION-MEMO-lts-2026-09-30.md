@@ -314,7 +314,8 @@ AGENTS.md「LTS 建置期」段與計畫 §4、§5.2 都核准之前，對 `lts/
 | 2026-10-17 | `040b344` | push 紀錄集中到本節；AGENTS.md、計畫改成指向本節 | 使用者送出的訊息：「把這批（push 紀錄集中到備忘 §8.10）提交成一個 commit，並單次推送到 origin/lts/build；不推 tag、main 不動。」 | success（[39037102465](https://github.com/rockon8765/Codex-for-CC/actions/runs/39037102465)；2026-10-18 補記） |
 | 2026-10-18 | `e250db0` | 五項新 MUST 修補（F4、`CONSULT-TOKEN-REPLACE-FLAKE`、`CC-NOBASH-FAILCLOSED`、`CODEX-CHECK-CP437`、`CODEX-CHECK-WARNING`）、新登 `CODEX-CHECK-SH-STDERR`、輪數帳與工時 | 使用者送出的訊息：「把這批（五項 MUST 修補與文件更新）提交成一個 commit，並單次推送到 origin/lts/build；不推 tag、main 不動。」 | success（[39055964004](https://github.com/rockon8765/Codex-for-CC/actions/runs/39055964004)；linux.yml 亦 success） |
 | 2026-10-18 | `eff172b` | F4 依 Mac 真機驗證結案；`CODEX-CHECK-SH-STDERR` 列 MUST 並修（macOS `codex-check.sh`）；輪數帳與工時 | 使用者送出的訊息：「把這批（F4 結案、CODEX-CHECK-SH-STDERR 修正與文件）提交成一個 commit，並單次推送到 origin/lts/build；不推 tag、main 不動。推完給我 Mac 驗收提示。」 | success（[39087113093](https://github.com/rockon8765/Codex-for-CC/actions/runs/39087113093)；linux.yml 亦 success） |
-| 2026-10-18 | 本列所在的 commit（SHA 下次更新時補） | F4 §5.2 原文核准與 README 同步、A4 訂正提案、`CODEX-CHECK-SH-STDERR` 依 Mac 原生驗收結案、授權來源盤點、Apache-2.0 落地（G7） | 使用者送出的訊息：「把這批（F4 核准文字、A4 提案、CODEX-CHECK-SH-STDERR 結案、授權盤點與 Apache-2.0 落地）提交成一個 commit，並單次推送到 origin/lts/build；不推 tag、main 不動。」 | 推送時尚未執行（下次更新時補） |
+| 2026-10-18 | `f74edb2` | F4 §5.2 原文核准與 README 同步、A4 訂正提案、`CODEX-CHECK-SH-STDERR` 依 Mac 原生驗收結案、授權來源盤點、Apache-2.0 落地（G7） | 使用者送出的訊息：「把這批（F4 核准文字、A4 提案、CODEX-CHECK-SH-STDERR 結案、授權盤點與 Apache-2.0 落地）提交成一個 commit，並單次推送到 origin/lts/build；不推 tag、main 不動。」 | success（[39131041108](https://github.com/rockon8765/Codex-for-CC/actions/runs/39131041108)；linux.yml 亦 success） |
+| 2026-10-19 | 本列所在的 commit（最後一筆；LTS 停止後不再記帳） | 停止 LTS、改為個人工具模式（備忘 §8.16） | 使用者送出的訊息：「把第一批（停止 LTS、改成個人工具模式）提交成一個 commit，並推送到 origin/lts/build；不推 tag、main 不動。」 | 不再補記 |
 
 註：後三列的訊息文字是 Claude 在下一步按鈕裡預先擬好、由使用者點選送出的，§8.9 稱為「使用者原話」，精確說法是「使用者送出的訊息」。2026-10-18 的三列同樣是 Claude 擬好、由使用者點選送出的訊息。
 
@@ -398,3 +399,20 @@ Claude 呈現 MIT／Apache-2.0 兩套草案（本機草稿，不進 repo；落�
 - 這次核准一併涵蓋 AGENTS.md 第 5 項邊界上的四類內容（草案說明裡列為需要明確核准）：AI-INSTALL 步驟 5 後的告示、加在規則行本身的就地出處註、`orchestration.md` 舊出處註的事實訂正（windows／macos；`linux/` 凍結，舊註保留原狀）、放在 `references/` 底下的新告示檔。
 - 已知缺口（接受到合併進 `main` 為止）：windows／macos 的 `orchestration.md` 與 `SKILL.md` 共 18 個 `https://github.com/rockon8765/Codex-for-CC/blob/main/{LICENSE,NOTICE,THIRD_PARTY_NOTICES.md}` 連結，在 `lts/build` 合併進 `main` 之前會 404；檔頭告示、snippet 與 schema 告示檔寫的是 repo 根網址，不會 404，但合併前 `main` 根目錄沒有這三個檔（「安裝副本不附授權檔」的預設接受這段空窗）。合併後實際點開核對一次。
 - 落地時兩處小修正（準確度，不改任何裁決）：README 授權段最後一條由「文件與測試裡引用的」改為「程式、文件與測試裡引用的」（第三方聲明也列了 `lib/gate-registration.js` 執行期訊息裡的引文）；`THIRD_PARTY_NOTICES.md` 開頭的節次清單補上第 4 節（致謝）。另外落地時刪掉了草案裡一句只在草案階段有意義的話（「這個分類描述的是落地後的狀態，落地之前這些檔案都還沒有告示」）。
+
+<a id="user-decisions-2026-10-19"></a>
+### 8.16 2026-10-19 使用者裁決：停止 LTS，改為個人工具
+
+Claude 以白話說明「為什麼這麼複雜」，並評估了繼續 LTS、簡化成個人版、改用官方 plugin、社群專案（含 herdr）等路線（Codex 兩輪反方）後，使用者原話（打字）：
+
+> 1. 同意，其實我分不清楚LTS是幹嘛的
+> 2. Gate hook的功能是甚麼?
+> 3. 我的確沒這習慣，請停用
+> 4. 這Repo只有我在用，需要這樣管嗎
+
+落實（Claude 的理解，照實記錄）：
+
+- 第 1 點：停止 LTS 准入。`AGENTS.md` 的「LTS 建置期」段換成「個人工具模式」；准入計畫、本備忘、backlog、工時記錄、檢查點報告加上「停止適用、只供歷史查閱」標記。
+- 第 3 點：已用 `claude plugin disable codex@openai-codex --scope user` 停用官方 Codex plugin；`~/.claude/settings.json` 只改了 `enabledPlugins` 那一行，改前已備份。要恢復用 `claude plugin enable codex@openai-codex`。
+- 第 2 點：只解釋 gate hook 的功能；要不要停用它的註冊，另外由使用者決定（停用官方 plugin 不等於同意停用 gate）。使用者隨後選擇「gate hook 先保留，不用停用」，註冊維持原狀。
+- 第 4 點：分兩批。第一批（本筆）只解除 LTS 的規矩、整理文件入口；第二批再決定 `main` 要整合到哪個版本（`lts/build` 可以 fast-forward）、repo 要維持公開還是改成私人。Codex 偏向私人（信心中等），改之前要先確認 Mac 能用登入方式 clone。`linux/` 與 CI 這次都不動。

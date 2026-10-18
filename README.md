@@ -1,6 +1,5 @@
-> **🚧 LTS 建置中——目前不提供支援。** 准入順序：**Windows 先、macOS 隨後**；每個平台要通過准入條件並經維護者簽核，才會宣布該平台受支援，在那之前本 repo 沒有任何經過准入的版本。**Linux 已凍結**（不修、不驗收）。
-> 要固定版本，請用凍結快照 tag `pre-lts`（＝`80c60a8`，產品凍結期（2026-08-29 起）最後的狀態，照現狀提供、不修復；Linux 的最終版本也是這個 tag。**tag 建立前請用 commit `80c60a8`**）。建置在分支 `lts/build` 進行，准入前請勿從該分支安裝。
-> 裁決與准入條件見 [`docs/DECISION-MEMO-lts-2026-09-30.md` §8](docs/DECISION-MEMO-lts-2026-09-30.md#lts-decision-2026-10-14) 與 [`docs/LTS-ADMISSION-PLAN.md`](docs/LTS-ADMISSION-PLAN.md)。下文所有「live 驗收通過」「全綠」之類的紀錄都是**歷史紀錄，不構成支援宣稱**。
+> **個人工具（2026-10-19 起）**：這是作者自用的 Claude Code skill，**不提供支援、不做准入**，歡迎參考，使用風險自負。
+> 2026-10-14 至 2026-10-19 曾以「LTS」為目標建置（分支 `lts/build`），之後停止；`docs/` 裡的准入計畫、決策備忘、backlog 等只供歷史查閱。下文所有「live 驗收通過」「全綠」之類的紀錄都是歷史紀錄，不構成支援宣稱。
 
 # Codex-for-CC — 超級模式 (Super Mode)
 
@@ -24,9 +23,9 @@
 
 ---
 
-## 三個平台版本（LTS 範圍只有 Windows 與 macOS；Linux 已凍結）
+## 三個平台版本（目前維護 Windows 與 macOS；Linux 已凍結）
 
-> **2026-10-14 起**：LTS 只做 `windows/` 與 `macos/`（Windows 先准入、macOS 隨後，目前都還沒有經過准入）；`linux/` 已凍結，不修、不驗收、不為 parity 同步，見 [`docs/LTS-ADMISSION-PLAN.md`](docs/LTS-ADMISSION-PLAN.md#linux-freeze)。本節以下的驗證紀錄都是**歷史紀錄，不構成支援宣稱**。
+> **2026-10-14 起**：只維護 `windows/` 與 `macos/`（2026-10-19 起是個人工具，不做准入）；`linux/` 已凍結，不修、不驗收、不為 parity 同步，見 [`docs/LTS-ADMISSION-PLAN.md`](docs/LTS-ADMISSION-PLAN.md#linux-freeze)。本節以下的驗證紀錄都是**歷史紀錄，不構成支援宣稱**。
 
 這個 repo 有**三個平台版本的同一個 skill**，**設計上等價** — 同一套發現、同一組不變量（I1–I8，外加 `.sh` 平台（macOS/Linux）的 I9）、同一組驗收條件 — 但*實作機制*依平台翻譯（PowerShell vs bash、BOM 處理、stdin 佈線、路徑規則、BSD vs GNU userland）。**注意「設計等價」不等於「已驗證等價」**：三平台的原生驗證各有其涵蓋範圍與時間點，Windows 版覆蓋最廣、也是維護基準（歷史紀錄，不構成支援宣稱）。詳見下方「⚠️ 安裝前一定要知道的限制」。挑你機器對應的那個（Linux 見上方凍結說明）：
 
@@ -37,7 +36,7 @@
 | Codex CLI 位置 | `C:\npm\codex.cmd`（寫死） | `PATH` 上的 `codex`（Homebrew npm global） | `PATH` 上的 `codex`（npm global） |
 | Gate 拒絕機制 | stderr + exit 2（2026-10-17 事實訂正：原寫 `permissionDecision` / exit 2；Windows gate 實際不輸出 `permissionDecision`） | stderr + exit 2 | stderr + exit 2 |
 | 接 hook 的設定檔 | `settings.json` | `settings.json` | `settings.json` |
-| 驗證覆蓋 | 人工原生驗證（**無 CI**；LTS 建置中）；維護基準。live 驗收 2026-08-28 通過（`SUITE_RESULT=OK`）——歷史紀錄，不構成支援宣稱 | 人工原生驗證（**無 CI**；LTS 建置中）。live 驗收 2026-08-29 五項全綠——歷史紀錄，不構成支援宣稱 | 🧊 **已凍結（2026-10-14）**。`linux.yml`（`ubuntu-latest`）跑凍結的 `linux/` 樹與頂層共用測試（`tests/*.test.js` 等）；綠燈不構成任何平台的支援宣稱，LTS 凍結第二階段移除。⚠️ **從未做過 live 部署驗收**，見下 |
+| 驗證覆蓋 | 人工原生驗證，加上 `windows.yml` CI（2026-10-15 起）；維護基準。live 驗收 2026-08-28 通過（`SUITE_RESULT=OK`）——歷史紀錄，不構成支援宣稱 | 人工原生驗證（**無 CI**）。live 驗收 2026-08-29 五項全綠——歷史紀錄，不構成支援宣稱 | 🧊 **已凍結（2026-10-14）**。`linux.yml`（`ubuntu-latest`）跑凍結的 `linux/` 樹與頂層共用測試（`tests/*.test.js` 等）；綠燈不構成任何平台的支援宣稱，LTS 凍結第二階段移除。⚠️ **從未做過 live 部署驗收**，見下 |
 | 修復／平台紀錄 | [`docs/history/FIX-PLAN-windows-2026-07-02.md`](docs/history/FIX-PLAN-windows-2026-07-02.md) | [`docs/history/FIX-PLAN-macos-2026-07-03.md`](docs/history/FIX-PLAN-macos-2026-07-03.md) | [`docs/linux-platform-notes.md`](docs/linux-platform-notes.md)（現行參考，非史料） |
 
 > **驗證覆蓋不等於設計等價（as-of 2026-08-18）。** 三平台**設計上等價**，但驗證方式與時間點都不同。
@@ -74,7 +73,7 @@
    **Linux（已凍結）與 `80c60a8` 凍結快照的 macOS**：沒有上述偵測；掛載點位於 skill 目錄內且執行到回滾時，仍有跨入掛載刪除資料的風險。
 
 3. **沒有任何自動測試證明 Claude Code runtime 真的載入了你的 settings 並叫起 hook。** `matcher-contract` 是靜態比對、`run-gate-tests` 是直接呼叫 `decide()`；`run-e2e.sh` 會以 stdin 啟動完整的 hook process，但那也只驗到 hook 自己的行程層行為。**端到端只能在新 session 實際觸發一次違規動作來確認。**
-4. **Windows／macOS 沒有 CI。** 這兩個平台的回歸測試改壞了，遠端不會有任何 gate 攔下——仍靠人工在本機跑（兩個平台的 CI 正在 `lts/build` 建置，准入前不構成任何宣稱）。`linux.yml` 每次 push／PR 仍會跑凍結的 `linux/` 樹與頂層共用測試（`tests/*.test.js` 等）；綠燈不構成任何平台的支援宣稱。LTS 凍結第二階段會移除它，屆時共用測試改由 Windows／macOS CI 跑。
+4. **macOS 沒有 CI；Windows 的 CI 只跑 repo 層測試。** Windows 有 `windows.yml`（2026-10-15 起，每次 push 跑 suite、安裝測試臺與 node 測試）；macOS 的回歸測試改壞了，遠端不會有任何 gate 攔下，仍靠人工在本機跑。兩者都不驗證你電腦上實際安裝的那一份。`linux.yml` 每次 push／PR 仍會跑凍結的 `linux/` 樹與頂層共用測試（`tests/*.test.js` 等）；綠燈不構成任何平台的支援宣稱。LTS 凍結第二階段會移除它，屆時共用測試改由 Windows／macOS CI 跑。
 5. **安裝／回滾的驗證有明確邊界**（三件互相獨立的事）：
    - 「列舉失敗必須在任何 mutation 之前中止」這條回滾契約，**Windows 與 POSIX 兩側都有動態測試**；但只有 Windows 側有較寬的 oracle ＋ mutation control，POSIX 側的 oracle 只快照 `skills`、也沒有案數硬斷言（backlog 的 `POSIX-M13-GAP`，優先級待裁）。**Windows 側也不等於「完整 M13」。**
    - **1b 備份完整性只測了正常路徑。** 「正常備份 → 還原」有動態案（`run-posix.sh` 的 `[C1]`／`[C2]`）；**沒測的是列舉 fail-open 那一條**——若列舉只回非終止錯誤，可能只留下部分備份，卻仍印出代表「三個備份都完成」的 `backup ts=`。那是另一條契約，尚未處理。
