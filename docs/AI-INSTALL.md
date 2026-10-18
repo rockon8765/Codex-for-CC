@@ -209,16 +209,20 @@ node ".\windows\skills\超級模式\tests\matcher-contract.test.js" --repo # hoo
 > |---|---|---|
 > | symlink | ✅ 有效與斷掉的 junction 已實測；**斷掉的 symlink 未驗證**（見下方註解） | ✅ 有效與斷掉皆已實測 |
 > | junction／NTFS mount point | ✅（都帶 `ReparsePoint` 屬性）| 不適用 |
-> | **bind mount／掛載點** | ✅（同上；1b、1c 的第一個 mutation 前、回滾的刪除前各掃一次）。NTFS 掛載資料夾本身**未 live 實測**（建立要系統管理員權限），由 junction 案覆蓋同一個屬性（推論） | ⚠️ macOS：以裝置號（st_dev）偵測，1b、1c 的第一個 mutation 前、回滾的 `rm -rf` 前各一次（1b 之後才掛上的也算）。**只以模擬（測試臺的假 `stat`）驗證控制流，macOS 真機待驗**。同裝置號的掛載（Linux bind mount）偵測不到 |
+> | **bind mount／掛載點** | ✅（同上；1b、1c 的第一個 mutation 前、回滾的刪除前各掃一次）。NTFS 掛載資料夾本身**未 live 實測**（建立要系統管理員權限），由 junction 案覆蓋同一個屬性（推論） | ⚠️ macOS：以裝置號（st_dev）偵測，1b、1c 的第一個 mutation 前、回滾的 `rm -rf` 前各一次（1b 之後才掛上的也算）。測試臺以假 `stat` 驗控制流；**2026-10-18 已在 macOS 真機驗證**（hdiutil 拋棄式 APFS image：根掛載、子樹掛載、1b／1c 之後才掛上，都在動 live 前中止、掛載內資料保留）。同裝置號的掛載（Linux bind mount）偵測不到 |
 >
-> ⚠️ **macOS 的掛載點守衛（2026-10-17 加入，F4 `MOUNT-RMRF`）只以模擬驗證**：skill 樹底下（或 skill 根目錄本身）
-> 有掛載點時，1b、1c、回滾都應該在動 live 之前中止，訊息含「掛載點」與「（live 未變更）」——遇到就先卸載再重跑。
-> 這是以測試臺 `run-posix.sh` 的假 `stat` 模擬裝置號，驗的是**控制流**；「macOS 掛載點的 st_dev 真的與上一層不同」
-> 這個前提，以及 macOS 真機（hdiutil 拋棄式 APFS image：根掛載、子樹掛載、1b 後才掛載、payload 保留）**都還待驗**。
+> ⚠️ **macOS 的掛載點守衛（2026-10-17 加入，F4 `MOUNT-RMRF`）**：skill 樹底下（或 skill 根目錄本身）
+> 有掛載點時，1b、1c、回滾都會在動 live 之前中止，訊息含「掛載點」與「（live 未變更）」——遇到就先卸載再重跑。
+> 驗證：測試臺 `run-posix.sh` 以假 `stat` 驗控制流；2026-10-18 另在 macOS 真機（macOS 27.0.1、arm64、`/bin/bash` 3.2、
+> 只有內建的 BSD `stat`）以 hdiutil 拋棄式 APFS image 驗證：掛載點的 st_dev 確實與上一層不同；1b 時已掛載、
+> 1b 之後才掛上（1c 中止）、1c 之後才掛上（回滾中止）、skill 根目錄本身是掛載點，四種情況都在動 live 之前中止，
+> 快照不變、掛載內資料保留；拿修正前的文件反向跑，回滾確實刪掉了掛載內的資料。
+> GNU `stat` 排在 PATH 前面的組合只在 Windows 的 Git Bash（GNU coreutils）以測試臺驗過，沒有在 Mac 上驗。
 > 修正前的後果很嚴重：1b 會照常備份（`cp -R` 把掛載內容實體化、`diff -r` 仍相等）並印出 `ts`，
 > 回滾的 `rm -rf ~/.claude/skills/超級模式` 會**跨進掛載樹刪除裡面的真實資料**。
-> 殘留：掃描與 mutation 之間的 TOCTOU 窗口；同裝置號的掛載偵測不到。
-> 在真機驗證之前，若你的 `~/.claude/skills/超級模式` 底下有任何掛載點，**仍請先卸載或改用手動安裝**，不要跑本流程。
+> 殘留：掃描與 mutation 之間的 TOCTOU 窗口；同裝置號的掛載偵測不到；APFS 磁碟映像以外的掛載（SMB／NFS、macFUSE）
+> 沒有實測（推論各有自己的裝置號）。1b 在掃 skill 之前就備份了 hook，所以 1b 因掛載點中止時會留下 hook 的備份檔與空的
+> `skills-backup/`（live 不變；與 1b 因 symlink 中止時相同）。
 > 記在 [`backlog.md`](backlog.md)。
 
 macOS（Windows 的 settings 檔名不同，見下一段）:
@@ -261,8 +265,8 @@ else : > "$hbak.absent"; fi
 # 判準是 st_dev（裝置號）：根目錄要與上一層同裝置（否則它本身就是掛載點），樹內每個目錄要與根目錄同裝置。
 # macOS 上一般使用者建得出的掛載（APFS volume、磁碟映像、SMB／NFS、macFUSE）各有自己的裝置號（推論）；
 # 同裝置號的掛載（Linux bind mount）偵測不到。
-# ⚠️ 驗證範圍：只以模擬（測試臺的假 stat）驗證控制流；macOS 真機（hdiutil 拋棄式 APFS image：
-#    根掛載、子樹掛載、1b 後才掛載、payload 保留）**待驗**。
+# 驗證範圍：測試臺以假 stat 驗控制流；2026-10-18 已在 macOS 真機（hdiutil 拋棄式 APFS image：根掛載、子樹掛載、
+#    1b／1c 之後才掛上、payload 保留；/bin/bash 3.2＋BSD stat）驗證。GNU stat 在前的組合只在 Git Bash 以測試臺驗過。
 # ⚠️ 不能寫死任一種語法：PATH 前面若是 GNU coreutils（例如 Homebrew 的 gnubin），寫死的 `stat -f %d` 在 GNU 上
 #    會失敗（`-f` 是「檔案系統狀態」、`%d` 被當成檔名），每次都被擋下；寫死 `-c` 則 macOS 內建的 stat 不認得。
 #    所以先偵測語法：`-c` 只有 GNU 認得，BSD（macOS 內建）會拒絕。

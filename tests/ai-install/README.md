@@ -270,8 +270,8 @@ macOS 區塊的 `scan_no_mount` 以裝置號（st_dev）判斷掛載點，1b、1
 **假 stat**：CI 與 Windows 上建不出 macOS 掛載點，所以 `run-posix.sh` 用 PATH 前置的假 `stat`（`SHIM_ON=1` 的案才經過它，
 其餘案的執行環境不變）：路徑本身或任一上層有 `.fake-mount-dev` 就回報那個裝置號（掛載點連同底下都是新裝置號）、
 目錄有 `.fake-stat-fail` 就讓該路徑 stat 失敗，其餘原樣交給真的 stat——所以受測區塊的 GNU／BSD 語法偵測看到的是真的。
-**這只證明控制流**；「macOS 掛載點的 st_dev 真的與上一層不同」與 macOS 真機行為（hdiutil 拋棄式 APFS image：
-根掛載、子樹掛載、1b 後才掛載、payload 保留）**待驗**，不得宣稱 macOS 已驗證。
+**這只證明控制流**；「macOS 掛載點的 st_dev 真的與上一層不同」與 macOS 真機行為，2026-10-18 另以 hdiutil 拋棄式
+APFS image 在真機驗過（結果見下方「Mac 真機驗證」）。
 
 | 區塊 | 情境 | 條數 |
 |---|---|---|
@@ -290,9 +290,10 @@ macOS 區塊的 `scan_no_mount` 以裝置號（st_dev）判斷掛載點，1b、1
 **本機（Windows 11 的 Git Bash：bash 5.3 cygwin 版、GNU coreutils 8.32）2026-10-17 實測**：
 - 現行文件：`bash  PASS=126  FAIL=36`。36＝原本的 30 條天花板（建不出 symlink、`chmod 000` 無效）＋ `[M19]` 6 條
   （同樣因為建不出 symlink：前置、1c 中止、`~/.claude` 未變各兩條）。既有 95 條的 PASS／FAIL 逐條與改動前相同（只差時間戳與 `[M8]` 的跨秒分支）。
-  Mac／Linux 上預期 `162／0`（推論，待跑；Linux CI 的 `run-posix-args.test.sh` 會跑到）。
+  Mac／Linux 上預期 `162／0`（Linux CI 的 `run-posix-args.test.sh` 會跑到）；2026-10-18 Mac 真機實測 `162／0`。
 - 修正前文件（`040b344`）：`99／63`，比現行多紅的**恰好** 27 條：`[M14]` 4、`[M15]` 8、`[M16]` 6、`[M17]` 1、`[M18]` 8。
-  （Mac／Linux 上 `[M19]` 也會紅，條數待真機記錄。）
+  （2026-10-18 Mac 真機：`134／28`，比 Git Bash 的 27 條多出 `[M19][sub]`「中止後整個 `~/.claude` 未變」1 條；
+  `[M19]` 其餘 5 條在修正前文件也是 PASS。）
 - 三份守衛都換回設計原型的判準（`%d %n` 同一行再用 awk 切欄位）：多紅**恰好** 3 條＝`[M20]` 的 1b、1c、回滾
   ——名稱含換行的目錄被拆成兩行，後半行被當成「裝置號不同」而誤擋。這是 Codex 反方 C.2 的牙齒。
 - 只刪 1c 的那一行 `scan_no_mount` 呼叫：多紅**恰好** 8 條＝`[M18]`（Codex 反方 C.1 的牙齒）。
@@ -303,6 +304,16 @@ Mac 真機驗證步驟（使用者在自己的 Mac 上請 Claude 照做；全部
 skill 樹內（子樹）與 skill 根目錄本身（root），先記錄 `stat -f '%d %N'` 確認掛載點裝置號與上一層不同（整個修正的前提），
 再依序驗 1b 中止、1b 後才掛上時 1c 中止、1c 後才掛上時回滾中止且 payload 保留；有 gnubin 才另跑 GNU stat 變體（不要安裝）；
 最後用舊文件的回滾在拋棄式映像上確認「payload 被刪」的舊行為。清理前先確認沒有殘留掛載。
+
+**2026-10-18 Mac 真機結果**（受測 `e250db0`；macOS 27.0.1、arm64、`/bin/bash` 3.2.57、只有 `/usr/bin/stat`、沒有 gnubin）：
+- `run-posix.sh` 現行文件 `162／0`；對 `040b344` 反向 `134／28`（逐條見上方）。⚠️ 測試臺用 PATH 上的 `bash` 執行受測區塊，
+  這台是 Homebrew 的 bash 5.3，所以這一步是在 bash 5.3 下跑的；下面的真掛載案才是 `/bin/bash` 3.2。
+- 前提：skill 根目錄與 `references` 同一個裝置號，掛在 `references/mnt` 的映像是另一個裝置號。
+- 1b 時子樹已掛載 → 1b 中止、沒印 ts、沒建 skill 備份；1b 之後才掛上 → 1c 中止；1c 之後才掛上 → 回滾中止；
+  skill 根目錄本身是掛載點 → 1c 與回滾都中止。後三案前後快照完全相同，掛載內的 payload 都還在。
+- GNU stat 變體：沒有 gnubin，略過（不安裝）。
+- 反向：修正前文件的回滾刪光掛載內的 payload，`rm` 對掛載點報 `Resource busy`，回滾停在半刪狀態（rc=1）。
+- 附記：macOS 27 的 `hdiutil create／attach／detach` 會印棄用警告（建議改用 `diskutil image`），目前仍可用。
 
 ## 反向驗證（改動守衛後務必做）
 
@@ -431,6 +442,6 @@ Windows 的 M13 斷言名稱一律帶 `[M13]` 前綴：M11 也用 `[備份子樹
   `set -euo pipefail` 假炸成 `pipefail: invalid option name`。committed blob 依
   [`.gitattributes`](../../.gitattributes) 是 LF，所以這等同真實 Unix checkout。
 - **測不到的東西**：NTFS symlink（需管理員權限或開發者模式）；真的掛載點——POSIX 側只以假 stat 模擬控制流、
-  Windows 側以 junction 覆蓋同一個 `ReparsePoint` 屬性，macOS 真機（hdiutil）與 NTFS 掛載資料夾都還沒實測（見上方
+  Windows 側以 junction 覆蓋同一個 `ReparsePoint` 屬性，NTFS 掛載資料夾還沒實測（macOS 真機已於 2026-10-18 以 hdiutil 驗證，見上方
   「掛載點守衛」一節）；同裝置號的掛載（Linux bind mount）偵測不到。Windows 0a 的「沒有 Git Bash 時 Claude Code 擋下 hook」
   本身也沒有 live 重現。殘留風險記在 [`docs/backlog.md`](../../docs/backlog.md)。

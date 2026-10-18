@@ -85,6 +85,7 @@ case "$1" in
     # CODEX_STUB_EXEC_STDERR=1：transcript 之「後」才印唯一 stderr token——SUT 有內層 2>&1 時 token 會
     # 跟著 transcript 依序 replay；拿掉合流則 token 先漏到外層、順序反轉（測試臺以順序斷言釘死佈線）。
     [ -n "${CODEX_STUB_EXEC_STDERR:-}" ] && echo "SMOKE_STDERR_TOKEN" >&2
-    exit 0 ;;
+    # CODEX_STUB_EXEC_EXIT=<n>：smoke 以 n 非零退出（S 系列：stderr 壞掉時，smoke 失敗的快取刪除／退出碼／哨兵）。
+    exit "${CODEX_STUB_EXEC_EXIT:-0}" ;;
   *) exit 0 ;;
 esac

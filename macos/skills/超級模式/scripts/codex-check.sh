@@ -10,12 +10,20 @@
 # Tool timeout: 360000ms — smoke test 走 Codex 推理，常超過 2 分鐘預設。
 # ⚠️ 目標 macOS 內建 bash 3.2：不可用關聯陣列/${var,,}；間接展開 ${!v} 與 <() 可用。
 set -euo pipefail
+# 診斷輸出（CODEX-CHECK-SH-STDERR，2026-10-18；與 Windows codex-check.ps1 的 Write-Diag 等價）：
+# - best-effort 寫 stderr：stderr 被關閉、寫入失敗，或讀端已關（SIGPIPE）都吞掉，不得擋住失敗狀態。
+#   舊版直接 `echo … >&2`：在 set -e 之下寫入失敗就整支中止（rc 塌成 1、快取沒刪、哨兵消失）；
+#   讀端已關時主 shell 會被 SIGPIPE 直接殺掉，連 set +e 的段落也躲不掉。
+# - 在子 shell 裡寫：SIGPIPE 只殺掉子 shell，主 shell 拿到非零再被 `|| true` 吞掉
+#   （只寫 `echo … >&2 || true` 擋不住 SIGPIPE）。
+# - 呼叫端一律**先**完成失敗狀態（刪快取、定退出碼、印 UPDATE_BASELINE=* 哨兵），診斷排在最後。
+diag() { ( printf '%s\n' "$1" >&2 ) || true; }
 force="0"; update_baseline="0"
 while [ $# -gt 0 ]; do
   case "$1" in
     -f|--force) force="1" ;;
     -u|--update-baseline) update_baseline="1" ;;
-    *) echo "unknown arg: $1" >&2; exit 2 ;;
+    *) diag "unknown arg: $1"; exit 2 ;;
   esac
   shift
 done
@@ -26,6 +34,7 @@ baseline_file="$HOME/.claude/.codex-check-baseline"
 cache_tmp=""
 baseline_tmp=""
 lastmsg_file=""
+smoke_diag=""   # smoke 失敗時的診斷；等失敗狀態都完成後才印（見檔尾）
 trap 'rm -f "$cache_tmp" "$baseline_tmp" "$lastmsg_file"' EXIT
 # --update-baseline 通過盤點檢查後先掛起，等 smoke 通過（或快取命中=近期 smoke OK）才真正落檔。
 baseline_pending="0"
@@ -318,8 +327,9 @@ invoke_baseline_check() {
     if [ -n "$bad_sections" ]; then
       # 使用者明確要求 mutation 卻被拒 → exit 2（誠實命令契約：exit 0 會讓 automation 誤以為已接受）。
       # marker 行是權威訊號：smoke 失敗 passthrough 也可能 exit 2，單看 exit code 有歧義。
-      echo "codex-check: 盤點含查詢失敗/解析失真段（$(join_list "$bad_sections" ', ')）→ 拒絕更新 baseline（查不到/解析不了 ≠ 能力消失，不能寫進 baseline）" >&2
+      # CODEX-CHECK-SH-STDERR：先送權威哨兵，理由（診斷）排在後面、best-effort（見 diag）。
       echo "UPDATE_BASELINE=REFUSED"
+      diag "codex-check: 盤點含查詢失敗/解析失真段（$(join_list "$bad_sections" ', ')）→ 拒絕更新 baseline（查不到/解析不了 ≠ 能力消失，不能寫進 baseline）"
       exit 2
     fi
     if [ "$bl_state" = "ok" ]; then
@@ -340,11 +350,11 @@ invoke_baseline_check() {
   if [ "$bl_state" = "none" ]; then
     # 不自動建立（Codex 諮詢 2026-07-16 裁決）：自動建立會讓「刪檔重跑」成為第二條更新途徑；
     # baseline 的語義必須是「你接受過的能力面」，不是「上次看到的能力面」。
-    echo "codex-check: NO_BASELINE -- 尚無能力面 baseline；檢視上方盤點後執行 codex-check.sh --update-baseline 建立" >&2
+    diag "codex-check: NO_BASELINE -- 尚無能力面 baseline；檢視上方盤點後執行 codex-check.sh --update-baseline 建立"
     return 0
   fi
   if [ "$bl_state" = "corrupt" ]; then
-    echo "codex-check: baseline 檔格式不符 → 視為無 baseline（不自動覆寫）；請檢視後用 --update-baseline 重建: $baseline_file" >&2
+    diag "codex-check: baseline 檔格式不符 → 視為無 baseline（不自動覆寫）；請檢視後用 --update-baseline 重建: $baseline_file"
     return 0
   fi
 
@@ -534,12 +544,14 @@ elif [ "$sentinel_ok" = "1" ]; then
     "$cache_format" "$inst_ver" "$latest_disp" "$verdict" "$(date +%Y-%m-%dT%H:%M:%S%z)" > "$cache_tmp" \
     && mv -f "$cache_tmp" "$cache"
 else
-  if [ "$smoke" -eq 0 ]; then
-    echo "codex-check: smoke exit 0 但無精確 CODEX_OK sentinel（codex 可能壞了）-- 刪快取，下次強制重查" >&2
-  else
-    echo "codex-check: smoke test failed (exit $smoke) -- 刪除快取，下次呼叫強制重查" >&2
-  fi
+  # CODEX-CHECK-SH-STDERR：先完成失敗狀態（刪快取、定退出碼；NOT_APPLIED 哨兵在下面），診斷排到最後、best-effort。
+  # 舊版把 `echo … >&2` 排在刪快取之前：stderr 壞掉時快取沒刪（下次非 -f 命中舊綠快取）、rc 塌成 1、哨兵消失。
   rm -f "$cache"
+  if [ "$smoke" -eq 0 ]; then
+    smoke_diag="codex-check: smoke exit 0 但無精確 CODEX_OK sentinel（codex 可能壞了）-- 刪快取，下次強制重查"
+  else
+    smoke_diag="codex-check: smoke test failed (exit $smoke) -- 刪除快取，下次呼叫強制重查"
+  fi
   [ "$smoke" -ne 0 ] || smoke=1
 fi
 if [ "$baseline_pending" = "1" ]; then
@@ -551,4 +563,5 @@ if [ "$baseline_pending" = "1" ]; then
     echo "UPDATE_BASELINE=NOT_APPLIED（smoke 失敗，baseline 未動）"
   fi
 fi
+[ -z "$smoke_diag" ] || diag "$smoke_diag"
 exit "$smoke"

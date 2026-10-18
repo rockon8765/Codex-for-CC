@@ -4,7 +4,7 @@
 # stub env: CODEX_STUB_VERSION/NONE, CODEX_STUB_VERSION_PREFIX, CODEX_STUB_MODE=ok|ansi|echo-only, CODEX_STUB_LASTMSG, CODEX_STUB_SUPPORTS_LASTMSG, CODEX_STUB_TRACE, CODEX_STUB_HELP_PAD, NPM_STUB_MODE=ok|fail|sleep|print-then-hang|print-then-fail|multiline|blank2|junk, NPM_STUB_VERSION
 #           能力面 baseline（B 系列）: CODEX_STUB_PLUGINS, CODEX_STUB_MCP, CODEX_STUB_FEATURES, CODEX_STUB_CAP_FAIL=plugin|mcp|features,
 #           CODEX_STUB_HELP_DROP_FLAG, CODEX_STUB_PLUGINS_GARBAGE, CODEX_STUB_HELP_NEARFLAG, CODEX_STUB_LIST_STDERR, CODEX_STUB_HELP_STDERR, CODEX_STUB_LIST_BOILERPLATE,
-#           CODEX_STUB_EXEC_STDERR（smoke stderr 佈線順序斷言用）
+#           CODEX_STUB_EXEC_STDERR（smoke stderr 佈線順序斷言用）、CODEX_STUB_EXEC_EXIT（smoke 以指定碼非零退出，S 系列用）
 set -u
 here="$(cd "$(dirname "$0")" && pwd)"
 script="$here/../scripts/codex-check.sh"
@@ -347,7 +347,124 @@ t_b_flag_incompat_cache_not_trusted() {  # 命中側對稱守衛：本次盤點�
   assert b_flag_nohit "exit 0" "$rc"
 }
 
-all_tests="t_happy_path t_offline_unknown t_fake_pass_rejected t_ansi_stripped t_h1_leading_warning t_h1_warning_has_version t_h1_no_version t_h5_multiline t_h5_blank_second_line t_h5_junk t_h5_prerelease_current t_h3_npm_hang t_h3_partial_stdout_discarded t_h3_print_then_fail t_h4_empty_cache_miss t_h4_oldformat_cache_miss t_h4_truncated_line_miss t_h4_future_mtime_miss t_h4_newformat_cache_hit t_h2_exact_ok t_h2_not_ok_rejected t_h2_refusal_rejected t_h2_no_flag_when_unsupported t_h4_missing_latest_field t_h4_missing_verdict_field t_h2_large_help_keeps_lastmsg t_h1_huge_banner_no_crash t_smoke_stderr_noise_no_crash t_b_no_autocreate_then_update t_b_no_drift t_b_drift_warns_no_rewrite t_b_update_baseline t_b_empty_ambiguous_unknown t_b_query_fail_unknown_update_refused t_b_unparseable_blocks_update t_b_corrupt_baseline t_b_flag_missing_no_cache t_b_near_flag_not_matched t_b_version_empty_no_cache_hit t_b_cache_version_mismatch_miss t_b_probe_stderr_immune t_b_boilerplate_zero_is_empty t_b_mcp_drift_and_fail t_b_mcp_all_unknown_unparseable t_b_marketplace_identity_drift t_b_hooks_unparseable t_b_flag_incompat_cache_not_trusted"
+# --- S 系列：stderr 壞掉時，失敗狀態仍要完整（CODEX-CHECK-SH-STDERR，2026-10-18；對應 Windows codex-check.tests.ps1
+#     的 P 系列 broken-stderr 案）。斷言只看 stdout、退出碼與檔案狀態：哨兵、exit code、快取刪除、baseline 不動。---
+# 兩種壞法：
+#   closed＝stderr 被關閉（`2>&-`）：重導 `>&2` 失敗、回非零；舊版在 set -e 段落會整支中止。
+#   epipe ＝stderr 是讀端已關的 pipe：寫入觸發 SIGPIPE，主 shell 直接被訊號殺掉（set +e 段落也一樣）。
+#           用 perl 建 pipe、關讀端、把寫端接成 stderr；先把 SIGPIPE 重設成預設動作再 exec——呼叫端若忽略
+#           SIGPIPE，子行程會繼承「忽略」，寫入就只回 EPIPE，測不到被訊號殺掉的那條路。
+break_stderr_epipe='$SIG{PIPE} = "DEFAULT"; pipe(my $r, my $w) or die "pipe: $!"; close($r); open(STDERR, ">&", $w) or die "dup: $!"; exec @ARGV or exit 127'
+invoke_broken() {  # invoke_broken <closed|epipe> <force|update|badarg> [ENV=V…]
+  local how="$1" bmode="$2" barg=""
+  shift 2
+  case "$bmode" in
+    force)  barg="-f" ;;
+    update) barg="-f --update-baseline" ;;
+    badarg) barg="--no-such-flag" ;;
+  esac
+  case "$how" in
+    closed) out="$(env HOME="$fake_home" PATH="$stubs:$PATH" CODEX_STUB_LASTMSG=CODEX_OK "$@" bash "$script" $barg 2>&-)"; rc=$? ;;
+    epipe)  out="$(perl -e "$break_stderr_epipe" env HOME="$fake_home" PATH="$stubs:$PATH" CODEX_STUB_LASTMSG=CODEX_OK "$@" bash "$script" $barg)"; rc=$? ;;
+  esac
+}
+has_line() { printf '%s\n' "$out" | grep -qF -- "$1"; }
+line_of() { printf '%s\n' "$out" | grep -nF -- "$1" | head -n 1 | cut -d: -f1; }
+
+t_s_harness_breaks_stderr() {  # 前提：兩種壞法真的會讓未保護的 `echo >&2` 中止；不成立的話 S 系列的綠燈不代表任何事
+  # 三件事都要成立（Codex 10/18：只看 SURVIVED 缺席時，啟動器根本沒跑起 bash 也會假綠）：
+  # 有 STARTED（bash 真的跑起來了）、沒有 SURVIVED（在寫 stderr 那一步停下）、退出碼對（closed＝1、epipe＝128＋SIGPIPE）。
+  local o r sigpipe_rc
+  sigpipe_rc=$((128 + $(kill -l PIPE)))
+  o="$(bash -c 'echo STARTED; set -e; echo x >&2; echo SURVIVED' 2>&-)"; r=$?
+  case "$o" in *STARTED*) case "$o" in *SURVIVED*) r="SURVIVED" ;; esac ;; *) r="沒跑起來" ;; esac
+  if [ "$r" = "1" ]; then assert s_harness "closed：set -e 下未保護的 echo >&2 會中止（exit 1）" 0; else assert s_harness "closed：set -e 下未保護的 echo >&2 會中止（實際 ${r}）" 1; fi
+  o="$(perl -e "$break_stderr_epipe" bash -c 'echo STARTED; set +e; echo x >&2; echo SURVIVED')"; r=$?
+  case "$o" in *STARTED*) case "$o" in *SURVIVED*) r="SURVIVED" ;; esac ;; *) r="沒跑起來" ;; esac
+  if [ "$r" = "$sigpipe_rc" ]; then assert s_harness "epipe：連 set +e 下的 echo >&2 也會被 SIGPIPE 殺掉（exit ${sigpipe_rc}）" 0; else assert s_harness "epipe：連 set +e 下的 echo >&2 也會被 SIGPIPE 殺掉（實際 ${r}，預期 ${sigpipe_rc}）" 1; fi
+}
+t_s_bad_arg() {  # 未知參數 → exit 2（舊版：closed 塌成 1、epipe 被訊號殺掉）
+  local how
+  for how in closed epipe; do
+    setup; invoke_broken "$how" badarg
+    if [ "$rc" -eq 2 ]; then assert s_bad_arg "[$how] exit 2" 0; else assert s_bad_arg "[$how] exit 2（實際 ${rc}）" 1; fi
+  done
+}
+t_s_refused() {  # 盤點有查詢失敗段＋--update-baseline → 哨兵 REFUSED、exit 2、不產 baseline
+  local how
+  for how in closed epipe; do
+    setup; invoke_broken "$how" update CODEX_STUB_CAP_FAIL=plugin
+    has_line 'UPDATE_BASELINE=REFUSED'; assert s_refused "[$how] 哨兵 REFUSED" $?
+    if [ "$rc" -eq 2 ]; then assert s_refused "[$how] exit 2" 0; else assert s_refused "[$how] exit 2（實際 ${rc}）" 1; fi
+    if [ ! -f "$bl" ]; then assert s_refused "[$how] 不產 baseline" 0; else assert s_refused "[$how] 不產 baseline" 1; fi
+  done
+}
+t_s_no_baseline() {  # 無 baseline（NO_BASELINE 診斷）→ 照常跑完 smoke、exit 0、寫快取
+  local how
+  for how in closed epipe; do
+    setup; invoke_broken "$how" force
+    assert s_no_baseline "[$how] exit 0" "$rc"
+    has_line '=== read-only smoke test ==='; assert s_no_baseline "[$how] smoke 有跑" $?
+    grep -q 'smoke=OK' "$fake_home/.claude/.codex-check-last" 2>/dev/null; assert s_no_baseline "[$how] 寫入快取" $?
+  done
+}
+t_s_corrupt_baseline() {  # baseline 格式不符（診斷）→ 照常跑完 smoke、exit 0、壞檔不被覆寫
+  local how
+  for how in closed epipe; do
+    setup; echo 'this is junk not a baseline' > "$bl"; invoke_broken "$how" force
+    assert s_corrupt "[$how] exit 0" "$rc"
+    has_line '=== read-only smoke test ==='; assert s_corrupt "[$how] smoke 有跑" $?
+    grep -q 'this is junk' "$bl"; assert s_corrupt "[$how] 壞檔未被覆寫" $?
+  done
+}
+t_s_smoke_fail() {  # smoke 非零退出＋--update-baseline → 快取已刪、exit＝smoke 的退出碼、NOT_APPLIED
+  local how
+  for how in closed epipe; do
+    setup; echo stale > "$fake_home/.claude/.codex-check-last"
+    invoke_broken "$how" update CODEX_STUB_EXEC_EXIT=7
+    if [ "$rc" -eq 7 ]; then assert s_smoke_fail "[$how] exit 7（smoke passthrough）" 0; else assert s_smoke_fail "[$how] exit 7（實際 ${rc}）" 1; fi
+    if [ ! -f "$fake_home/.claude/.codex-check-last" ]; then assert s_smoke_fail "[$how] 快取已刪" 0; else assert s_smoke_fail "[$how] 快取已刪" 1; fi
+    has_line 'UPDATE_BASELINE=NOT_APPLIED'; assert s_smoke_fail "[$how] 哨兵 NOT_APPLIED" $?
+  done
+}
+t_s_smoke_no_sentinel() {  # smoke exit 0 但沒有精確 sentinel＋--update-baseline → 快取已刪、exit 1、NOT_APPLIED
+  local how
+  for how in closed epipe; do
+    setup; echo stale > "$fake_home/.claude/.codex-check-last"
+    invoke_broken "$how" update CODEX_STUB_LASTMSG=NOT_CODEX_OK
+    if [ "$rc" -eq 1 ]; then assert s_no_sentinel "[$how] exit 1" 0; else assert s_no_sentinel "[$how] exit 1（實際 ${rc}）" 1; fi
+    if [ ! -f "$fake_home/.claude/.codex-check-last" ]; then assert s_no_sentinel "[$how] 快取已刪" 0; else assert s_no_sentinel "[$how] 快取已刪" 1; fi
+    has_line 'UPDATE_BASELINE=NOT_APPLIED'; assert s_no_sentinel "[$how] 哨兵 NOT_APPLIED" $?
+  done
+}
+t_s_diag_after_sentinel() {  # stderr 正常時：診斷照樣印出，而且排在哨兵之後（stdout、stderr 合流看先後）
+  local a b
+  setup; invoke_check update CODEX_STUB_CAP_FAIL=plugin
+  a="$(line_of 'UPDATE_BASELINE=REFUSED')"; b="$(line_of '拒絕更新 baseline')"
+  if [ -n "$a" ] && [ -n "$b" ] && [ "$a" -lt "$b" ]; then assert s_diag_order "REFUSED 哨兵在拒絕理由之前" 0; else assert s_diag_order "REFUSED 哨兵在拒絕理由之前（${a:-無}／${b:-無}）" 1; fi
+  setup; invoke_check update CODEX_STUB_EXEC_EXIT=7
+  a="$(line_of 'UPDATE_BASELINE=NOT_APPLIED')"; b="$(line_of 'smoke test failed (exit 7)')"
+  if [ -n "$a" ] && [ -n "$b" ] && [ "$a" -lt "$b" ]; then assert s_diag_order "NOT_APPLIED 哨兵在 smoke 失敗診斷之前" 0; else assert s_diag_order "NOT_APPLIED 哨兵在 smoke 失敗診斷之前（${a:-無}／${b:-無}）" 1; fi
+  setup; invoke_check update CODEX_STUB_LASTMSG=NOT_CODEX_OK
+  a="$(line_of 'UPDATE_BASELINE=NOT_APPLIED')"; b="$(line_of 'smoke exit 0 但無精確 CODEX_OK sentinel')"
+  if [ -n "$a" ] && [ -n "$b" ] && [ "$a" -lt "$b" ]; then assert s_diag_order "NOT_APPLIED 哨兵在無 sentinel 診斷之前" 0; else assert s_diag_order "NOT_APPLIED 哨兵在無 sentinel 診斷之前（${a:-無}／${b:-無}）" 1; fi
+  setup; invoke_check force
+  has_line 'NO_BASELINE'; assert s_diag_order "stderr 正常時 NO_BASELINE 診斷仍印出" $?
+  setup; out="$(env HOME="$fake_home" PATH="$stubs:$PATH" bash "$script" --no-such-flag 2>&1)"; rc=$?
+  if [ "$rc" -eq 2 ]; then assert s_diag_order "stderr 正常時未知參數 exit 2" 0; else assert s_diag_order "stderr 正常時未知參數 exit 2（實際 ${rc}）" 1; fi
+  has_line 'unknown arg: --no-such-flag'; assert s_diag_order "stderr 正常時未知參數診斷仍印出" $?
+}
+
+all_tests="t_happy_path t_offline_unknown t_fake_pass_rejected t_ansi_stripped t_h1_leading_warning t_h1_warning_has_version t_h1_no_version t_h5_multiline t_h5_blank_second_line t_h5_junk t_h5_prerelease_current t_h3_npm_hang t_h3_partial_stdout_discarded t_h3_print_then_fail t_h4_empty_cache_miss t_h4_oldformat_cache_miss t_h4_truncated_line_miss t_h4_future_mtime_miss t_h4_newformat_cache_hit t_h2_exact_ok t_h2_not_ok_rejected t_h2_refusal_rejected t_h2_no_flag_when_unsupported t_h4_missing_latest_field t_h4_missing_verdict_field t_h2_large_help_keeps_lastmsg t_h1_huge_banner_no_crash t_smoke_stderr_noise_no_crash t_b_no_autocreate_then_update t_b_no_drift t_b_drift_warns_no_rewrite t_b_update_baseline t_b_empty_ambiguous_unknown t_b_query_fail_unknown_update_refused t_b_unparseable_blocks_update t_b_corrupt_baseline t_b_flag_missing_no_cache t_b_near_flag_not_matched t_b_version_empty_no_cache_hit t_b_cache_version_mismatch_miss t_b_probe_stderr_immune t_b_boilerplate_zero_is_empty t_b_mcp_drift_and_fail t_b_mcp_all_unknown_unparseable t_b_marketplace_identity_drift t_b_hooks_unparseable t_b_flag_incompat_cache_not_trusted t_s_harness_breaks_stderr t_s_bad_arg t_s_refused t_s_no_baseline t_s_corrupt_baseline t_s_smoke_fail t_s_smoke_no_sentinel t_s_diag_after_sentinel"
+# 清單自檢（2026-10-18，CODEX-CHECK-SH-STDERR 實作時抓到）：清單裡兩個名字黏在一起時（少一個空白），
+# 那一項只會印「command not found」、不計入 TOTAL，兩個既有測試就被靜默跳過。
+# 規則：清單裡每個名字都必須是已定義的函式，每個已定義的 t_* 函式也都必須在清單裡；不一致就停（exit 2）。
+for t in $all_tests; do
+  declare -F "$t" >/dev/null || { echo "STOP 測試清單有未定義的名字：$t" >&2; exit 2; }
+done
+for t in $(declare -F | awk '$3 ~ /^t_/ { print $3 }'); do
+  case " $all_tests " in *" $t "*) ;; *) echo "STOP 已定義但不在測試清單裡：$t" >&2; exit 2 ;; esac
+done
 tests="${*:-$all_tests}"
 for t in $tests; do
   case " $all_tests " in

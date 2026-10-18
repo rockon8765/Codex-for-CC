@@ -10,7 +10,7 @@
 2. **順序**：先 Windows 准入（W 階段），再 macOS（M 階段）（使用者選擇的選項：「Windows 先、macOS 隨後 (Recommended)」）。兩個平台各自通過准入、各自由使用者簽核；兩邊都通過前，不得做雙平台宣稱。
 3. **預算**：不設總工時上限與截止日（使用者 2026-10-17 裁決，見[備忘 §8.9](DECISION-MEMO-lts-2026-09-30.md#user-decisions-2026-10-17)；原為 10/14 選擇的選項「115h／2027-01-15 (Recommended)」）。工時照記，[§3.1](#budget) 的分配數字只當預警。先保障最低範圍（MVS）、審查與驗收；便利項目排在後面，要做須使用者核准。
 4. **檢查點 2026-10-28**：看關鍵產物，不看燒了多少工時（[§3.3](#checkpoints)）。
-5. **MUST 25 項**（[§5.1](#must)；2026-10-17 加 5 項：F4、`CONSULT-TOKEN-REPLACE-FLAKE`、`CC-NOBASH-FAILCLOSED`、`CODEX-CHECK-CP437`、`CODEX-CHECK-WARNING`，使用者裁決見[備忘 §8.11](DECISION-MEMO-lts-2026-09-30.md#user-decisions-2026-10-17b)；F2 依 §5.2 預寫的規則改列 MUST，2026-10-15 使用者確認，並選擇收緊白名單，見備忘 §8.7）；其餘降級為已知限制，限制文字先寫好（[§5.2](#downgrades)）。
+5. **MUST 26 項**（[§5.1](#must)；2026-10-18 加 `CODEX-CHECK-SH-STDERR`（[備忘 §8.12](DECISION-MEMO-lts-2026-09-30.md#user-decisions-2026-10-18)）；2026-10-17 加 5 項：F4、`CONSULT-TOKEN-REPLACE-FLAKE`、`CC-NOBASH-FAILCLOSED`、`CODEX-CHECK-CP437`、`CODEX-CHECK-WARNING`，使用者裁決見[備忘 §8.11](DECISION-MEMO-lts-2026-09-30.md#user-decisions-2026-10-17b)；F2 依 §5.2 預寫的規則改列 MUST，2026-10-15 使用者確認，並選擇收緊白名單，見備忘 §8.7）；其餘降級為已知限制，限制文字先寫好（[§5.2](#downgrades)）。
 6. **新缺陷**：會讓 MVS 不成立的，只能在授權範圍內修，或交使用者裁決；不得靠揭露文字劃出（[§6](#new-defect-rule)）。
 7. **對外**：准入前不宣稱支援、不加 badge、不發 Release（README 原有的 linux badge 已在 Linux 凍結第一階段移除）；每次 push、打 tag、合併、改 repo 設定，都另外徵得使用者同意。
 
@@ -208,7 +208,7 @@
 ## 5. 修復清單
 
 <a id="must"></a>
-### 5.1 MUST（25 項）
+### 5.1 MUST（26 項）
 
 「改產品」照 AGENTS.md 的定義；AI-INSTALL 的可執行區塊也算，改了要同步測試臺的案數。
 
@@ -234,11 +234,12 @@
 | V3 配置邊界記錄與自查 | 記錄程序與使用者自查步驟，涵蓋 execpolicy、`CONNECTOR-EXPOSURE`、`GATE-SCOPE-CROSS-SESSION`、`GATE-QUOTE-LEXER` | README、docs | W | 否 |
 | V4 乾淨的驗收環境 | 兩台機器各一個 OS 測試帳號，**由使用者親自建立**。代理之後只負責植入對照規則（陽性：寫標記檔到工作區外的無害 allow 規則；另配一組陰性）並跑驗收 | — | W／M | 否 |
 | V5 `BASELINE-POLICY` | 每次 live 驗收由使用者明示接受 codex-check baseline 並記錄（同時了結 `BASELINE-ACCEPT-0923`）；`CODEX-CHECK-HOOKS-INVENTORY` 列為已知限制 | docs | W／M | 否 |
-| F4 `MOUNT-RMRF`（2026-10-17 由降級改列 MUST，[備忘 §8.11](DECISION-MEMO-lts-2026-09-30.md#user-decisions-2026-10-17b)） | macOS：1b、1c 與回滾 `rm -rf` 前，以裝置號（st_dev）重新偵測 skill 樹底下的掛載點，偵測到或讀不到一律中止、不改 live（macOS 1c 另重掃 symlink，與 Windows 1c 等價）；Windows：1c 前以與 1b 相同的 ReparsePoint 屬性偵測重新掃描。先以模擬（假 stat）驗控制流；**Mac 真機以拋棄式 APFS image 驗證後才算完成** | `docs/AI-INSTALL.md`（macOS 1b／1c／回滾區塊、Windows 1c）、`tests/ai-install/**`、`README.md`（限制第 2 條與其引用處，待 §5.2 新文字核准後改） | W（模擬）／M（Mac 真機） | 否 |
+| F4 `MOUNT-RMRF`（2026-10-17 由降級改列 MUST，[備忘 §8.11](DECISION-MEMO-lts-2026-09-30.md#user-decisions-2026-10-17b)） | macOS：1b、1c 與回滾 `rm -rf` 前，以裝置號（st_dev）重新偵測 skill 樹底下的掛載點，偵測到或讀不到一律中止、不改 live（macOS 1c 另重掃 symlink，與 Windows 1c 等價）；Windows：1c 前以與 1b 相同的 ReparsePoint 屬性偵測重新掃描。先以模擬（假 stat）驗控制流；**Mac 真機以拋棄式 APFS image 驗證後才算完成**（2026-10-18 已在 Mac 真機驗證，受測 `e250db0`） | `docs/AI-INSTALL.md`（macOS 1b／1c／回滾區塊、Windows 1c）、`tests/ai-install/**`、`README.md`（限制第 2 條與其引用處，待 §5.2 新文字核准後改） | W（模擬）／M（Mac 真機） | 否 |
 | `CONSULT-TOKEN-REPLACE-FLAKE`（2026-10-17 改列 MUST） | Windows consult 寫入憑證時，對「檔案暫時被占用」一類錯誤做有限重試（最多 6 次嘗試，名目退避合計 1.55 秒）；用盡仍照舊 exit 44。確定性故障注入測試，加上整支 consult「先失敗、後成功」的整合測試 | `windows/skills/超級模式/scripts/codex-consult.ps1`、`windows/skills/超級模式/tests/consult-credential.tests.ps1` | W | 否 |
 | `CC-NOBASH-FAILCLOSED`（2026-10-17 改列 MUST） | Windows 安裝必須先有 Git for Windows：AI-INSTALL §0 的 0a 依 Claude Code 的偵測順序找 Git Bash，並實際執行確認是 Git 的 bash（排除 WSL），沒有就停止安裝；解除安裝改為先移除 settings 的 hook、開新 session，再刪檔；README 前置條件同步 | `docs/AI-INSTALL.md`（§0 0a、解除安裝段）、`tests/ai-install/**`、`.github/workflows/windows.yml`（案數）、`README.md`、`AGENTS.md`（「安裝本 repo」段） | W | 否 |
 | `CODEX-CHECK-CP437`（2026-10-17 改列 MUST） | `codex-check.ps1` 開頭把主控台輸出編碼設為 UTF-8（與 consult／exec 相同）；測試在 437 主控台下驗證中文輸出 | `windows/skills/超級模式/scripts/codex-check.ps1`、`windows/skills/超級模式/tests/codex-check.tests.ps1` | W | 否 |
 | `CODEX-CHECK-WARNING`（2026-10-17 改列 MUST） | `codex-check.ps1` 依退出碼契約修正：失敗時先刪快取並留下退出碼與哨兵，診斷改為 best-effort 寫到 stderr；故障注入測試涵蓋每一處 | 同上兩支 | W | 否 |
+| `CODEX-CHECK-SH-STDERR`（2026-10-18 改列 MUST，[備忘 §8.12](DECISION-MEMO-lts-2026-09-30.md#user-decisions-2026-10-18)） | macOS `codex-check.sh` 的診斷改為 best-effort（stderr 被關閉、寫入失敗或讀端已關都不中止），並把刪快取、定退出碼、印哨兵排在診斷之前——與 Windows 的 `CODEX-CHECK-WARNING` 等價；故障注入測試涵蓋每一處；Mac 原生驗收 | `macos/skills/超級模式/scripts/codex-check.sh`、`macos/skills/超級模式/tests/codex-check.tests.sh`、`macos/skills/超級模式/tests/codex-check-stubs/**` | M | 否 |
 
 G3（push 分支、單一 PR 合併）屬工作方式，移出 MUST：10/14 的文件訂正已在 `lts/build` 上，隨准入合併進 `main`。
 
@@ -267,7 +268,7 @@ G3（push 分支、單一 PR 合併）屬工作方式，移出 MUST：10/14 的�
   > skill 樹底下有掛載點的 macOS 不在支援範圍內。AI-INSTALL 會在安裝前偵測並中止；偵測只涵蓋安裝當下，不構成回滾安全保證。
 - （2026-10-17 草稿，待使用者核准）修復完成並經 Mac 真機驗證後：
   > skill 樹底下有掛載點時，AI-INSTALL 會在安裝前、寫入 live 前與回滾刪除前各重新偵測一次並中止（以裝置號判斷）。偵測與動作之間仍有時間窗；裝置號相同的掛載偵測不到。
-  Mac 真機驗證前，這段要加上「目前只有模擬測試，macOS 真機待驗」。
+  Mac 真機驗證前，這段要加上「目前只有模擬測試，macOS 真機待驗」。（2026-10-18：Mac 真機已驗證，這個附加句不再需要；本段仍待使用者核准。）
 
 **F5 `POSIX-UUIDGEN-PYTHON3`**（相依仍要在 M0 實際驗過）
 > macOS 需要 python3、uuidgen、perl；安裝流程不檢查，請先自行確認（`command -v python3 uuidgen perl`）。
