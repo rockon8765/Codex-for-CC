@@ -5,6 +5,8 @@
 > 前案：[`docs/plugin-learnings-plan-2026-07.md`](plugin-learnings-plan-2026-07.md)（2026-07-06 對 v1.0.5 的裁決＝「暫不裝，只移植做法」）
 > 本案處理的問題：**那份 7 週前的裁決在官方 v1.0.6 之後還站得住嗎？**
 > 語言慣例：說明繁中；程式碼／指令／檔名英文。
+>
+> **授權告示**：§5-a 引用的 `codex-rescue` 英文原句出自 OpenAI codex-plugin-cc v1.0.6（Apache-2.0）；見 repo 根目錄的 [`LICENSE`](../LICENSE)、[`NOTICE`](../NOTICE) 與 [`THIRD_PARTY_NOTICES.md`](../THIRD_PARTY_NOTICES.md)。
 
 ---
 

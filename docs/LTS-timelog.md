@@ -13,8 +13,12 @@
 | 2026-10-17 | ≈20:20–21:35（推論：10/28 報告 §3 最後修改於 20:48，本段暫存目錄建於 21:14） | ≈1.3（推論：牆鐘時間） | 保留（歸類為推論，使用者可改） | 10/28 檢查點報告 §3：寫入 Mac 環境盤點與使用者確認（驗收機、時段、T1–T7、Codex 安裝方式）；給 Mac 的盤點與 F2 同步提示；依使用者改裁決還原本機 consult 設定，並在 backlog、稽核補記；把單次 push 紀錄集中到備忘 §8.10 | [`CHECKPOINT-lts-2026-10-28.md`](CHECKPOINT-lts-2026-10-28.md)；[backlog 10/17 登錄 D 段](backlog.md#drift-1017-decisions) |
 | 2026-10-17～18 | ≈21:35–01:15（推論：起點接上一列；最後一輪審查結束於 01:03） | ≈3.7（推論：牆鐘時間，主要是代理、測試與 Codex 執行） | W-MUST＋審查 | 備忘 §8.10 push 紀錄集中（`040b344`）與本機安裝同步（F2）；使用者 10/17 晚上四項裁決（備忘 §8.11）後，五項新 MUST（F4、`CONSULT-TOKEN-REPLACE-FLAKE`、`CC-NOBASH-FAILCLOSED`、`CODEX-CHECK-CP437`、`CODEX-CHECK-WARNING`）：設計與原型、Codex 設計諮詢（第 1 輪）、三組平行實作、合併後兩 host 全套驗證、Codex 最後一輪審查（第 2 輪）、backlog／計畫／本檔更新 | 本機逐字稿（不進 repo）；backlog 各列 2026-10-18 補記 |
 | 2026-10-18 | ≈01:15–03:00（推論：接上一列；本段 Codex 審查結束於 02:4x） | ≈1.75（推論：牆鐘時間，主要是測試與 Codex 執行） | W-MUST＋審查 | `e250db0` 提交與推送（CI 兩個 workflow 首次即綠）；F4 Mac 真機驗證結果寫回文件（F4 關閉）；`CODEX-CHECK-SH-STDERR` 列 MUST（備忘 §8.12）、實作、牙齒驗證、Codex 第 1 輪審查、Mac 驗收提示 | 本機逐字稿（不進 repo）；backlog 該列 2026-10-18 補記 |
+| 2026-10-18 | ≈03:00–03:15、≈13:15–13:50（推論：牆鐘時間；中間是 Mac 驗收與使用者離開的時間，不計） | ≈0.8（推論） | W-MUST＋P 規劃 | `eff172b` 提交與推送（CI 兩個 workflow 首次即綠）；四項待決事項（F4 文字、tag `pre-lts`、支援終止日、授權條款）的白話說明與 Codex 反方諮詢；`CODEX-CHECK-SH-STDERR` 的 Mac 原生驗收結果寫回（關閉） | 本機逐字稿（不進 repo）；backlog 該列 2026-10-18 補記二 |
+| 2026-10-18 | ≈13:55–18:00（推論：牆鐘時間，大部分是 workflow 與 Codex 執行） | ≈4.0（推論） | S0／G7 核對＋文件 | F4 §5.2 原文經使用者核准後寫進計畫、README 與備忘 §8.13；A4 訂正提案（計畫 §9 第 8 點）；授權來源盤點（17 個唯讀子代理，產出 `docs/LICENSE-PROVENANCE-2026-10-18.md`）與兩次 Codex 反方諮詢（諮詢主題是決策，沒有讀任何 ID 的 diff，不計審查輪） | 本機逐字稿（不進 repo）；盤點文件 §7 |
+| 2026-10-18 | ≈18:00–19:10（推論：牆鐘時間，大部分是 workflow 執行） | ≈1.2（推論） | G7 草案 | 使用者確認 PR #1 作者是本人（備忘 §8.14）；MIT／Apache-2.0 兩套授權草案（本機草稿，不進 repo）：擬稿、三位對抗驗證者核對、逐檔修正、唯讀複核與文字修正（授權議題已用滿 2 輪 Codex 諮詢，這次沒有再諮詢） | 本機逐字稿（不進 repo） |
+| 2026-10-18 | ≈19:45–20:15（推論：牆鐘時間，大部分是 workflow 執行） | ≈0.5（推論） | G7 落地＋審查 | 使用者定案 Apache-2.0（備忘 §8.15）；依草案在 `lts/build` 本機落地（3 位實作者分檔平行）＋3 位驗證者核對（G7 審查第 1 輪）；記帳與兩處準確度小修 | 本機逐字稿（不進 repo）；備忘 §8.15 |
 
-**累計**：≈17.4h（不設上限，不再計算剩餘）
+**累計**：≈23.9h（不設上限，不再計算剩餘）
 
 <a id="review-rounds"></a>
 ## 審查輪數帳（計畫 §3.2）
@@ -31,5 +35,6 @@
 | 2026-10-17 | Codex 反方諮詢（五項修補設計；讀了原型 diff） | `CONSULT-TOKEN-REPLACE-FLAKE`、`CC-NOBASH-FAILCLOSED`、F4、`CODEX-CHECK-CP437`、`CODEX-CHECK-WARNING` | 部分同意；10 點全部採納後才實作（Git Bash 要實跑確認、F4 的 1c 也要重掃、判準只用裝置號、整合測試等）。依保守計法這五個 ID 各記一輪，之後各只剩一輪 |
 | 2026-10-18 | Codex 反方審查，最後一輪（依共用檔分三次平行呼叫：A／B＋C／D＋E；三份回報都說只讀了本組的 diff） | `CONSULT-TOKEN-REPLACE-FLAKE`、`CC-NOBASH-FAILCLOSED`、F4、`CODEX-CHECK-CP437`、`CODEX-CHECK-WARNING` | 無阻擋：`CODEX-CHECK-CP437` PASS，其餘 PASS-WITH-NONBLOCKING；非阻擋項記在 backlog 各列的 2026-10-18 補記。F4 仍要 Mac 真機驗證才關閉。五個 ID 各達 2 輪上限，之後不再送審 |
 | 2026-10-18 | Codex 反方審查（只讀本 ID 的三個路徑；簡報禁止讀 Windows codex-check 與 AI-INSTALL，避免已滿兩輪的 ID 再被計一輪） | `CODEX-CHECK-SH-STDERR` | PASS-WITH-NONBLOCKING，無阻擋；兩個測試缺口已補（只動測試）。第 2 輪保留，留給 Mac 原生驗收若需要修正時使用 |
+| 2026-10-18 | 授權落地後的多代理核對（3 個維度：逐位元組與插入位置、禁改路徑／編碼／平台一致、連結與措辭） | G7 | 無實作缺陷；記帳與兩處準確度小修已做。依保守計法 G7 記一輪 |
 
-**累計（保守計法）**：C1 4 輪；F2、C3 各 3 輪；G2 3 輪，其他 G 類各 2 輪；`CONSULT-TOKEN-REPLACE-FLAKE`、`CC-NOBASH-FAILCLOSED`、F4、`CODEX-CHECK-CP437`、`CODEX-CHECK-WARNING` 各 2 輪，已達上限；`CODEX-CHECK-SH-STDERR` 1 輪（2026-10-18 更新）。F2／C1／C3 已超過每個 ID 2 輪的上限：10/15 的兩輪同一天、針對同一個 staged 狀態，合計為一輪的話是 2 輪，但本帳不採這個寬鬆計法。第 2 輪後仍有的阻擋問題已停下交使用者裁決，使用者選擇「授權修，不再送審」，所以這三個 ID 在批次 1 之後不再開審查輪，修正以實跑測試與變異檢查驗證。之後要再審，須使用者明示同意。
+**累計（保守計法）**：C1 4 輪；F2、C3 各 3 輪；G2 3 輪，其他 G 類各 2 輪；`CONSULT-TOKEN-REPLACE-FLAKE`、`CC-NOBASH-FAILCLOSED`、F4、`CODEX-CHECK-CP437`、`CODEX-CHECK-WARNING` 各 2 輪，已達上限；`CODEX-CHECK-SH-STDERR` 1 輪；G7 1 輪（2026-10-18 更新）。F2／C1／C3 已超過每個 ID 2 輪的上限：10/15 的兩輪同一天、針對同一個 staged 狀態，合計為一輪的話是 2 輪，但本帳不採這個寬鬆計法。第 2 輪後仍有的阻擋問題已停下交使用者裁決，使用者選擇「授權修，不再送審」，所以這三個 ID 在批次 1 之後不再開審查輪，修正以實跑測試與變異檢查驗證。之後要再審，須使用者明示同意。

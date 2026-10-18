@@ -57,7 +57,7 @@
   （b）**live 面從未由維護者驗收過** —— CI 刻意不碰 `~/.claude`，所以「repo 全綠」**不能**推論 live 生效。
   macOS 已經實際發生過反例：repo 全綠，而 live hook 與 settings matcher 各自漂移了一個月，
   那五個工具的攔截在 runtime 下等於沒生效（見 [`docs/ACCEPTANCE-p0-16-live-macos-2026-08-29.md`](docs/ACCEPTANCE-p0-16-live-macos-2026-08-29.md)）；
-  （c）**POSIX 回滾有已接受的資料遺失風險**（下方限制第 2 條的掛載點問題）。
+  （c）**Linux 的安裝回滾仍有資料遺失風險**：凍結快照沒有 F4 的掛載點偵測（下方限制第 2 條）。
   ⇒ 在 Linux 上使用前請自行做 live 驗收；不要把 CI 綠燈當成 live 保證。
 - **`super-mode off` 的逐字稿清理**（2026-10-14，`lts/build`，尚未准入；backlog [`OFF-CLEANUP-RECURSIVE`](docs/backlog.md#OFF-CLEANUP-RECURSIVE)）：Windows／macOS 只刪 `~/.claude/super-mode-logs/` **頂層**、檔名符合 consult／exec 逐字稿格式、且超過 14 天的檔，不進子目錄、不碰其他檔名，刪除或列舉失敗會在 stderr 印 `OFF_CLEANUP_ERROR`，但 off 照常完成。**Linux 已凍結、未套用這項修正：仍會遞迴刪除 `super-mode-logs/` 底下所有超過 14 天的檔案、不限檔名、錯誤靜默。** Windows 與 macOS 之間仍有五個沿用舊行為的差異，都不會刪到白名單以外的檔：logdir 本身是 symlink／junction（Windows 會清到目標目錄的頂層）、隱藏檔、列舉後才消失的檔、頂層的 file symlink、列舉錯誤的輸出格式，見同一列 backlog。
 - 其餘功能 Windows 與 macOS 目前一致（Linux 是凍結快照，差異見上面各條）；差在**驗證覆蓋**（見上表）與平台語義（見下方「已知的坑」）。
@@ -67,7 +67,12 @@
 以下都是**目前仍存在**的限制（不是歷史紀錄）。完整清單與各項當前狀態見 [`docs/backlog.md`](docs/backlog.md)。
 
 1. **`BLOCK` 和 `ALLOW` 鑄造的是同一張收據。** 憑證是「**諮詢收據**」不是「動作授權」——它裡面沒有裁決欄位，hook 也不讀。所以對「憑時間 ＋ repo 綁定就能放行」的動作而言，一次形式合格的 `BLOCK:` 回覆照樣解鎖 20 分鐘，**hook 分不出 ALLOW 與 BLOCK**。「BLOCK 就不做」目前純靠 orchestrator 自律，工具面零強制。⚠️ 但**不是每個被攔動作都會因此放行**：拿不到 repo 路徑、又不在 `MCP_PATHLESS_ALLOW`／policy 白名單的 **MCP 工具**，即使有憑證仍會被硬拒。⚠️ 反過來，**外發型內建工具（`Artifact` 等）是刻意 pathless 的**——它們綁不到 repo，所以任何有效憑證都放得過去，**repo A 的憑證擋不住 repo B 的發佈動作**。
-2. **macOS／Linux：安裝回滾的 `rm -rf` 會跨進掛載點、刪掉裡面的真實資料。** link 守衛用 `find -type l`，而**掛載點是目錄、抓不到**。成立條件是「掛載點位於 live skill 子樹」且「實際執行到回滾」。skill 樹底下有 bind mount 的人，安裝前請先卸載、或改用手動安裝。⚠️ 這是**已知的機制風險，沒有掛載點的端到端實測**。
+2. **安裝回滾遇到 skill 目錄裡的掛載點時，可能刪掉掛載內的資料（F4）。** 以下照[准入計畫 §5.2](docs/LTS-ADMISSION-PLAN.md#downgrades) 的核准原文（2026-10-18）：
+
+   **macOS**：含 F4 修正的版本，會在安裝前、寫入 live 前及回滾刪除前，以裝置號檢查 skill 目錄本身與子目錄；偵測到裝置號不同的掛載點時中止。裝置號相同的掛載，以及檢查後、刪除前才新增的掛載，仍可能讓回滾刪除掛載內資料。請在安裝及回滾期間保持相關掛載卸載。
+
+   **Linux（已凍結）與 `80c60a8` 凍結快照的 macOS**：沒有上述偵測；掛載點位於 skill 目錄內且執行到回滾時，仍有跨入掛載刪除資料的風險。
+
 3. **沒有任何自動測試證明 Claude Code runtime 真的載入了你的 settings 並叫起 hook。** `matcher-contract` 是靜態比對、`run-gate-tests` 是直接呼叫 `decide()`；`run-e2e.sh` 會以 stdin 啟動完整的 hook process，但那也只驗到 hook 自己的行程層行為。**端到端只能在新 session 實際觸發一次違規動作來確認。**
 4. **Windows／macOS 沒有 CI。** 這兩個平台的回歸測試改壞了，遠端不會有任何 gate 攔下——仍靠人工在本機跑（兩個平台的 CI 正在 `lts/build` 建置，准入前不構成任何宣稱）。`linux.yml` 每次 push／PR 仍會跑凍結的 `linux/` 樹與頂層共用測試（`tests/*.test.js` 等）；綠燈不構成任何平台的支援宣稱。LTS 凍結第二階段會移除它，屆時共用測試改由 Windows／macOS CI 跑。
 5. **安裝／回滾的驗證有明確邊界**（三件互相獨立的事）：
@@ -136,6 +141,7 @@
 ## 這個 repo 有什麼
 
 ```
+LICENSE  NOTICE                  # 授權（Apache-2.0）與上游歸屬通知；THIRD_PARTY_NOTICES.md 為第三方聲明
 CLAUDE.md  AGENTS.md             # AI 助手自動載入的轉接指引（安裝用，指向 docs/AI-INSTALL.md）
 docs/AI-INSTALL.md               # AI 安裝指引（安裝流程的唯一真相）
 docs/backlog.md                  # 已知未完成項（跨平台彙整）
@@ -150,6 +156,7 @@ windows/                         # PowerShell 版（已稽核、已部署）
   hooks/super-mode-consult-gate.js
   skills/超級模式/
     SKILL.md  references/orchestration.md  references/review-output.schema.json
+    references/review-output.schema.NOTICE.md   # schema 的授權告示（JSON 本身不放註記）
     lib/      gate-registration.js  consult-answer.js      # 三平台**逐位元相同**，由 tests/gate-registration.test.js §C 守住
     scripts/  super-mode.ps1  codex-consult.ps1  codex-exec.ps1  codex-check.ps1
     tests/    run-windows-suite.ps1   # ← 單一入口（顯式 manifest；最後印 SUITE_RESULT=OK）
@@ -165,6 +172,7 @@ macos/                           # bash 版（平台移植版；驗證覆蓋見�
   hooks/super-mode-consult-gate.js
   skills/超級模式/
     SKILL.md  references/orchestration.md  references/review-output.schema.json
+    references/review-output.schema.NOTICE.md   # schema 的授權告示（JSON 本身不放註記）
     lib/      gate-registration.js  consult-answer.js      # 三平台**逐位元相同**，由 tests/gate-registration.test.js §C 守住
     scripts/  super-mode.sh  codex-consult.sh  codex-exec.sh  codex-check.sh
     tests/    run-gate-tests.js  run-e2e.sh  matcher-contract.test.js  gate-cases.json
@@ -306,3 +314,13 @@ hook **在啟用前是 fail-open 且停用的** — 安裝它不會影響一般 
 - `set -e` + pipeline 會吞掉 Codex 的 exit code — 腳本用固定的 `set +e … ${PIPESTATUS[0]} … set -e` 寫法（見 [`docs/history/FIX-PLAN-macos-2026-07-03.md`](docs/history/FIX-PLAN-macos-2026-07-03.md) §0.5）。
 - macOS ↔ Linux 的**共通**差異是 `stat`（BSD `-f %m` vs GNU `-c %Y`，在 `codex-check.sh` 與 `super-mode.sh`）——別把版本拿錯邊。
 - ⚠️ **但兩者早已不只差一個 `stat`。** `codex-check.sh` 目前 macOS 549 行、Linux 123 行：**能力面盤點與 baseline diff 整段尚未移植到 Linux**（`capability`/`baseline` 關鍵字在 mac 版各 25／58 處，Linux 版 **0 處**）。（`.codex-check-baseline` 的 hook 安全關鍵檔保護**已於 2026-07-26 補上**，屬未來功能的預留保護——但產生該檔的 `codex-check` 功能本身仍未移植。）**不要**把 macOS 版的 `codex-check.sh` 直接當成 Linux 版的等價物拿來抄或替換。移植規格見 [`docs/handoff-capability-baseline-port.md`](docs/handoff-capability-baseline-port.md) 與 [`docs/handoff-0143-capability-surface-port.md`](docs/handoff-0143-capability-surface-port.md)。
+
+## 授權
+
+本專案以 [Apache License 2.0](LICENSE) 授權，Copyright 2026 rockon8765。歸屬通知見 [`NOTICE`](NOTICE)；依 Apache-2.0 §4(d)，轉散布時要附上 NOTICE 中相關的歸屬通知。
+
+- **改寫自 OpenAI [codex-plugin-cc](https://github.com/openai/codex-plugin-cc) 的內容**（部分提示詞規則，中譯並修改；`review-output.schema.json`），以及**出自 [openai/codex](https://github.com/openai/codex) 的少數 CLI 字串**：兩者同為 Apache-2.0，上游歸屬見 NOTICE，受影響的檔案與修改說明見 [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md)。
+- **改寫自 [obra/superpowers](https://github.com/obra/superpowers) 的範本結構**：只用在一份 docs 計畫裡，依 MIT（不是 Apache-2.0），原版權與授權全文附在第三方聲明中。
+- **程式、文件與測試裡引用的 Claude Code、OpenAI 文件與執行檔字串等**：權利歸原權利人，不在本專案的授權範圍內，清單見第三方聲明。
+
+本專案的派工與審查紀律大量參考了 OpenAI 的 codex-plugin-cc，在此致謝。

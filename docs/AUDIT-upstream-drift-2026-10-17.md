@@ -4,6 +4,8 @@
 > 接續：[`AUDIT-upstream-drift-2026-09-14.md`](AUDIT-upstream-drift-2026-09-14.md)（以下稱「9/14 稽核」）。9/14 稽核、9/6 稽核、以及之後登錄進 [`backlog.md`](backlog.md) 的項目都是 baseline，**本檔只列差異**；與 baseline 相同者只在 §6.6 一行帶過。
 > 觸發：使用者要求「以 9/14 稽核為基準，針對 Claude Code 2.1.301 和 Codex CLI 0.163.0 做一輪新的上游漂移稽核，只列出差異」。
 > 方法：6 條平行研究線（CC changelog、CC 工具面與 hook 契約、Codex release notes、本機離線 probe、Codex 文件／issue／官方橋接、社群與 arXiv）→ 9 個對抗驗證者逐條重讀一手來源與 repo 行號、預設嘗試推翻（95 條判決：51 確認、42 修正、1 推翻、1 非新事）→ 主線親核關鍵本機事實 → Codex 反方諮詢一輪 → Claude 裁決。證據狀態沿用 9/14：`CONFIRMED`＝親讀一手來源或親跑指令；`CANDIDATE`＝只有第三方報告或讀碼推論；`INCONCLUSIVE`＝證據矛盾。
+>
+> **出處**：本檔引用的 Codex CLI 錯誤文案與 prompt 片段出自 openai/codex（Apache-2.0），多數已在原處標示 tag 或檔名；見 repo 根目錄的 [`LICENSE`](../LICENSE)、[`NOTICE`](../NOTICE) 與 [`THIRD_PARTY_NOTICES.md`](../THIRD_PARTY_NOTICES.md)。
 
 ---
 

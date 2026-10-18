@@ -1,4 +1,5 @@
 <!-- BEGIN CODEX-DISCUSSION-PARTNER v1 source: https://github.com/rockon8765/Codex-for-CC (macos) -->
+<!-- 授權告示：本區塊有一句規則（每個反對點的四問、校準與推論標注）改寫自 OpenAI codex-plugin-cc v1.0.5–v1.0.6（Apache-2.0），已中譯並濃縮；見 https://github.com/rockon8765/Codex-for-CC 根目錄的 LICENSE、NOTICE 與 THIRD_PARTY_NOTICES.md。 -->
 ## Codex 討論夥伴（常駐）
 
 凡是要交給使用者的**決策型輸出**——方案選項、建議、規劃、設計/架構判斷、風險評估、策略、結論性判斷——**交付前先諮詢 Codex 討論**，再由 Claude 裁決。團隊約定：重要判斷需經 Codex 反方檢核；Claude 保有最終決定權。

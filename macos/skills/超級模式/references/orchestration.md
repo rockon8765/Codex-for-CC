@@ -2,6 +2,8 @@
 
 SKILL.md 的 §2 / §3 / §3.5 / §5 的詳細範本與程序。用到才讀。
 
+> **授權告示**：本檔 §2、§3、§3.5、§5 有部分規則改寫自 OpenAI codex-plugin-cc v1.0.5–v1.0.6（Apache-2.0），已中譯並修改；見 Codex-for-CC repo 根目錄（https://github.com/rockon8765/Codex-for-CC）的 LICENSE、NOTICE 與 THIRD_PARTY_NOTICES.md。
+
 > **三層分工（別在兩個地方講同一件事）**：
 > **SKILL.md ＝ 前置條件**——動手前非知道不可的鐵則與門檻，薄但完整。
 > **hook／腳本的錯誤訊息 ＝ 復原指令**——撞到時才需要，且帶當下的實際工具名與路徑。
@@ -75,7 +77,20 @@ SKILL.md 的 §2 / §3 / §3.5 / §5 的詳細範本與程序。用到才讀。
 3. **別用「想仔細一點／think harder」代替更好的合約**——要提品質先收緊 AC 與驗證規則，不是加 reasoning。
 4. **有 placeholder ≠ 任務明確**——`<要做什麼>` 填成「處理一下 X」照樣是 vague task。
 
-> **出處與改寫**（2026-08-28，[`docs/plugin-reeval-2026-08.md`](https://github.com/rockon8765/Codex-for-CC/blob/main/docs/plugin-reeval-2026-08.md) A4）：決策邊界／授權內裁量／動作安全／工具持續性／完成判準，選擇性移植自官方 plugin 的 `gpt-5-4-prompting` skill（v1.0.6）。最重要的改寫是官方的 `default_follow_through_policy`——原文授權 worker 在「低風險歧義」時自行續行，照搬等於授權它**解讀規格契約**，故收緊成「只有 AC 可觀察結果等價才可裁量」。另外 `codex exec` 是**單輪背景任務**，沒有「停下來問 Claude」這回事，所以缺脈絡的正確語義是回 `BLOCKED` 而非提問。**未移植**：`progress_updates`（背景執行＋逐字稿落地已覆蓋）、5 份 recipe 全文（其檔頭「診斷／修復類預設 write mode」與 SKILL §1 spec-first 相衝）；`research_mode`／`citation_rules` 降為上表選配。**全面 XML 化亦未採用**——`codex-exec` 走 stdin 純文字、路徑上沒有 XML parser，官方 prompt 指南本身也主張 Markdown 表階層、XML 只圈大段附件。
+> **出處與改寫**（2026-08-28 撰寫；2026-10-18 事實訂正：原寫「決策邊界／授權內裁量／動作安全／工具持續性／完成判準，選擇性移植自官方 plugin 的 `gpt-5-4-prompting` skill（v1.0.6）」，並把 XML 那句歸給未指明的「官方 prompt 指南」，兩處都不正確；背景見 [`docs/plugin-reeval-2026-08.md`](https://github.com/rockon8765/Codex-for-CC/blob/main/docs/plugin-reeval-2026-08.md) A4）：本註涵蓋 §3 範本與 §2 `## 限制` 的對應條文；§3.5 反方規則、§5 審查紀律、SKILL §3 的「不得接手實作」另有就地出處註。下文「plugin」指 [openai/codex-plugin-cc](https://github.com/openai/codex-plugin-cc) 的 `plugins/codex/skills/gpt-5-4-prompting/`（Apache-2.0，Copyright 2026 OpenAI）；2026-07-07 加入的部分依 v1.0.5，2026-08-28（A4）加入的依 v1.0.6，引用到的檔兩版內容相同。逐欄出處：
+> - **決策邊界**：plugin 沒有對應 block；由 2026-08-28 的 Codex 諮詢起草、Claude 編修。
+> - **授權內裁量**：本 repo 的收緊規則。plugin 的 `default_follow_through_policy` 讓 worker 在「低風險歧義」時自行續行，照搬等於授權它**解讀規格契約**，故收緊成「只有 AC 可觀察結果等價才可裁量」。中文初稿出自同一次諮詢。
+> - **缺少脈絡**：「repo 事實先用唯讀工具查」改寫自 plugin `references/prompt-blocks.md` 的 `missing_context_gating`。回 `BLOCKED` 而非提問是本 repo 的語義：`codex exec` 是**單輪背景任務**，沒有「停下來問 Claude」這回事。
+> - **動作安全**：「不得順手重構／改名／清理無關程式碼」改寫自 plugin `action_safety`；「遇到回 BLOCKED，不是先講再做」是反向收緊（原文是動手前先點出風險）。
+> - **工具持續性**：沿用 plugin `tool_persistence_rules` 的結構並大幅改寫；「拿到空白或部分結果換一種策略重試」子句譯自 OpenAI 官方的 GPT-5.4 prompt guidance，經同一次諮詢轉介進來。中文初稿出自該次諮詢。
+> - **完成判準**：只借 plugin `completeness_contract` 的欄位名，方向相反（原文要求找後續修補，這裡禁止找 AC 以外的工作）；逐項核算、未完成標 `BLOCKED` 的概念出自 GPT-5.4 prompt guidance（原文為 `[blocked]`）。中文初稿出自同一次諮詢。
+> - **回報分段欄（已驗證事實／推論）與收工前自驗**：「最高價值的結論放最前面」改寫自 plugin `structured_output_contract`；事實與推論分段、收工前自驗只借 `grounding_rules`／`verification_loop` 的概念。
+> - **選配表與 brief lint**：「觀察到的事實／推論／未決」「優先一手來源」改寫自 plugin `research_mode`／`citation_rules`；lint 第 1–3 條改寫自 plugin `references/codex-prompt-antipatterns.md` 與該 skill `SKILL.md` 的 core rules，第 4 條借 antipattern 標題「Vague task framing」擴寫。
+> - **§2 `## 限制`**：缺脈絡那條同上（`missing_context_gating`）；其餘條文只借 `action_safety` 的概念。
+>
+> **未移植**：`progress_updates`（背景執行＋逐字稿落地已覆蓋）、5 份 recipe 全文（其檔頭「診斷／修復類預設 write mode」與 SKILL §1 spec-first 相衝）。**全面 XML 化亦未採用**——`codex-exec` 走 stdin 純文字、路徑上沒有 XML parser。這點和 plugin `SKILL.md` 的「Use XML tags consistently」相反，參考的是 OpenAI 通用《Prompt engineering》指南「Message formatting with Markdown and XML」一節（Markdown 表階層、XML 標出一段內容的起訖，只借概念）；選配表「**只有**大段 context 才用 XML」是本 repo 的收窄，原文沒有「只」。
+>
+> 上列改寫自 plugin 的條文都**已修改**（中譯、濃縮、改寫），不是上游原文；授權全文見 repo 根目錄 [`LICENSE`](https://github.com/rockon8765/Codex-for-CC/blob/main/LICENSE)，上游歸屬見 [`NOTICE`](https://github.com/rockon8765/Codex-for-CC/blob/main/NOTICE)，逐檔修改說明見 [`THIRD_PARTY_NOTICES.md`](https://github.com/rockon8765/Codex-for-CC/blob/main/THIRD_PARTY_NOTICES.md)。兩份 OpenAI 指南頁面未見開放授權聲明，相關字句與概念不在本 repo 授權範圍內，來源列在 `THIRD_PARTY_NOTICES.md` 的非開源引文段。
 
 派工方式（擇一）：
 1. **Codex CLI 可用** → 先確認有 20 分鐘內諮詢憑證（exec 受 gate 攔，沒憑證會被擋）。用 Write 工具把簡報寫進 scratchpad（gate 豁免路徑），用 Bash 工具跑 `scripts/codex-exec.sh -d <repo> -f <brief> -q`，**一律 `run_in_background: true`**（重任務常超過前景時限）。逐字稿存 `~/.claude/super-mode-logs/codex_exec_<ts>.txt`，最終回覆落地 `codex_exec_<ts>_last.txt`（`--output-last-message`，`-o` 可改位置；`-s <schema.json>` 可讓最終回覆符合固定 JSON schema、好機器驗收）。**收工後 Claude 只讀 `_last.txt` + `git diff` 審查**；逐字稿只在退回重做 / 除錯時抽段讀。
@@ -100,6 +115,9 @@ SKILL.md 的 §2 / §3 / §3.5 / §5 的詳細範本與程序。用到才讀。
 反方規則：(a) 攻擊面優先——往「昂貴失敗」找：資料遺失、權限/認證、競態、rollback 不可行、空狀態、版本/介面漂移；不挑 style。(b) 每個 finding 必答四問：什麼會壞？為何此路徑脆弱？影響多大？具體怎麼改？(c) 校準——一個強 finding 勝過多個弱的；判斷安全就直說，不准硬湊反對。(d) 事實紀律——推論要標注「推論」；勿把我方敘述當已驗證證據，以 repo 現況為準。
 你的最終回覆第一行必須是 `ALLOW: <20 字內理由>` 或 `BLOCK: <20 字內理由>`，之前不得有任何字元。
 ```
+
+> **出處**：上面範本的「反方規則」改寫自 [openai/codex-plugin-cc](https://github.com/openai/codex-plugin-cc) 的 `plugins/codex/prompts/adversarial-review.md`（Apache-2.0，Copyright 2026 OpenAI）——(a) ← `attack_surface`；「不挑 style」與 (b) 四問 ← `finding_bar`；(c) ← `calibration_rules`；(d) 前半 ← 同檔 `grounding_rules`，後半 ← `prompts/stop-review-gate.md` 的 `grounding_rules`。最後一行改寫自 `stop-review-gate.md` 的 `compact_output_contract`，只沿用首行 `ALLOW:`／`BLOCK:` 格式，鑄證語義是本 repo 自訂。依據 v1.0.5（v1.0.6 內容相同），經中譯、濃縮，**已修改**，不是上游原文；見 [`NOTICE`](https://github.com/rockon8765/Codex-for-CC/blob/main/NOTICE) 與 [`THIRD_PARTY_NOTICES.md`](https://github.com/rockon8765/Codex-for-CC/blob/main/THIRD_PARTY_NOTICES.md)。
+
 簡報**一律用 Write 工具寫進 scratchpad**，理由有二，都是實際會被擋的路徑：
 1. **為什麼是 scratchpad**：它在 gate 豁免路徑內；shell 寫檔**不在**豁免內，用 shell 產簡報會被擋成繞圈。
 2. **為什麼不用 inline `-p`**：簡報含 `;` `|` `&` 等標點時，會被 gate 的指令解析誤判成串接指令。`-p` 已 deprecated（stage 1：仍可跑但出警告；同時給 `-p` 與 `-f` 直接報錯），一律用 `-f`。
@@ -160,7 +178,7 @@ ECC 蓋掉」，那個理由已被推翻：躲進不會被載入的檔案只是�
 **兩條鐵則（條文在 SKILL §5，此處只講理由與做法）：**
 - **單一 writer pool**：`isolation: 'worktree'` 是 Claude 子代理的參數；本流程禁止子代理派工，因此不適用於這裡的 Codex 派工。平行的 `codex exec` 必須各自在獨立的 git worktree 執行，由 orchestrator 以 `git worktree add` 建立，再用腳本的 `-d <worktree>` 指向它，避免共用 working tree 互相覆蓋。Codex 有原生 `--worktree`（2026-10-17 事實訂正：原寫「Codex 0.156 有原生 `--worktree`（experimental）」。`worktrees` feature 自 0.156.0 起已是 stable 且預設開啟；`--worktree` 不能與 `--ephemeral`、`--ignore-user-config` 併用，`exec resume`／`exec review` 執行時也會拒絕，雖然兩者的 `--help` 仍列出這個旗標），本 skill 的腳本尚未接入。
 - **子代理不得自行諮詢／派工**：代價有三層——N 個平行子代理各自諮詢會燒 Codex 額度；任一子代理的諮詢會 mint **全機**憑證（憑證不分代理）；其中任一次 commit 會把**全體**憑證降到 3 分鐘。所以由主線統一諮詢與派工，審查子代理要跑的 build / verify（如 `npm run build`、`go build`）也交主線在有憑證時跑。consult-gate 在子代理內同樣會觸發，且它的拒絕訊息已含「子代理請回報 orchestrator 後停手」的分支。
-**審查產出 findings 後先呈報使用者選擇要修哪些，勿自動批次修。**
+**審查產出 findings 後先呈報使用者選擇要修哪些，勿自動批次修。**（出處：改寫自 [openai/codex-plugin-cc](https://github.com/openai/codex-plugin-cc) `plugins/codex/skills/codex-result-handling/SKILL.md` 的同義規則，v1.0.5（v1.0.6 相同），Apache-2.0；已修改，見 [`NOTICE`](https://github.com/rockon8765/Codex-for-CC/blob/main/NOTICE) 與 [`THIRD_PARTY_NOTICES.md`](https://github.com/rockon8765/Codex-for-CC/blob/main/THIRD_PARTY_NOTICES.md)）
 審查型派工帶 `-s "$HOME/.claude/skills/超級模式/references/review-output.schema.json"`（相對 schema 路徑是依**呼叫端 cwd** 解析，不是 skill 根目錄，也不是 `-d` 指定的 worker 目錄；因此範例使用已安裝位置的絕對路徑），收工用 JSON 解析驗收 findings；驗證失敗 fallback 讀全文。
 
 **模型與 effort — 為什麼是「靜默繼承」**（規則在 SKILL §5，此處只講理由）：session 的模型與 effort 是**使用者依任務自己調的旋鈕**，skill 在派工時自行分層，等於覆蓋掉使用者當下的判斷。而「唯讀階段就降一階省額度」是錯的直覺——**唯讀 ≠ 低風險**：安全與架構審查一旦降階，漏判率就上升，省下的額度遠不夠賠。所以預設一律繼承，降階要有具體理由。

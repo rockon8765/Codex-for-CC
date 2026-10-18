@@ -1,0 +1,46 @@
+Codex-for-CC
+Copyright 2026 rockon8765
+
+This product includes material adapted from codex-plugin-cc
+(https://github.com/openai/codex-plugin-cc), versions v1.0.5 and v1.0.6
+(the relevant files are identical in both versions), licensed under the
+Apache License, Version 2.0. The adapted material was translated into
+Traditional Chinese, condensed and otherwise modified; THIRD_PARTY_NOTICES.md
+lists the affected files and describes the changes.
+
+The NOTICE file of codex-plugin-cc v1.0.6 is reproduced below, unabridged:
+
+----- BEGIN codex-plugin-cc NOTICE -----
+Copyright 2026 OpenAI
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+----- END codex-plugin-cc NOTICE -----
+
+This product includes short user-interface strings, error messages and
+prompt/text fragments from OpenAI Codex (https://github.com/openai/codex),
+tags rust-v0.144.3 through rust-v0.163.0, licensed under the Apache License,
+Version 2.0. THIRD_PARTY_NOTICES.md lists the affected files.
+
+The NOTICE file of OpenAI Codex (identical at tags rust-v0.144.3,
+rust-v0.154.0, rust-v0.155.0 and rust-v0.163.0) is reproduced below,
+unabridged. Its Ratatui paragraph is kept as part of the upstream NOTICE;
+THIRD_PARTY_NOTICES.md explains how it relates to this project.
+
+----- BEGIN OpenAI Codex NOTICE -----
+OpenAI Codex
+Copyright 2025 OpenAI
+
+This project includes code derived from [Ratatui](https://github.com/ratatui/ratatui), licensed under the MIT license.
+Copyright (c) 2016-2022 Florian Dehau
+Copyright (c) 2023-2025 The Ratatui Developers
+----- END OpenAI Codex NOTICE -----

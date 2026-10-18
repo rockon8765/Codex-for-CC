@@ -5,6 +5,8 @@
 > **執行前提**：在 `~/Desktop/Codex-for-CC` clone 內開分支工作；本計畫檔應已在 git 內（核對 `git log -- docs/codex-check-hardening-plan-2026-07.md`）；交付前依全域 CLAUDE.md 規則送 Codex 反方檢核；推 main 前徵使用者同意。
 >
 > **修訂歷程**：rev1 由 Claude 起草；rev2 依 Codex 反方檢核（2026-07-12，11 反對點）修訂——主要變更：H3 改「rc=0 才收 stdout＋單一行程契約」、H5 改「恰一行 awk 驗證」、H2 改 help 能力探測（棄版本閘門）、H1 錨定 codex 版本行、H4 全行格式＋future-mtime＋mktemp、runner 統一 invoke helper＋未知測試名防護＋checkpoint、stub 加 SUPPORTS/trace/help、Task 7 全面補強（可注入路徑、job lifecycle、BOM）。
+>
+> **第三方授權**：本計畫的檔頭句、全域約束與 Task／Files／Interfaces／Step 骨架改寫自 obra/superpowers `skills/writing-plans/SKILL.md`（MIT，Copyright (c) 2025 Jesse Vincent），已中譯並修改；MIT 授權全文見 repo 根目錄的 [`THIRD_PARTY_NOTICES.md`](../THIRD_PARTY_NOTICES.md)。執行紀錄引用的 Codex CLI 輸出原句出自 openai/codex（Apache-2.0）。
 
 **目標**：修掉 Codex 反方檢核（2026-07-12，main=668b6e2 promote 時）找出的 5 個既有弱點（H1–H5），三平台（windows/macos/linux）語義一致，每項附可重跑合成測試。
 

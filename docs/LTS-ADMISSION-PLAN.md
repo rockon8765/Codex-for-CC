@@ -219,7 +219,7 @@
 | G4 `LOCAL-EXECPOLICY-WINDOWS` 訂正 | 備忘 §1、§3、§7.1 與 backlog 就地補記「29 條已刪」 | 備忘、backlog | S0 | 否 |
 | G5 `LINUX-FREEZE` | [§2.4](#linux-freeze) 兩階段 | 見 §2.4 | S0／M | 否 |
 | G6 `PRE-ADMISSION-STATE` | 橫幅、tag `pre-lts`（經同意）、撤下隱含宣稱、禁用字詞 | README 等 | S0 | 否 |
-| G7 `LICENSE-SECURITY-SUPPORT` | 先核對 codex-plugin-cc 的授權條款與 NOTICE（本 repo 移植過它的 prompt 契約，可能有標示義務，推論）；再補 LICENSE（預設 MIT）、SECURITY.md（GitHub 私密漏洞通報）、SUPPORT（盡力回覆、無時限、受每月上限約束） | 根目錄 | S0 核對；W 准入前補檔 | 否 |
+| G7 `LICENSE-SECURITY-SUPPORT` | 先核對 codex-plugin-cc 的授權條款與 NOTICE（2026-10-18 已盤點，[`LICENSE-PROVENANCE-2026-10-18.md`](LICENSE-PROVENANCE-2026-10-18.md)）；再補 LICENSE（2026-10-18 使用者裁決採 **Apache-2.0**，取代原本的預設 MIT，[備忘 §8.15](DECISION-MEMO-lts-2026-09-30.md#user-decisions-2026-10-18d)）、NOTICE、第三方聲明與逐檔修改告示、SECURITY.md（GitHub 私密漏洞通報）、SUPPORT（盡力回覆、無時限、受每月上限約束） | 根目錄；（2026-10-18 擴大）windows／macos 的 `skills/超級模式/SKILL.md`、`skills/超級模式/references/orchestration.md`、`skills/超級模式/references/review-output.schema.NOTICE.md`（新增）、`CLAUDE-global-rule.md`；`docs/AI-INSTALL.md`（步驟 5）、`docs/plugin-learnings-plan-2026-07.md`、`docs/plugin-reeval-2026-08.md`、`docs/codex-check-hardening-plan-2026-07.md`、`docs/handoff-capability-baseline-port.md`、`docs/AUDIT-upstream-drift-2026-09-14.md`、`docs/AUDIT-upstream-drift-2026-10-17.md`；`README.md`（授權段與目錄樹） | S0 核對；W 准入前補檔（授權檔與告示要在 Windows RC 之前） | 否 |
 | C1 `WINDOWS-CI` | `windows.yml`：pwsh 7 與 WinPS 5.1；runner 釘 `windows-2025`；action 釘 SHA；`permissions: contents: read`；不引用 secrets；不設 paths 過濾（只改 docs 的 SHA 也要有 run，A1 與日後的 required check 才不會缺）；金絲雀假 codex；測試前後斷言 `~/.claude` 不存在（2026-10-15 修好 consult-schema 寫進真實家目錄的問題後，這條斷言才可能成立，見 backlog [`CONSULT-SCHEMA-HOME-LEAK`](backlog.md#CONSULT-SCHEMA-HOME-LEAK)）；`run-windows.ps1` 兩個 host 都精確比對案數；suite 摘要行在 YAML 端精確比對（批次 1：`entries=14 ran=14 skipped=0 fail=0`） | `.github/workflows/`、`.github/scripts/`、`tests/**`、`windows/skills/超級模式/tests/**` | W | 否 |
 | C2 `MACOS-CI` | `macos.yml`：runner 釘 `macos-26`，只用 `/bin/bash` 3.2；三支測試加 `SUT_BASH`；變異注入用 BSD 語法；接上 F2 的 `off-cleanup.tests.sh`（以一般使用者執行，精確比對 `pass=74 fail=0 skip=0`；2026-10-15 白名單收緊後由 68 改為 74） | `.github/workflows/`、`tests/**`、`macos/skills/超級模式/tests/**` | M | 否 |
 | C3 codex-check host 參數化 | `codex-check.tests.ps1` 寫死用 `powershell.exe` 啟動受測腳本，改成兩個 host 都跑；pwsh 腿紅＝A1 FAIL | `windows/skills/超級模式/tests/**` | W | 否 |
@@ -234,7 +234,7 @@
 | V3 配置邊界記錄與自查 | 記錄程序與使用者自查步驟，涵蓋 execpolicy、`CONNECTOR-EXPOSURE`、`GATE-SCOPE-CROSS-SESSION`、`GATE-QUOTE-LEXER` | README、docs | W | 否 |
 | V4 乾淨的驗收環境 | 兩台機器各一個 OS 測試帳號，**由使用者親自建立**。代理之後只負責植入對照規則（陽性：寫標記檔到工作區外的無害 allow 規則；另配一組陰性）並跑驗收 | — | W／M | 否 |
 | V5 `BASELINE-POLICY` | 每次 live 驗收由使用者明示接受 codex-check baseline 並記錄（同時了結 `BASELINE-ACCEPT-0923`）；`CODEX-CHECK-HOOKS-INVENTORY` 列為已知限制 | docs | W／M | 否 |
-| F4 `MOUNT-RMRF`（2026-10-17 由降級改列 MUST，[備忘 §8.11](DECISION-MEMO-lts-2026-09-30.md#user-decisions-2026-10-17b)） | macOS：1b、1c 與回滾 `rm -rf` 前，以裝置號（st_dev）重新偵測 skill 樹底下的掛載點，偵測到或讀不到一律中止、不改 live（macOS 1c 另重掃 symlink，與 Windows 1c 等價）；Windows：1c 前以與 1b 相同的 ReparsePoint 屬性偵測重新掃描。先以模擬（假 stat）驗控制流；**Mac 真機以拋棄式 APFS image 驗證後才算完成**（2026-10-18 已在 Mac 真機驗證，受測 `e250db0`） | `docs/AI-INSTALL.md`（macOS 1b／1c／回滾區塊、Windows 1c）、`tests/ai-install/**`、`README.md`（限制第 2 條與其引用處，待 §5.2 新文字核准後改） | W（模擬）／M（Mac 真機） | 否 |
+| F4 `MOUNT-RMRF`（2026-10-17 由降級改列 MUST，[備忘 §8.11](DECISION-MEMO-lts-2026-09-30.md#user-decisions-2026-10-17b)） | macOS：1b、1c 與回滾 `rm -rf` 前，以裝置號（st_dev）重新偵測 skill 樹底下的掛載點，偵測到或讀不到一律中止、不改 live（macOS 1c 另重掃 symlink，與 Windows 1c 等價）；Windows：1c 前以與 1b 相同的 ReparsePoint 屬性偵測重新掃描。先以模擬（假 stat）驗控制流；**Mac 真機以拋棄式 APFS image 驗證後才算完成**（2026-10-18 已在 Mac 真機驗證，受測 `e250db0`） | `docs/AI-INSTALL.md`（macOS 1b／1c／回滾區塊、Windows 1c）、`tests/ai-install/**`、`README.md`（限制第 2 條與 Linux 段的（c）；2026-10-18 已依核准原文改） | W（模擬）／M（Mac 真機） | 否 |
 | `CONSULT-TOKEN-REPLACE-FLAKE`（2026-10-17 改列 MUST） | Windows consult 寫入憑證時，對「檔案暫時被占用」一類錯誤做有限重試（最多 6 次嘗試，名目退避合計 1.55 秒）；用盡仍照舊 exit 44。確定性故障注入測試，加上整支 consult「先失敗、後成功」的整合測試 | `windows/skills/超級模式/scripts/codex-consult.ps1`、`windows/skills/超級模式/tests/consult-credential.tests.ps1` | W | 否 |
 | `CC-NOBASH-FAILCLOSED`（2026-10-17 改列 MUST） | Windows 安裝必須先有 Git for Windows：AI-INSTALL §0 的 0a 依 Claude Code 的偵測順序找 Git Bash，並實際執行確認是 Git 的 bash（排除 WSL），沒有就停止安裝；解除安裝改為先移除 settings 的 hook、開新 session，再刪檔；README 前置條件同步 | `docs/AI-INSTALL.md`（§0 0a、解除安裝段）、`tests/ai-install/**`、`.github/workflows/windows.yml`（案數）、`README.md`、`AGENTS.md`（「安裝本 repo」段） | W | 否 |
 | `CODEX-CHECK-CP437`（2026-10-17 改列 MUST） | `codex-check.ps1` 開頭把主控台輸出編碼設為 UTF-8（與 consult／exec 相同）；測試在 437 主控台下驗證中文輸出 | `windows/skills/超級模式/scripts/codex-check.ps1`、`windows/skills/超級模式/tests/codex-check.tests.ps1` | W | 否 |
@@ -261,14 +261,19 @@ G3（push 分支、單一 PR 合併）屬工作方式，移出 MUST：10/14 的�
 **F3 `OUTFILE-CMDSAFE`**
 > Windows `codex-exec.ps1` 的 `-OutFile` 不檢查 cmd 的危險字元；請勿傳入含 `%`、`!`、`"`、`&`、`|`、`<`、`>`、`^` 的路徑。
 
-**F4 `MOUNT-RMRF`（原預設 ACCEPTED_RISK、兩段文字擇一；2026-10-17 使用者改為修復並列 MUST，見 [§5.1](#must)。下面第三段是新的草稿，待使用者核准）**
+**F4 `MOUNT-RMRF`（原預設 ACCEPTED_RISK、兩段文字擇一；2026-10-17 使用者改為修復並列 MUST，見 [§5.1](#must)；2026-10-18 已修並經 Mac 真機驗證）**
+- **核准原文（2026-10-18 使用者核准，[備忘 §8.13](DECISION-MEMO-lts-2026-09-30.md#user-decisions-2026-10-18b)；只核准了這一段，不代表 §5.2 全文已核准）**：
+  > **macOS**：含 F4 修正的版本，會在安裝前、寫入 live 前及回滾刪除前，以裝置號檢查 skill 目錄本身與子目錄；偵測到裝置號不同的掛載點時中止。裝置號相同的掛載，以及檢查後、刪除前才新增的掛載，仍可能讓回滾刪除掛載內資料。請在安裝及回滾期間保持相關掛載卸載。
+  >
+  > **Linux（已凍結）與 `80c60a8` 凍結快照的 macOS**：沒有上述偵測；掛載點位於 skill 目錄內且執行到回滾時，仍有跨入掛載刪除資料的風險。
+- 以下是原本預寫的兩段與 10/17 的草稿，都已不適用（修正已完成並經真機驗證），保留作紀錄：
 - 安裝前偵測**沒有**完成並驗證：
   > skill 樹（`~/.claude/skills/超級模式`）底下有掛載點的 macOS 不在支援範圍內：安裝回滾的 `rm -rf` 會跨進掛載點、刪掉裡面的資料，而安裝流程偵測不到掛載點。
 - 安裝前偵測已完成並驗證：
   > skill 樹底下有掛載點的 macOS 不在支援範圍內。AI-INSTALL 會在安裝前偵測並中止；偵測只涵蓋安裝當下，不構成回滾安全保證。
-- （2026-10-17 草稿，待使用者核准）修復完成並經 Mac 真機驗證後：
+- （2026-10-17 草稿；2026-10-18 由上面的核准原文取代：Codex 指出它沒寫明哪個版本有保護，也沒說出剩餘後果）修復完成並經 Mac 真機驗證後：
   > skill 樹底下有掛載點時，AI-INSTALL 會在安裝前、寫入 live 前與回滾刪除前各重新偵測一次並中止（以裝置號判斷）。偵測與動作之間仍有時間窗；裝置號相同的掛載偵測不到。
-  Mac 真機驗證前，這段要加上「目前只有模擬測試，macOS 真機待驗」。（2026-10-18：Mac 真機已驗證，這個附加句不再需要；本段仍待使用者核准。）
+  Mac 真機驗證前，這段要加上「目前只有模擬測試，macOS 真機待驗」。（2026-10-18：Mac 真機已驗證，這個附加句不再需要；已由上面的核准原文取代。）
 
 **F5 `POSIX-UUIDGEN-PYTHON3`**（相依仍要在 M0 實際驗過）
 > macOS 需要 python3、uuidgen、perl；安裝流程不檢查，請先自行確認（`command -v python3 uuidgen perl`）。
@@ -346,7 +351,7 @@ G3（push 分支、單一 PR 合併）屬工作方式，移出 MUST：10/14 的�
 - 重驗：每 28 天一次，對當時的最新版批次重驗；期間出現的新版本一律標「未驗收、best-effort」，到下次重驗為止；不釘版。
 - plugin 自動更新：劃出配置邊界，驗收時記錄 revision。
 - baseline：每次 live 驗收由使用者明示接受並記錄。
-- 授權條款：MIT（先核對上游條款）；SECURITY.md 用 GitHub 私密漏洞通報。
+- 授權條款：~~MIT（先核對上游條款）~~ 2026-10-18 使用者裁決採 Apache-2.0（備忘 §8.15）；SECURITY.md 用 GitHub 私密漏洞通報。
 - 支援終止日：2027-04-30；要延長由使用者裁決。
 
 <a id="maintenance"></a>
@@ -379,5 +384,8 @@ G3（push 分支、單一 PR 合併）屬工作方式，移出 MUST：10/14 的�
 3. F2：2026-10-15 使用者已確認列入 MUST，並選擇收緊白名單（備忘 §8.7；實作取捨見 backlog [`OFF-CLEANUP-RECURSIVE`](backlog.md#OFF-CLEANUP-RECURSIVE)）。~~仍待裁決：F4 的 ACCEPTED_RISK。~~（2026-10-17 已裁決：改為修復並列 MUST，見[備忘 §8.11](DECISION-MEMO-lts-2026-09-30.md#user-decisions-2026-10-17b)。）Codex 10/15 補充：若接受，風險範圍應涵蓋回滾當下才存在的掛載點（包括備份之後才掛上的）；日後若授權技術修補，優先評估在 `rm -rf` 前重新偵測並中止，而不是只做安裝前偵測。
 4. 待裁決的缺陷：[`CODEX-CHECK-CP437`](backlog.md#CODEX-CHECK-CP437)（en-US／cp437 主控台的中文輸出變 `?`）、[`CODEX-CHECK-WARNING`](backlog.md#CODEX-CHECK-WARNING)（原本延後的前提已失效），以及 2026-10-15 新發現的 [`CONSULT-TOKEN-REPLACE-FLAKE`](backlog.md#CONSULT-TOKEN-REPLACE-FLAKE)（覆蓋既有憑證偶發 exit 44；會讓 CI flaky、擋 A1；修法屬產品變更）。（2026-10-17 已裁決：三項都改為修復並列 MUST，見[備忘 §8.11](DECISION-MEMO-lts-2026-09-30.md#user-decisions-2026-10-17b)。）
 5. 兩台機器的測試帳號（由使用者建立）；Mac 的兩段時段。
-6. [§3.3](#checkpoints) 的目標日、支援終止日、授權條款。
+6. [§3.3](#checkpoints) 的目標日、支援終止日、授權條款。（授權條款 2026-10-18 已裁決：Apache-2.0，備忘 §8.15。）
 7. 每一次 push、打 tag、合併 PR、改 repo 設定。
+8. **A4 訂正提案（2026-10-18 草擬，待核准；核准前 A4 照舊）**：A4 現行的「F4 的 ACCEPTED_RISK 要有使用者裁決紀錄」已與使用者 2026-10-17 改為修復的裁決（備忘 §8.11）矛盾（Codex 10/18 指出）。提案把 A4 改成：
+   > [§5.1](#must) 的 MUST 每項都已關閉，或已套用 [§5.2](#downgrades) 的對應文字，且不碰到 MVS。任何 MUST 若改走 ACCEPTED_RISK，要有使用者的裁決紀錄（目前沒有：F2 於 2026-10-15、F4 於 2026-10-17 都由使用者改為修復，見備忘 §8.7、§8.11）。
+   這只是本點的提案；§4 全文（含 A4）的核准仍屬第 1 點。

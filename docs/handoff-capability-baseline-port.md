@@ -6,6 +6,8 @@
 > 理由：實作已隨 Codex CLI 演進數版（本機現為 **0.145.0**），文件中的片段只是撰寫當下的快照。
 > 同一個坑已在 [`handoff-0143-capability-surface-port.md`](handoff-0143-capability-surface-port.md) 發生過——
 > 那份的可貼上片段寫死 feature 名單，對照 0.145 實測的 37 項只涵蓋 6 項、且有 2 項已不存在。
+>
+> **出處**：第 8 點引用的零項 boilerplate 訊息照錄自 openai/codex rust-v0.144.3 的 CLI 輸出（Apache-2.0）；見 repo 根目錄的 [`LICENSE`](../LICENSE)、[`NOTICE`](../NOTICE) 與 [`THIRD_PARTY_NOTICES.md`](../THIRD_PARTY_NOTICES.md)。
 
 > **執行紀錄（2026-07-16，macOS）**：macOS 版已完成移植——`macos/.../scripts/codex-check.sh`（`-u/--update-baseline`）、
 > 19 個 `t_b_*` 案全數鏡像（合成測試臺 47 案 118 斷言全綠，t_b_no_drift 內加測 BOM+CRLF 容忍）、

@@ -919,6 +919,8 @@ elseif (Get-Entry $setf) { Remove-Item -LiteralPath $setf -Force }
 4. **Append**：把對應平台 snippet 檔的**全文**（含 BEGIN/END marker 註解）附加到 `~/.claude/CLAUDE.md` 末尾（檔案不存在就建立）。
 5. 告知使用者：新開的 Claude Code session 起生效。
 
+> **授權告示**：snippet 有一句規則改寫自 OpenAI codex-plugin-cc（Apache-2.0），出處註解在 BEGIN／END 區塊內的第二行；照第 4 點 append 全文時連同這行一起寫入，照第 3 點更新時只替換 BEGIN／END marker 之間的區塊，不要單獨刪掉它。見 repo 根目錄的 [`LICENSE`](../LICENSE)、[`NOTICE`](../NOTICE) 與 [`THIRD_PARTY_NOTICES.md`](../THIRD_PARTY_NOTICES.md)。
+
 ## 6. 完成回報
 
 回報使用者：裝了哪些檔、測試結果、Codex 可用性、討論夥伴規則有沒有啟用（沒啟用要說原因）、以及解除安裝方式（見下）。

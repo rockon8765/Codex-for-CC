@@ -17,6 +17,8 @@
 > - (g) §3.1 Hooks 信任列（:60）「#45293 cwd 被刪時 PreToolUse 靜默跳過」：#45293 在 2026-09-13 的讀碼留言指出，失敗會以 status failed 加 error entry 記錄，是「記錄但不阻擋」，不是靜默跳過。
 > - (h) §3.1 Astra safeguard 列（:64）寫 #45316／#45327 回報「Daybreak isn't available for Astra…」：這段文案只出現在 #45316，#45327 內文沒有；它是 Codex TUI 的通知文案（0.154.0 就是如此），headless 的 consult／exec 遇到 cyber 拒答時，stderr 只會有 `ERROR: <伺服器訊息>`。
 > - (i) §3.2 的 2.1.268 列（:79）「`env -C`／`eval` 同行讓 deny 失效已修」：2.1.273 已撤回 2.1.268 的這項變更——對 permission checker 無法分析的 Bash 行（`eval`、`env -C`），不再套 Read／Edit deny 規則直接拒絕，改回跳提示詢問。
+>
+> **出處**：本檔引用的 Codex CLI 錯誤文案與 prompt 片段出自 openai/codex（Apache-2.0），多數已在原處標示 tag 或檔名；見 repo 根目錄的 [`LICENSE`](../LICENSE)、[`NOTICE`](../NOTICE) 與 [`THIRD_PARTY_NOTICES.md`](../THIRD_PARTY_NOTICES.md)。
 
 ---
 

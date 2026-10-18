@@ -313,9 +313,10 @@ AGENTS.md「LTS 建置期」段與計畫 §4、§5.2 都核准之前，對 `lts/
 | 2026-10-17 | `8a0b953` | 10/28 報告 §3、consult 改回跟隨 config 的補記、工時 | 使用者送出的訊息：「把這批（10/28 報告 §3、consult 改回跟隨 config 的補記、工時）提交成一個 commit，並單次推送到 origin/lts/build；不推 tag、main 不動。」 | success（[39036096539](https://github.com/rockon8765/Codex-for-CC/actions/runs/39036096539)） |
 | 2026-10-17 | `040b344` | push 紀錄集中到本節；AGENTS.md、計畫改成指向本節 | 使用者送出的訊息：「把這批（push 紀錄集中到備忘 §8.10）提交成一個 commit，並單次推送到 origin/lts/build；不推 tag、main 不動。」 | success（[39037102465](https://github.com/rockon8765/Codex-for-CC/actions/runs/39037102465)；2026-10-18 補記） |
 | 2026-10-18 | `e250db0` | 五項新 MUST 修補（F4、`CONSULT-TOKEN-REPLACE-FLAKE`、`CC-NOBASH-FAILCLOSED`、`CODEX-CHECK-CP437`、`CODEX-CHECK-WARNING`）、新登 `CODEX-CHECK-SH-STDERR`、輪數帳與工時 | 使用者送出的訊息：「把這批（五項 MUST 修補與文件更新）提交成一個 commit，並單次推送到 origin/lts/build；不推 tag、main 不動。」 | success（[39055964004](https://github.com/rockon8765/Codex-for-CC/actions/runs/39055964004)；linux.yml 亦 success） |
-| 2026-10-18 | 本列所在的 commit（SHA 下次更新時補） | F4 依 Mac 真機驗證結案；`CODEX-CHECK-SH-STDERR` 列 MUST 並修（macOS `codex-check.sh`）；輪數帳與工時 | 使用者送出的訊息：「把這批（F4 結案、CODEX-CHECK-SH-STDERR 修正與文件）提交成一個 commit，並單次推送到 origin/lts/build；不推 tag、main 不動。推完給我 Mac 驗收提示。」 | 推送時尚未執行（下次更新時補） |
+| 2026-10-18 | `eff172b` | F4 依 Mac 真機驗證結案；`CODEX-CHECK-SH-STDERR` 列 MUST 並修（macOS `codex-check.sh`）；輪數帳與工時 | 使用者送出的訊息：「把這批（F4 結案、CODEX-CHECK-SH-STDERR 修正與文件）提交成一個 commit，並單次推送到 origin/lts/build；不推 tag、main 不動。推完給我 Mac 驗收提示。」 | success（[39087113093](https://github.com/rockon8765/Codex-for-CC/actions/runs/39087113093)；linux.yml 亦 success） |
+| 2026-10-18 | 本列所在的 commit（SHA 下次更新時補） | F4 §5.2 原文核准與 README 同步、A4 訂正提案、`CODEX-CHECK-SH-STDERR` 依 Mac 原生驗收結案、授權來源盤點、Apache-2.0 落地（G7） | 使用者送出的訊息：「把這批（F4 核准文字、A4 提案、CODEX-CHECK-SH-STDERR 結案、授權盤點與 Apache-2.0 落地）提交成一個 commit，並單次推送到 origin/lts/build；不推 tag、main 不動。」 | 推送時尚未執行（下次更新時補） |
 
-註：後三列的訊息文字是 Claude 在下一步按鈕裡預先擬好、由使用者點選送出的，§8.9 稱為「使用者原話」，精確說法是「使用者送出的訊息」。2026-10-18 的兩列同樣是 Claude 擬好、由使用者點選送出的訊息。
+註：後三列的訊息文字是 Claude 在下一步按鈕裡預先擬好、由使用者點選送出的，§8.9 稱為「使用者原話」，精確說法是「使用者送出的訊息」。2026-10-18 的三列同樣是 Claude 擬好、由使用者點選送出的訊息。
 
 <a id="user-decisions-2026-10-17b"></a>
 ### 8.11 2026-10-17 晚上使用者裁決：待決缺陷改為修復、Windows 安裝要求 Git
@@ -345,3 +346,55 @@ Claude 用白話說明四項待決事項（flake 修補、沒有 Git Bash 時 ga
 
 - 計畫 §5.1 加列 [`CODEX-CHECK-SH-STDERR`](backlog.md#CODEX-CHECK-SH-STDERR)（MUST 26 項）。路徑：`macos/skills/超級模式/scripts/codex-check.sh`、`macos/skills/超級模式/tests/codex-check.tests.sh`、`macos/skills/超級模式/tests/codex-check-stubs/**`。`linux/` 凍結，同名檔不改。
 - 「Mac 原生驗收跟 F4 一起做」：使用者送出這則訊息之後，緊接著貼回了 F4 的 Mac 真機驗證結果（受測 `e250db0`，當時本 ID 尚未實作）。所以本 ID 的 Mac 原生驗收要另跑一次，Claude 把它寫進下一份 Mac 驗收提示。
+
+<a id="user-decisions-2026-10-18b"></a>
+### 8.13 2026-10-18 使用者核准：F4 的已知限制原文
+
+Claude 以白話說明四項待決事項（F4 文字、tag `pre-lts`、支援終止日、授權條款），並附上 Codex 反方意見後，使用者送出的訊息（Claude 在下一步按鈕裡擬好、使用者點選送出）：
+
+> 核准 F4 修訂版文字：寫進計畫 §5.2、同步 README 兩處，並準備 A4 的訂正提案；另外先做授權來源盤點。只留在本機，做完給我看 diff。
+
+核准的原文（Codex 10/18 修訂版；逐字寫進計畫 §5.2 與 README 限制第 2 條）：
+
+> **macOS**：含 F4 修正的版本，會在安裝前、寫入 live 前及回滾刪除前，以裝置號檢查 skill 目錄本身與子目錄；偵測到裝置號不同的掛載點時中止。裝置號相同的掛載，以及檢查後、刪除前才新增的掛載，仍可能讓回滾刪除掛載內資料。請在安裝及回滾期間保持相關掛載卸載。
+>
+> **Linux（已凍結）與 `80c60a8` 凍結快照的 macOS**：沒有上述偵測；掛載點位於 skill 目錄內且執行到回滾時，仍有跨入掛載刪除資料的風險。
+
+落實與範圍（Claude 的理解，照實記錄）：
+
+- 只核准了 F4 這一段。計畫 §4、§5.2 的全文核准（計畫 §9 第 1 點）仍未完成。
+- A4 的訂正提案已草擬在計畫 §9 第 8 點，待核准；核准前 A4 照舊。
+- tag `pre-lts`：Codex 建議先不建立（文件裡「請用 `80c60a8`」可以照常用），等真正需要公開名稱時再呈現完整 SHA 與 tag 訊息請使用者決定。使用者這次沒有裁決，維持未建立。
+- 支援終止日：維持 2027-04-30 作規劃基準；Codex 建議准入時依兩平台合計的維護成本再請使用者決定。使用者這次沒有裁決。
+- 授權條款：使用者要求先做來源盤點，盤點完成後再呈現兩個具體方案。
+
+<a id="user-decisions-2026-10-18c"></a>
+### 8.14 2026-10-18 使用者確認：PR #1 的作者是本人
+
+Claude 問「PR #1 的作者 Jao1225 是你本人嗎？」後，使用者送出的訊息（Claude 在下一步按鈕裡擬好、使用者點選送出）：
+
+> Jao1225 是我本人的另一個帳號。請準備 MIT／Apache 兩套授權草案。
+
+落實（Claude 的理解，照實記錄）：
+
+- PR #1（2026-07-05 合併）的內容視為使用者本人的著作，不需要另外取得授權，也不需要為此改寫。當時 PR 留言把對方當成另一個人、並提醒 commit 用了擁有者的信箱——依使用者的說明，那是同一個人用兩個帳號。
+- 因此本備忘 §1 的「GitHub 貢獻者只有維護者本人」與事實相符，盤點時記為不一致的那一條撤回。
+- 授權：準備 MIT 與 Apache-2.0 兩套具體草案（只在本機），之後一次請使用者確認主授權、著作權人署名與要擴大的路徑範圍。
+
+<a id="user-decisions-2026-10-18d"></a>
+### 8.15 2026-10-18 使用者裁決：授權條款採 Apache-2.0
+
+Claude 呈現 MIT／Apache-2.0 兩套草案（本機草稿，不進 repo；落地的結果就是根目錄的 `LICENSE`、`NOTICE`、`THIRD_PARTY_NOTICES.md` 與各檔告示）與建議的預設後，使用者送出的訊息（Claude 在下一步按鈕裡擬好、使用者點選送出）：
+
+> 照建議定案：主授權 Apache-2.0、署名 rockon8765，其餘全照草案預設，並核准擴大 G7 的路徑範圍。先只在本機落地，做完給我看 diff。
+
+落實（Claude 的理解，照實記錄）：
+
+- 主授權：Apache-2.0，取代計畫 G7 與 §7 的「預設 MIT」。著作權人署名 `rockon8765`。
+- 〔通知〕（上游歸屬與修改告示）與〔主授權〕一起做，只在 `lts/build`；不動 `main`，也不另提 `main` 的規則例外。要在 Windows RC 之前落地。
+- 草案預設全部照做：schema 的告示放在同目錄的 `review-output.schema.NOTICE.md`（JSON 檔本身不動）；安裝到 `~/.claude` 的副本不另附授權檔；codex-check 的測試 stub、腳本註解與 `docs/backlog.md` 只列在第三方聲明；snippet marker 維持 `v1`；Codex 諮詢輸出那一列暫列第三方聲明第 5 節、不納入主授權；Ratatui 段照錄；Apache 全文用 GitHub API 版；`.gitattributes` 不改；README 不補記「先前的公開版本沒有授權檔」。
+- G7 路徑擴大為：根目錄的 `LICENSE`、`NOTICE`、`THIRD_PARTY_NOTICES.md`；windows／macos 的 `skills/超級模式/SKILL.md`、`skills/超級模式/references/orchestration.md`、`skills/超級模式/references/review-output.schema.NOTICE.md`（新增）、`CLAUDE-global-rule.md`；`docs/AI-INSTALL.md`（步驟 5）、`docs/plugin-learnings-plan-2026-07.md`、`docs/plugin-reeval-2026-08.md`、`docs/codex-check-hardening-plan-2026-07.md`、`docs/handoff-capability-baseline-port.md`、`docs/AUDIT-upstream-drift-2026-09-14.md`、`docs/AUDIT-upstream-drift-2026-10-17.md`；`README.md`（授權段與目錄樹）。`linux/` 凍結，只列在根目錄聲明；MIRRORED 檔不改。
+- SECURITY.md 與 SUPPORT（G7 的另外兩項）不在這次裁決內，仍待辦。
+- 這次核准一併涵蓋 AGENTS.md 第 5 項邊界上的四類內容（草案說明裡列為需要明確核准）：AI-INSTALL 步驟 5 後的告示、加在規則行本身的就地出處註、`orchestration.md` 舊出處註的事實訂正（windows／macos；`linux/` 凍結，舊註保留原狀）、放在 `references/` 底下的新告示檔。
+- 已知缺口（接受到合併進 `main` 為止）：windows／macos 的 `orchestration.md` 與 `SKILL.md` 共 18 個 `https://github.com/rockon8765/Codex-for-CC/blob/main/{LICENSE,NOTICE,THIRD_PARTY_NOTICES.md}` 連結，在 `lts/build` 合併進 `main` 之前會 404；檔頭告示、snippet 與 schema 告示檔寫的是 repo 根網址，不會 404，但合併前 `main` 根目錄沒有這三個檔（「安裝副本不附授權檔」的預設接受這段空窗）。合併後實際點開核對一次。
+- 落地時兩處小修正（準確度，不改任何裁決）：README 授權段最後一條由「文件與測試裡引用的」改為「程式、文件與測試裡引用的」（第三方聲明也列了 `lib/gate-registration.js` 執行期訊息裡的引文）；`THIRD_PARTY_NOTICES.md` 開頭的節次清單補上第 4 節（致謝）。另外落地時刪掉了草案裡一句只在草案階段有意義的話（「這個分類描述的是落地後的狀態，落地之前這些檔案都還沒有告示」）。

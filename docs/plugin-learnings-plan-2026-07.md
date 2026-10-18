@@ -12,6 +12,8 @@ T7 首版 hook 派工完成後，Claude 逐行審＋2 個唯讀對抗審子代�
 > 依據：2026-07-06 對 [openai/codex-plugin-cc](https://github.com/openai/codex-plugin-cc)（官方，v1.0.5）四鏡頭原始碼分析＋多輪 Codex 反方諮詢（transcripts 在 `~/.claude/super-mode-logs/`：方案 `*_233713_*`、規劃書 v1.0 BLOCK `*_235207_*`、T7 排程 `*_000122_*`、執行模式 `*_001626_*`）。
 > 版本史：v1.0→v1.1 Codex BLOCK 7 findings 全採納；v1.1→v1.2 加 T7；v1.2→v1.3 §4 執行模式定案＋簽核；v1.3→v2.0 **步驟級細化**——每步含目的／操作／做對判準／對抗變化，插入文字直接內嵌，弱 AI 可照做；v2.0→v2.1 Codex 弱 AI 可執行性審查 BLOCK（`*_003110_*`）全採納——判準去 glob 化、schema 結構斷言、T7 首版 policy map＋逐點驗收表、測試臺加 reasonIncludes、live 驗證改打真實漏洞情境、T5 probe 指令具體化＋狀態檔強化、§0.5 補分支／編碼防護；v2.1→v2.2 第二輪確認審（`*_003839_*`）收殘項——T3/T4 判準去 glob 化補完、T7-S3 測試改「注入測試條目驗 map 邏輯＋空表 deny 行為」解自相矛盾（policy map 空表設計獲確認）。
 > 語言慣例：說明繁中；程式碼／指令／檔名英文。
+>
+> **授權告示**：本規劃書內嵌的提示詞規則中譯與 schema 規格改寫自 OpenAI codex-plugin-cc v1.0.5（Apache-2.0），已中譯並修改；見 repo 根目錄的 [`LICENSE`](../LICENSE)、[`NOTICE`](../NOTICE) 與 [`THIRD_PARTY_NOTICES.md`](../THIRD_PARTY_NOTICES.md)。
 
 ---
 
