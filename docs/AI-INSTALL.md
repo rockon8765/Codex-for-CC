@@ -173,6 +173,7 @@ node ".\windows\skills\超級模式\tests\run-gate-tests.js"               # 這
 node ".\windows\skills\超級模式\tests\matcher-contract.test.js" --repo # hook 的工具清單 vs settings matcher 是否一致
 & ".\windows\skills\超級模式\tests\run-windows-suite.ps1" -Mode repo   # 全部 Windows 測試的單一入口；最後要看到 SUITE_RESULT=OK
 #   （已含 tests\no-multibyte-varref.test.js：禁止 $var 緊接多位元組字元）
+#   （已含 project-root-marker.tests.ps1：.codex-project-root ⇒ 單次 project_root_markers 覆寫、-C 不變；stub codex，暫存 USERPROFILE）
 ```
 
 > ℹ️ **`run-windows-suite.ps1` 約需 6 分鐘**（含 codex-check 的 pwsh／5.1 兩條腿，各約 2 分鐘）。
