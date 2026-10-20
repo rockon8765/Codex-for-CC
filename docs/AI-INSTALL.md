@@ -164,6 +164,7 @@ node "macos/skills/超級模式/tests/matcher-contract.test.js" --repo # hook �
 bash "macos/skills/超級模式/tests/exit-code-contract.smoke.sh"     # consult 的退出碼契約(42/46/原樣傳回)與配額判準
 bash "macos/skills/超級模式/tests/fault-injection.smoke.sh"        # cat/rm/mktemp 故障注入 ＋ 三個 mutant（上一支沒刺激到的三條路）
 bash "macos/skills/超級模式/tests/off-cleanup.tests.sh"            # super-mode off 只清頂層白名單逐字稿；暫存 HOME，不碰真的 ~/.claude
+bash "macos/skills/超級模式/tests/project-root-marker.tests.sh"    # .codex-project-root ⇒ 單次 project_root_markers 覆寫、-C 不變；stub codex，暫存 HOME
 node "tests/no-multibyte-varref.test.js"                           # 禁止 `$var` 緊接多位元組字元（部分 locale 下 bash 會併進變數名）
 ```
 Windows:
@@ -634,6 +635,7 @@ bash ~/.claude/skills/超級模式/tests/run-e2e.sh                      # 應�
 bash ~/.claude/skills/超級模式/tests/exit-code-contract.smoke.sh     # 退出碼契約；驗的是**剛安裝的那份** consult
 bash ~/.claude/skills/超級模式/tests/fault-injection.smoke.sh        # 故障注入 ＋ mutant；同樣驗**剛安裝的那份**
 bash ~/.claude/skills/超級模式/tests/off-cleanup.tests.sh            # off 的逐字稿清理範圍；暫存 HOME，驗**剛安裝的那份** super-mode.sh
+bash ~/.claude/skills/超級模式/tests/project-root-marker.tests.sh    # 指示根偵測；驗**剛安裝的那份** codex-exec.sh／codex-consult.sh
 ```
 
 **Windows**
