@@ -44,6 +44,36 @@ if [ -n "$schema" ]; then
   schema_args=(--output-schema "$schema")
 fi
 
+# 專案指示根（2026-10-20）：非 git 專案以子目錄當 -d 時，codex 找不到 project root（預設標記
+# 只有 .git），只載入 cwd 的 AGENTS.md，專案根的規則整個漏掉、外表看不出差別（rollout 實證）。
+# 專案根放空檔 .codex-project-root；從 -d 往上找得到它，就以**單次** -c 把它加進
+# project_root_markers。-C 仍是 -d（cwd 與可寫範圍不變），不改 ~/.codex/config.toml。
+# 這裡只決定帶不帶覆寫、並預告指示根給摘要；AGENTS.md 的實際載入仍由 codex 做，驗收看 rollout。
+# ⚠️ find_up 找不到回 1，`$(…)` 在 set -e 之下會中止 → 呼叫端一律 `|| true`。
+find_up() {  # find_up <start> <name>：start 起往上第一個含 name 的目錄
+  _d="$1"
+  while :; do
+    if [ -e "$_d/$2" ]; then printf '%s' "$_d"; return 0; fi
+    if [ "$_d" = "/" ]; then return 1; fi
+    _d="$(dirname "$_d")"
+  done
+}
+root_args=() root_override="no" instr_root="unknown"
+cwd_abs="$(cd "$dir" 2>/dev/null && pwd -P || true)"
+if [ -n "$cwd_abs" ]; then
+  marker_dir="$(find_up "$cwd_abs" .codex-project-root || true)"
+  git_dir="$(find_up "$cwd_abs" .git || true)"
+  if [ -n "$marker_dir" ]; then
+    root_override="yes"
+    root_args=(-c 'project_root_markers=[".git",".codex-project-root"]')
+  fi
+  # codex 取 cwd 往上最近的標記目錄；兩者都是 cwd 的祖先，路徑較長者較近。
+  instr_root="$git_dir"
+  if [ "${#marker_dir}" -gt "${#instr_root}" ]; then instr_root="$marker_dir"; fi
+  if [ -z "$instr_root" ]; then instr_root="none (cwd only)"; fi
+fi
+root_note=" ; cwd: ${cwd_abs:-$dir} ; instructions root: ${instr_root} ; project_root_markers override: ${root_override}"
+
 logdir="$HOME/.claude/super-mode-logs"
 if ! mkdir -p "$logdir" 2>/dev/null; then
   echo "EXEC_TRANSCRIPT_UNAVAILABLE: 無法建立逐字稿目錄 ${logdir}。**尚未呼叫 codex**。" >&2
@@ -87,7 +117,8 @@ fi
 set +e
 if [ "$quiet" = "1" ]; then
   codex exec --sandbox workspace-write --disable remote_plugin --skip-git-repo-check \
-    -c memories.use_memories=false -c memories.generate_memories=false -C "$dir" \
+    -c memories.use_memories=false -c memories.generate_memories=false \
+    ${root_args[@]+"${root_args[@]}"} -C "$dir" \
     ${schema_args[@]+"${schema_args[@]}"} --output-last-message "$out" \
     < "$brief_tmp" 2> "$err_tmp" | tee -a "$log" > /dev/null
   # ⚠️ quiet 分支原本是 `>> "$log"` 直送：log 開檔/寫入失敗時，失敗會**冒充成 codex 的
@@ -100,7 +131,8 @@ if [ "$quiet" = "1" ]; then
   if [ "$log_tee_rc" -ne 0 ]; then transcript_error="逐字稿寫入失敗 (tee rc=$log_tee_rc)"; fi
 else
   codex exec --sandbox workspace-write --disable remote_plugin --skip-git-repo-check \
-    -c memories.use_memories=false -c memories.generate_memories=false -C "$dir" \
+    -c memories.use_memories=false -c memories.generate_memories=false \
+    ${root_args[@]+"${root_args[@]}"} -C "$dir" \
     ${schema_args[@]+"${schema_args[@]}"} --output-last-message "$out" \
     < "$brief_tmp" 2> "$err_tmp" | tee -a "$log"
   # ⚠️ 同一語句整包複製 PIPESTATUS —— 賦值本身會重設它（見 codex-consult.sh 同段註解）。
@@ -139,7 +171,7 @@ if [ "$code" -eq 0 ]; then
     echo "EXEC_TRANSCRIPT_FAILED: codex 成功 (exit 0)，但逐字稿寫入失敗 -- $transcript_error transcript(可能不完整): $log ; last message: $out" >&2
     exit 46
   fi
-  echo "exec OK -- transcript: $log ; last message: $out"
+  echo "exec OK -- transcript: $log ; last message: ${out}${root_note}"
 else
   echo "codex-exec: codex exited [$code]. transcript: $log$(transcript_note)" >&2
 fi

@@ -131,6 +131,32 @@ if [ -n "$schema" ]; then
   schema_args=(--output-schema "$schema")
 fi
 
+# 專案指示根（2026-10-20）：與 codex-exec.sh 同一段，理由見該檔。只決定帶不帶單次
+# project_root_markers 覆寫；-C 仍是 -d、唯讀/ephemeral 不變。
+# ⚠️ 本支用 --ephemeral，不留 rollout：不能拿「沒有 rollout」判定 AGENTS.md 漏載。
+find_up() {  # find_up <start> <name>：start 起往上第一個含 name 的目錄
+  _d="$1"
+  while :; do
+    if [ -e "$_d/$2" ]; then printf '%s' "$_d"; return 0; fi
+    if [ "$_d" = "/" ]; then return 1; fi
+    _d="$(dirname "$_d")"
+  done
+}
+root_args=() root_override="no" instr_root="unknown"
+cwd_abs="$(cd "$dir" 2>/dev/null && pwd -P || true)"
+if [ -n "$cwd_abs" ]; then
+  marker_dir="$(find_up "$cwd_abs" .codex-project-root || true)"
+  git_dir="$(find_up "$cwd_abs" .git || true)"
+  if [ -n "$marker_dir" ]; then
+    root_override="yes"
+    root_args=(-c 'project_root_markers=[".git",".codex-project-root"]')
+  fi
+  instr_root="$git_dir"
+  if [ "${#marker_dir}" -gt "${#instr_root}" ]; then instr_root="$marker_dir"; fi
+  if [ -z "$instr_root" ]; then instr_root="none (cwd only)"; fi
+fi
+root_note=" ; cwd: ${cwd_abs:-$dir} ; instructions root: ${instr_root} ; project_root_markers override: ${root_override}"
+
 logdir="$HOME/.claude/super-mode-logs"
 # 逐字稿目錄建不出來 → 明講並用專屬 46 收場。原本在 set -e 之下是**靜默** rc 1。
 if ! mkdir -p "$logdir" 2>/dev/null; then
@@ -181,7 +207,8 @@ set +e
 # generate_memories=false 斷寫出(否則簡報進全域 memories，下次 consult 又讀到，自我強化閉環)。
 # 0.144.1(Windows 實測)：關掉後 NO_MEMORIES_VISIBLE、exit 0、MCP 工具面/沙箱邊界皆不受影響。
 codex exec --sandbox read-only --ephemeral --skip-git-repo-check \
-  -c memories.use_memories=false -c memories.generate_memories=false -C "$dir" \
+  -c memories.use_memories=false -c memories.generate_memories=false \
+  ${root_args[@]+"${root_args[@]}"} -C "$dir" \
   ${schema_args[@]+"${schema_args[@]}"} \
   < "$brief_tmp" 2> "$err_tmp" | tee -a "$log" | tee "$ans_tmp"
 # ⚠️ PIPESTATUS 必須在**同一個語句**整包複製：任何 simple command（包含
@@ -247,7 +274,7 @@ if [ "$code" -eq 0 ]; then
 
   if [ "$nocred" -eq 1 ]; then
     # discussion-partner mode: read-only consult without minting the gate credential
-    echo "consult OK -- no credential (discussion mode); transcript: $log"
+    echo "consult OK -- no credential (discussion mode); transcript: ${log}${root_note}"
     exit 0
   fi
   repo="$(cd "$dir" 2>/dev/null && pwd || echo "$dir")"
@@ -287,8 +314,8 @@ PY
     exit 44
   fi
   case "$VOUT" in
-    *" BLOCK") echo "consult OK -- credential written (repo=$repo ttl=20m), but Codex 裁決為 BLOCK：依 §3.5 不得執行原動作，先向使用者回報。transcript: $log" ;;
-    *) echo "consult OK -- credential written (repo=$repo ttl=20m); transcript: $log" ;;
+    *" BLOCK") echo "consult OK -- credential written (repo=$repo ttl=20m), but Codex 裁決為 BLOCK：依 §3.5 不得執行原動作，先向使用者回報。transcript: ${log}${root_note}" ;;
+    *) echo "consult OK -- credential written (repo=$repo ttl=20m); transcript: ${log}${root_note}" ;;
   esac
   exit 0
 fi
