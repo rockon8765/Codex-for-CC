@@ -164,6 +164,7 @@ windows/                         # PowerShell 版（已稽核、已部署）
               consult-schema.tests.ps1  consult-credential.tests.ps1  codex-check.tests.ps1
               exit-code-contract.tests.ps1   # 退出碼契約：preference 矩陣／逐字稿故障／AST 守衛
               off-cleanup.tests.ps1          # super-mode -Off 的逐字稿清理範圍（只清頂層白名單逐字稿）
+              project-root-marker.tests.ps1  # .codex-project-root 偵測與單次 project_root_markers 覆寫（stub codex 經 .cmd → node 驗 argv）
 
 macos/                           # bash 版（平台移植版；驗證覆蓋見上方表格）
   settings.snippet.json
@@ -177,6 +178,7 @@ macos/                           # bash 版（平台移植版；驗證覆蓋見�
     tests/    run-gate-tests.js  run-e2e.sh  matcher-contract.test.js  gate-cases.json
               consult-schema.tests.sh  consult-credential.tests.sh  codex-check.tests.sh
               off-cleanup.tests.sh           # super-mode off 的逐字稿清理範圍（只清頂層白名單逐字稿）
+              project-root-marker.tests.sh   # .codex-project-root 偵測與單次 project_root_markers 覆寫
 
 linux/                           # 🧊 已凍結（2026-10-14）：bash 版（GNU userland）；linux.yml 仍跑這棵凍結的樹與頂層共用測試，綠燈不構成支援
   settings.snippet.json
@@ -311,6 +313,7 @@ hook **在啟用前是 fail-open 且停用的** — 安裝它不會影響一般 
 **macOS / Linux**（Linux 已凍結；與 Linux 有關的條目只是凍結快照的參考）
 - 沒有 BOM 問題 — 那些步驟已刻意移除。簡報以一般 stdin 重導向（`< file`）送給 Codex；stderr 收到獨立檔再併進 log（絕不用 `2>&1`，那會把 Codex 的雜訊回灌進 Claude 的 context）。
 - `set -e` + pipeline 會吞掉 Codex 的 exit code — 腳本用固定的 `set +e … ${PIPESTATUS[0]} … set -e` 寫法（見 [`docs/history/FIX-PLAN-macos-2026-07-03.md`](docs/history/FIX-PLAN-macos-2026-07-03.md) §0.5）。
+- **非 git 專案以子目錄當 `-d`，Codex 會漏載專案根的 AGENTS.md**：找不到 project root（預設標記只有 `.git`）時，Codex 只載入 cwd 的 AGENTS.md，外表看不出差別。在專案根放空檔 `.codex-project-root`；`codex-exec.sh`／`codex-consult.sh`（Windows 為 `.ps1`、`-Dir`）從 `-d` 往上找到它，就以單次 `-c 'project_root_markers=[".git",".codex-project-root"]'` 呼叫，`-C` 仍是 `-d`、不改 `~/.codex/config.toml`，成功摘要印 cwd、預期的指示根與是否帶覆寫。較近的巢狀 `.git`（例如 worktree）仍會先被當成根；`.git` 是檔案、甚至 gitdir 已失效也一樣（2026-10-20 實測）。驗收要看非 ephemeral 探測的 rollout，consult 是 `--ephemeral`、不留 rollout。Windows 版已移植（2026-10-20，同一套偵測與摘要）：覆寫值裡的 `"` 寫成 `\"` 才能穿過 `cmd /c` → `codex.cmd` 的 `%*` → node 的 argv 剖析，裸 `"` 會被剝掉；`project-root-marker.tests.ps1` 以 stub 驗 codex 實收的 argv 與摘要。2026-10-20 Windows 真機實測（pwsh 7.6.7 與 5.1、codex-cli 0.163.0）：該測試兩個 host 皆 80/80，對舊版 48/80（有牙齒）；真 codex 非 ephemeral 探測帶標記時 rollout 載入根 AGENTS.md，拿掉標記則沒有。另外 Windows 的 `-Dir` 本來就拒收含 `&` 的路徑（`Assert-CmdSafePath`），`遠雄債券評價&風險值` 這類目錄不能直接當 `-Dir`。
 - macOS ↔ Linux 的**共通**差異是 `stat`（BSD `-f %m` vs GNU `-c %Y`，在 `codex-check.sh` 與 `super-mode.sh`）——別把版本拿錯邊。
 - ⚠️ **但兩者早已不只差一個 `stat`。** `codex-check.sh` 目前 macOS 549 行、Linux 123 行：**能力面盤點與 baseline diff 整段尚未移植到 Linux**（`capability`/`baseline` 關鍵字在 mac 版各 25／58 處，Linux 版 **0 處**）。（`.codex-check-baseline` 的 hook 安全關鍵檔保護**已於 2026-07-26 補上**，屬未來功能的預留保護——但產生該檔的 `codex-check` 功能本身仍未移植。）**不要**把 macOS 版的 `codex-check.sh` 直接當成 Linux 版的等價物拿來抄或替換。移植規格見 [`docs/handoff-capability-baseline-port.md`](docs/handoff-capability-baseline-port.md) 與 [`docs/handoff-0143-capability-surface-port.md`](docs/handoff-0143-capability-surface-port.md)。
 

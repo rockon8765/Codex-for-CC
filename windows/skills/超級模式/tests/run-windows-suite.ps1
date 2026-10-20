@@ -78,6 +78,10 @@ $MANIFEST = @(
   # 測試只用自建的暫存 USERPROFILE（§0 先驗 child 看到的家目錄，對不上就整支中止），repo／live 兩種 mode 都安全。
   @{ Name = 'off-cleanup-7';         Exe = 'pwsh';        Args = @('off-cleanup.tests.ps1', '-Shell', 'pwsh');        Marker = '(?m)^off-cleanup \[pwsh\]: pass=[1-9]\d* fail=0\r?$'; TimeoutMs = 300000 }
   @{ Name = 'off-cleanup-51';        Exe = 'pwsh';        Args = @('off-cleanup.tests.ps1', '-Shell', 'powershell');  Marker = '(?m)^off-cleanup \[powershell\]: pass=[1-9]\d* fail=0\r?$'; TimeoutMs = 300000 }
+  # project-root-marker（2026-10-20）：.codex-project-root ⇒ 單次 project_root_markers 覆寫、-C 不變、無標記時 argv 逐元素不變。
+  # 受測 child 的 host 由 -Shell 決定，runner 固定 pwsh；stub codex＋暫存 USERPROFILE（§0 先驗），repo／live 兩種 mode 都安全。
+  @{ Name = 'project-root-marker-7';  Exe = 'pwsh';        Args = @('project-root-marker.tests.ps1', '-Shell', 'pwsh');        Marker = '(?m)^project-root-marker \[pwsh\]: pass=[1-9]\d* fail=0\r?$'; TimeoutMs = 300000 }
+  @{ Name = 'project-root-marker-51'; Exe = 'pwsh';        Args = @('project-root-marker.tests.ps1', '-Shell', 'powershell');  Marker = '(?m)^project-root-marker \[powershell\]: pass=[1-9]\d* fail=0\r?$'; TimeoutMs = 300000 }
   # ⚠️ repo 層級的規則：這支測試**不在 skill payload 內**，live 安裝時根本不存在
   #    （從 ~/.claude/skills/超級模式/tests 往上四層是 %USERPROFILE%，不是 repo 根）。
   #    2026-08-19 我上一輪才修掉「matcher 寫死 --repo 導致 live 必敗」，
@@ -90,8 +94,9 @@ $MANIFEST = @(
 # 改動 manifest 請一併改這裡（並在 commit 訊息說明改了什麼）。
 # 2026-10-14：10 → 12（新增 consult-schema-51 與 codex-check-7 兩條 host 腿；原兩列改名加 -7／-51）；
 #             12 → 14（新增 off-cleanup-7／off-cleanup-51，F2 修正的回歸守衛）。
+#             14 → 16（新增 project-root-marker-7／project-root-marker-51，.codex-project-root 的回歸守衛）。
 # ⚠️ .github/workflows/windows.yml 也在 YAML 端釘死摘要行的 entries／ran／skipped，三處要一起改。
-$EXPECTED_ENTRIES = 14
+$EXPECTED_ENTRIES = 16
 
 $results = @()
 $fail = 0
@@ -245,7 +250,8 @@ if ($Filter) {
 # 正式模式：釘死每個 mode 該跑幾支、該跳過幾支。零案一律視為失敗。
 # 2026-10-14：repo 10 → 12、live 9 → 11（兩條新腿兩種 mode 都跑；live 仍只跳過 no-multibyte-varref）；
 #             再加 off-cleanup 兩條腿：repo 12 → 14、live 11 → 13。
-$EXPECTED = @{ repo = @{ ran = 14; skipped = 0 }; live = @{ ran = 13; skipped = 1 } }
+# 2026-10-20：再加 project-root-marker 兩條腿：repo 14 → 16、live 13 → 15。
+$EXPECTED = @{ repo = @{ ran = 16; skipped = 0 }; live = @{ ran = 15; skipped = 1 } }
 $want = $EXPECTED[$Mode]
 if ($results.Count -eq 0) {
   Write-Output "FAIL  一支都沒跑到 —— 零案不算通過。"

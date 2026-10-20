@@ -140,6 +140,48 @@ $Dir = $Dir.TrimEnd('\')
 if ($Dir -match '^[A-Za-z]:$') { $Dir += '\' }
 Assert-CmdSafePath $Dir 'Dir'   # $Dir 也進 cmd /c 字串(既有注入面)，一併 fail-closed
 
+# 專案指示根（2026-10-20；macOS codex-exec.sh 同段的平台翻譯）：非 git 專案以子目錄當 -Dir 時，
+# codex 找不到 project root（預設標記只有 .git），只載入 cwd 的 AGENTS.md，專案根的規則整個漏掉、
+# 外表看不出差別（macOS rollout 實證）。專案根放空檔 .codex-project-root；從 -Dir 往上找得到它，
+# 就以**單次** -c 把它加進 project_root_markers。-C 仍是 -Dir（上面既有前處理後的字串，本段不再改它；
+# cwd 與可寫範圍不變），不改 ~/.codex/config.toml。
+# 這裡只決定帶不帶覆寫、並預告指示根給摘要；AGENTS.md 的實際載入仍由 codex 做，驗收看 rollout。
+# ⚠️ 與 macOS 的差異：macOS 以 pwd -P 走實體路徑；這裡走 Resolve-Path 的邏輯路徑（不實體化 symlink／
+#    junction）。連結情境下兩平台的判定可能不同，哪一種貼近 codex 未驗（2026-10-20 Codex 反方審查）。
+# ⚠️ 引號：$rootArg 會拼進 cmd /c 字串，經 codex.cmd 的 %* 交給 node（MSVCRT 規則剖 argv）。
+#    裸 `"` 會被當成引號剝掉，codex 收到 [.git,.codex-project-root]（不是合法 TOML 陣列）。
+#    寫成 `\"` 才以字面 `"` 到達；cmd 不認 `\`，四個 `"` 成對、中間沒有 cmd 運算子。
+# ⚠️ 偵測失敗（-Dir 不存在、路徑解析例外）一律退回「不帶覆寫」＝舊行為，不中止。
+function Find-Up([string]$start, [string]$name) {   # start 起往上第一個含 name（檔案或目錄）的目錄
+  $d = $start
+  while ($d) {
+    $p = [System.IO.Path]::Combine($d, $name)
+    if ([System.IO.File]::Exists($p) -or [System.IO.Directory]::Exists($p)) { return $d }
+    $d = [System.IO.Path]::GetDirectoryName($d)      # 磁碟根（C:\）回 $null ⇒ 結束
+  }
+  return $null
+}
+$rootArg = ''; $rootOverride = 'no'; $instrRoot = 'unknown'; $cwdAbs = $null
+try {
+  $ri = Resolve-Path -LiteralPath $Dir -ErrorAction Stop
+  if ($ri.Provider.Name -eq 'FileSystem' -and [System.IO.Directory]::Exists($ri.ProviderPath)) { $cwdAbs = $ri.ProviderPath }
+  if ($cwdAbs) {
+    $markerDir = Find-Up $cwdAbs '.codex-project-root'
+    $gitDir = Find-Up $cwdAbs '.git'
+    if ($markerDir) {
+      $rootOverride = 'yes'
+      $rootArg = '-c project_root_markers=[\".git\",\".codex-project-root\"] '
+    }
+    # codex 取 cwd 往上最近的標記目錄；兩者都是 cwd 的祖先，路徑較長者較近。
+    $instrRoot = $gitDir
+    if ($markerDir -and (-not $instrRoot -or $markerDir.Length -gt $instrRoot.Length)) { $instrRoot = $markerDir }
+    if (-not $instrRoot) { $instrRoot = 'none (cwd only)' }
+  }
+}
+catch { $rootArg = ''; $rootOverride = 'no'; $instrRoot = 'unknown'; $cwdAbs = $null }
+$rootNote = ' ; cwd: ' + $(if ($cwdAbs) { $cwdAbs } else { $Dir }) + ' ; instructions root: ' + $instrRoot +
+  ' ; project_root_markers override: ' + $rootOverride
+
 # 正規化落地 UTF-8(無 BOM)暫存簡報，cmd `<` 重導向 → 位元組直達 codex
 # ⚠️ TEMP 不可寫是環境問題，走 46（與 consult 及 POSIX 對齊）。
 $tempProbe = Join-Path $env:TEMP ("exec_tmp_probe_{0}.txt" -f ([guid]::NewGuid().ToString('N')))
@@ -164,7 +206,8 @@ try {
   # memories 隔離(2026-07-10)：Codex 全域 config 開了 [memories]。派工關掉 memories 讀寫是為
   # (a)可重現：worker 只依本簡報行事，不受過往記憶漂移影響；(b)斷閉環：不把本專案實作細節寫進
   # 全域 memories，否則下次同專案 consult 讀到→反方獨立性被污染。與 consult 對稱處理。
-  $inner = ('"{0}" exec --sandbox workspace-write --skip-git-repo-check -c memories.use_memories=false -c memories.generate_memories=false -C "{1}" ' + $schemaArg + '--output-last-message "{2}" < "{3}" 2> "{4}"') -f $codexCmd, $Dir, $OutFile, $brief, $errFile, $SchemaFile
+  # $rootArg（專案指示根，見上方）沒有大括號、不佔 -f 編號；空字串時本行與加入前逐位相同。
+  $inner = ('"{0}" exec --sandbox workspace-write --skip-git-repo-check -c memories.use_memories=false -c memories.generate_memories=false ' + $rootArg + '-C "{1}" ' + $schemaArg + '--output-last-message "{2}" < "{3}" 2> "{4}"') -f $codexCmd, $Dir, $OutFile, $brief, $errFile, $SchemaFile
 
   # ══ native capture scope ══════════════════════════════════════════════════
   # 唯一任務：把 codex 跑完、把退出碼與兩條 stream 完整帶出來。
@@ -226,7 +269,7 @@ if ($code -eq 0) {
       $transcriptErrors[0] + " 。transcript(可能不完整): $log ; last message: $OutFile")
     exit 46
   }
-  Write-Output "exec OK -- transcript: $log ; last message: $OutFile"
+  Write-Output ("exec OK -- transcript: $log ; last message: $OutFile" + $rootNote)
 } else {
   [Console]::Error.WriteLine("codex-exec: codex exited [$code]. transcript: $log" + (Get-TranscriptNote))
 }
