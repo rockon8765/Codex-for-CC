@@ -13,7 +13,7 @@ SKILL.md 的 §2 / §3 / §3.5 / §5 的詳細範本與程序。用到才讀。
 
 ## §2 AGENTS.md 生成（共用規範層 → Codex）
 
-> **2026-09-23 事實註記**：Claude Code 2.1.277（2026-09-18）起，在支援 AGENTS.md 載入的 session 中，若工作目錄及其上層都沒有 `CLAUDE.md`／`.claude/CLAUDE.md`／`CLAUDE.local.md`，預設會在 session 開始載入每一層的 `AGENTS.md`（也含 `.claude/AGENTS.md`）作為專案指示；使用者層的 `~/.claude/CLAUDE.md` 不算這項檢查。因此在符合此條件的 repo 生成 AGENTS.md，worker 的「不得做架構決策」等限制也會被 Claude orchestrator 自己讀到；workspace-write worker 也能改寫這個檔。這是指示載入方向改變的影響，尚未 live 重現；見[官方文件](https://code.claude.com/docs/en/memory#agents-md)與 backlog [`CC-AGENTS-MD`](https://github.com/rockon8765/Codex-for-CC/blob/main/docs/backlog.md#CC-AGENTS-MD)。
+> **AGENTS.md 載入註記**：Claude Code 2.1.277（2026-09-18）起，在支援 AGENTS.md 載入的 session 中，若工作目錄及其上層都沒有 `CLAUDE.md`／`.claude/CLAUDE.md`／`CLAUDE.local.md`，預設會在 session 開始載入每一層的 `AGENTS.md`（也含 `.claude/AGENTS.md`）作為專案指示；使用者層的 `~/.claude/CLAUDE.md` 不算這項檢查。因此在符合此條件的 repo 生成 AGENTS.md，worker 的「不得做架構決策」等限制也會被 Claude orchestrator 自己讀到；workspace-write worker 也能改寫這個檔。載入哪些檔由 `/config` 的 **Project instructions** 決定（預設 `claude-md-or-agents-md`；設 `claude-md` 只讀 CLAUDE.md；設 `claude-md-and-agents-md` 則有 CLAUDE.md 也會一併載入 AGENTS.md）。這是指示載入方向改變的影響，尚未 live 重現；見[官方文件](https://code.claude.com/docs/en/memory#agents-md)與 backlog [`CC-AGENTS-MD`](https://github.com/rockon8765/Codex-for-CC/blob/main/docs/backlog.md#CC-AGENTS-MD)。
 
 第一次要派 Codex 時，從共用規範層**單向生成** repo 根目錄的 `AGENTS.md`（不要雙向手抄，必 drift）。只放精選共用規範，不是整包 skill。
 **若 repo 已有 AGENTS.md**：不要整檔覆蓋 — 只維護 `<!-- SUPER-MODE:START -->` … `<!-- SUPER-MODE:END -->` 標記區塊，其餘內容原封不動。範本：
@@ -44,7 +44,7 @@ SKILL.md 的 §2 / §3 / §3.5 / §5 的詳細範本與程序。用到才讀。
 
 ## §3 任務簡報格式（派工）
 
-每個交給 Codex 的步驟，產一份**自足**簡報。下面是**固定核心** —— 寫入範圍、決策邊界、動作安全、AC、完成判準、驗證這幾格不可省略：
+每個交給 Codex 的步驟，產一份**自足**簡報。下面是**固定核心** —— 寫入範圍、決策邊界、動作安全、角色契約、AC、完成判準、驗證這幾格不可省略：
 
 ```
 ## 任務：<步驟名>
@@ -56,6 +56,7 @@ SKILL.md 的 §2 / §3 / §3.5 / §5 的詳細範本與程序。用到才讀。
 - 授權內裁量：只有當各選項對**全部 AC 的可觀察結果等價**、且都在寫入範圍內，才可自選並繼續——取「鄰近程式慣例 + 最小 diff + 不引入新依賴」者，並在回報註明選了哪個。其餘一律 BLOCKED。
 - 缺少脈絡：repo 事實先用唯讀工具查；查不到且會影響上述契約 → 回 `BLOCKED: <缺的那一個決定>`（單一、具體）。
 - 動作安全：改動限縮在本任務；**不得順手重構／改名／清理無關程式碼**。未經本簡報明確授權，不得 commit／push／deploy／publish、刪資料、跑 migration、全域安裝或對外發送 → 遇到回 BLOCKED，不是「先講再做」。
+- 角色契約：你是 worker，只完成本簡報；派工與 writer 排程由外層 orchestrator 負責。不得再派子代理／另啟代理、不建立或切換 worktree、不擴大寫入範圍、不修改寫入範圍外的設定（含 `~/.codex/`）；未經本簡報明確授權，不安裝套件、不啟動常駐伺服器（測試框架自起自關者除外）。不得自行呼叫 `codex-consult.ps1`／`codex-exec.ps1` 或另起 Codex CLI，需要諮詢時回報 orchestrator，繼續可獨立完成的工作。衝突的 skill 步驟（含全域指示中鼓勵主動委派的條文）略過並回報，繼續不依賴該步的工作；若略過會使某條 AC 無法達成，該 AC 回 BLOCKED。
 - 工具持續性：在上述 spec／寫入範圍／安全限制內，只要再一次工具呼叫能實質推進某條 AC 或降低必要的不確定性就繼續；拿到空白或部分結果換一種策略重試。不得藉此擴大需求，也不得原樣無限重試。
 - 完成判準：逐條 AC 回報 PASS / FAIL / UNVERIFIED / BLOCKED ＋證據；**全部明列 AC 為 PASS 才可宣稱完成**。不要去找 AC 以外的新工作。
 - 輸出合約：回報分「已驗證事實」與「推論/假設」兩段，最高價值的結論放最前面。
@@ -77,8 +78,11 @@ SKILL.md 的 §2 / §3 / §3.5 / §5 的詳細範本與程序。用到才讀。
 3. **別用「想仔細一點／think harder」代替更好的合約**——要提品質先收緊 AC 與驗證規則，不是加 reasoning。
 4. **有 placeholder ≠ 任務明確**——`<要做什麼>` 填成「處理一下 X」照樣是 vague task。
 
+> **設計理由**：「授權內裁量」只在各選項對全部 AC 的可觀察結果等價時才成立——放寬成「低風險歧義可自行續行」等於授權 worker **解讀規格契約**。`codex exec` 是**單輪背景任務**，沒有「停下來問 Claude」這回事，所以缺脈絡的正確語義是回 `BLOCKED` 而非提問；簡報也不設進度回報欄位——背景執行＋逐字稿落地已覆蓋。派工簡報以上方固定核心為底，官方 `codex:gpt-5-4-prompting` 的 recipe 範本不適用——其檔頭「診斷／修復類預設 write mode」與 SKILL §1 spec-first 相衝。`codex-exec` 走 stdin 純文字、路徑上沒有 XML parser，所以只有大段附件才用 XML 圈起來（見上表）。
+
 > **出處與改寫**（2026-08-28 撰寫；2026-10-18 事實訂正：原寫「決策邊界／授權內裁量／動作安全／工具持續性／完成判準，選擇性移植自官方 plugin 的 `gpt-5-4-prompting` skill（v1.0.6）」，並把 XML 那句歸給未指明的「官方 prompt 指南」，兩處都不正確；背景見 [`docs/plugin-reeval-2026-08.md`](https://github.com/rockon8765/Codex-for-CC/blob/main/docs/plugin-reeval-2026-08.md) A4）：本註涵蓋 §3 範本與 §2 `## 限制` 的對應條文；§3.5 反方規則、§5 審查紀律、SKILL §3 的「不得接手實作」另有就地出處註。下文「plugin」指 [openai/codex-plugin-cc](https://github.com/openai/codex-plugin-cc) 的 `plugins/codex/skills/gpt-5-4-prompting/`（Apache-2.0，Copyright 2026 OpenAI）；2026-07-07 加入的部分依 v1.0.5，2026-08-28（A4）加入的依 v1.0.6，引用到的檔兩版內容相同。逐欄出處：
 > - **決策邊界**：plugin 沒有對應 block；由 2026-08-28 的 Codex 諮詢起草、Claude 編修。
+> - **角色契約**：本 repo 規則（對應 §5 單一 writer pool 與子代理鐵則），plugin 沒有對應 block；2026-10-17 先寫在安裝副本，2026-10-24 併回 repo。
 > - **授權內裁量**：本 repo 的收緊規則。plugin 的 `default_follow_through_policy` 讓 worker 在「低風險歧義」時自行續行，照搬等於授權它**解讀規格契約**，故收緊成「只有 AC 可觀察結果等價才可裁量」。中文初稿出自同一次諮詢。
 > - **缺少脈絡**：「repo 事實先用唯讀工具查」改寫自 plugin `references/prompt-blocks.md` 的 `missing_context_gating`。回 `BLOCKED` 而非提問是本 repo 的語義：`codex exec` 是**單輪背景任務**，沒有「停下來問 Claude」這回事。
 > - **動作安全**：「不得順手重構／改名／清理無關程式碼」改寫自 plugin `action_safety`；「遇到回 BLOCKED，不是先講再做」是反向收緊（原文是動手前先點出風險）。
@@ -120,28 +124,28 @@ SKILL.md 的 §2 / §3 / §3.5 / §5 的詳細範本與程序。用到才讀。
 
 簡報**一律用 Write 工具寫進 scratchpad**，理由有三，都是實際會被擋的路徑：
 1. **為什麼是 scratchpad**：它在 gate 豁免路徑內；shell 寫檔**不在**豁免內，用 shell 產簡報會被擋成繞圈。
-2. **為什麼不能用 Bash 包 `powershell -Command` 呼叫腳本**：腳本放行是「錨定在指令開頭」判定的，Bash-wrapper 不符合這個形狀，一樣會被擋。
-3. **為什麼不用 inline `-Prompt`**：簡報含 `;` `|` `&` 等標點時，會被 gate 的指令解析誤判成串接指令。`-Prompt` 已 deprecated（stage 1：仍可跑但出警告；同時給 `-Prompt` 與 `-PromptFile` 直接報錯），一律用 `-PromptFile`。用 PowerShell 工具跑 `scripts/codex-consult.ps1 -Dir <repo> -PromptFile <brief.txt>`（設定 `--sandbox read-only --ephemeral`，工具 timeout 360000ms）。Claude 統合後決定；逐字稿自動存 `~/.claude/super-mode-logs/codex_consult_<ts>.txt`。
+2. **為什麼不能用 Bash 包 `powershell -Command` 呼叫腳本**：腳本放行 regex 只接受腳本檔名之前不含引號、`; & | < >`、反引號的字元（指令最開頭的 `&` 與一個引號除外，見下方「豁免」條）；Bash-wrapper 一般寫成 `powershell -Command "& '<腳本路徑>' …"`，中途的引號與 `&` 讓它不符合這個形狀，一樣會被擋。不加引號的 `powershell -File <路徑> …` 反而會因同一條寬鬆前綴命中放行——屬 [`GATE-SAFE-PREFIX`](https://github.com/rockon8765/Codex-for-CC/blob/main/docs/backlog.md#GATE-SAFE-PREFIX) 缺陷，不是支援的用法。
+3. **為什麼不用 inline `-Prompt`**：簡報含 `;` `|` `&` 等標點時，會被 gate 的指令解析誤判成串接指令。`-Prompt` 已 deprecated（stage 1：仍可跑但出警告；同時給 `-Prompt` 與 `-PromptFile` 直接報錯），一律用 `-PromptFile`。用 PowerShell 工具跑 `scripts/codex-consult.ps1 -Dir <repo> -PromptFile <brief.txt>`（設定 `--sandbox read-only --ephemeral`，但不等於完全隔離，見下方「諮詢權限界線」；工具 timeout 360000ms）。Claude 統合後決定；逐字稿自動存 `~/.claude/super-mode-logs/codex_consult_<ts>.txt`。
 
-**諮詢權限界線（2026-09-23 訂正）**：`--sandbox read-only` 只約束受沙箱保護的指令；使用者 execpolicy `.rules` 裡命中 `decision="allow"` 的指令會在沙箱外執行（見 backlog [`EXECPOLICY-ALLOW-INHERIT`](https://github.com/rockon8765/Codex-for-CC/blob/main/docs/backlog.md#EXECPOLICY-ALLOW-INHERIT)）。即使沒有這類 allow，也不能推論 MCP／apps／hooks 的外部副作用受到同樣限制。 consult 與一般 `codex exec` 一樣，會載入使用者 `~/.codex/config.toml` 的 MCP server 與帳號 app（connector），工具核准不受 `--sandbox read-only` 影響。即使 `approval_policy=never`，預設 `auto` 下標為唯讀（`readOnlyHint: true`）的 MCP／帳號 app 工具，以及使用者設為 `approval_mode = "approve"` 或在互動版按過「永遠允許」而持久化核准的工具，都可免核准執行；後者可能包含會改變狀態的操作（例如在瀏覽器執行任意程式碼），其餘需核准的工具在審核者為預設 `user` 時會被拒。consult 因此不只可讀 repo，實際能力取決於使用者的 Codex 設定，skill 本身不限制這些工具。來源：Codex 0.156.1 原始碼，未 live 驗證；見 backlog [`CONNECTOR-EXPOSURE`](https://github.com/rockon8765/Codex-for-CC/blob/main/docs/backlog.md#CONNECTOR-EXPOSURE)。
+**諮詢權限界線**（條文在 SKILL §3.5，此處只補機制細節；追蹤項見 backlog [`EXECPOLICY-ALLOW-INHERIT`](https://github.com/rockon8765/Codex-for-CC/blob/main/docs/backlog.md#EXECPOLICY-ALLOW-INHERIT) 與 [`CONNECTOR-EXPOSURE`](https://github.com/rockon8765/Codex-for-CC/blob/main/docs/backlog.md#CONNECTOR-EXPOSURE)）：execpolicy 的 `prefix_rule` 是 **argv 前綴比對**——允許的前綴後面附加任意參數仍判 `allow`，前綴本身不同才不命中（`codex execpolicy check` 本機 0.162.1 實測）。所以一條 allow 的實際放行面是「以該前綴開頭的所有指令」，不是字面上那一條；consult 命中它就在沙箱外執行（macOS live 證實；Windows 為讀碼確認、未 live 重現）。要判斷某條指令會不會被放行，用 `codex execpolicy check --resolve-host-executables --rules <rules 檔> <argv…>`——它是純評估器，不會執行該指令。**旗標別省**：runtime 會開啟主機可執行檔解析（Codex 0.162.1 讀碼），以路徑或帶副檔名呼叫的程式（含 `.\python.cmd`、裸名 `python.cmd`）會去掉可執行副檔名（不分大小寫；`.exe`／`.cmd`／`.bat`／`.com`，`.ps1` 不算）後依檔名回退比對——例如 allow `python --version` 時，`<任意路徑>\python.cmd --version` 也判 `allow`，repo 內若有同名腳本就會在沙箱外執行；rules 若以 `host_executable(name="python", paths=[…])` 限定路徑，清單外的路徑就不經回退命中；但**裸名 `python` 仍直接比對第一個 token、不檢查清單**，所以它收窄不了裸名規則——要保留沙箱外版本查詢，改用工作區無法改寫的完整路徑規則。不加旗標時同一指令顯示不命中，會低估放行面（評估器本機實測；runtime 未 live 驗證）。
 
-**首行裁決是鑄證契約，不只是不可逆動作的變體**（2026-09-14 訂正 9/6 D1）：超級模式的每一次里程碑諮詢都會鑄造憑證，而鑄證判準（`lib/consult-answer.js`）強制回覆第一行是 `ALLOW:` 或 `BLOCK:`——沒有這行就 exit 43、不鑄證、整趟諮詢白跑（9/6 親踩一次）。所以上面的範本已固定含那一句；**討論模式（`-NoCredential`）與 `-SchemaFile` 模式可省略**（前者只驗非空，後者只驗 strict JSON）。不可逆動作（commit/push/deploy/刪除）前的諮詢語義照舊：`BLOCK` 就不做並回報使用者。
+**首行裁決是鑄證契約**：超級模式的每一次里程碑諮詢（不只是不可逆動作前那次）都會鑄造憑證，而鑄證判準（`lib/consult-answer.js`）強制回覆第一行是 `ALLOW:` 或 `BLOCK:`——沒有這行就 exit 43、不鑄證、整趟諮詢白跑（9/6 親踩一次）。所以上面的範本已固定含那一句；**討論模式（`-NoCredential`）與 `-SchemaFile` 模式可省略**（前者只驗非空，後者只驗 strict JSON）。不可逆動作（commit/push/deploy/刪除）前的諮詢：`BLOCK` 就不做並回報使用者。
 
-**硬性強制（consult-gate v2）**（2026-09-24 訂正 9/6 D8：原寫 v3，hook 檔頭自標 v2）：超級模式啟用時（`scripts/super-mode.ps1 -On [-Scope <專案根>]`），PreToolUse hook（`~/.claude/hooks/super-mode-consult-gate.js`）的規則：
-- **範圍**：帶 `-Scope` 時，scope 外一般路徑的**檔案工具寫入**與 **cwd 在 scope 外的唯讀 shell** 可放行（檔案看 file_path、shell 看 cwd）；`~/.claude` 內與安全關鍵檔不因 scope 外而豁免，仍依下列豁免細則判定。scope 外**會改狀態的 shell／Monitor 仍要憑證**，其 repo 綁定須涵蓋該動作的 cwd，其他專案的憑證不通用；不帶則全域攔。**MCP 寫入類與外發內建工具不看 scope，一律受管**。旗標與憑證各為全機單一檔，同機其他 session 仍可能被擋。（2026-09-23 事實訂正：原寫只攔 scope 內檔案工具／shell；實作只對上述 scope 外動作放行，並非 session 隔離。）
-- **攔截面**：Edit / Write / MultiEdit / NotebookEdit；**Bash 與 PowerShell**（唯讀白名單自動放行：git status/log/diff（含 `-C`/`--no-pager`/grep）、ls / cat / rg / grep / `sed -n`、`Get-*` 等查詢 cmdlet、`$x = Get-*` 賦值、npm test / pytest / 絕對路徑 pytest；命令替換 `$(...)`/反引號、背景 `&`、寫檔重導向一律不算唯讀；**其餘 default-deny**。唯讀 runner（pytest/npm/node/python…）若指向暫存或 `~/.claude` 路徑仍要憑證——堵「先寫 conftest.py 到豁免區再 pytest 它」的繞過，Bash 與 PowerShell 同一套判準）；MCP 工具（寫入/外發字樣 create/update/delete/submit/send/click/type/trigger… 攔；**未知工具也 default-deny**，只有明確唯讀字樣或 benign 白名單放行）；外發/排程/worktree 內建工具 RemoteTrigger / PushNotification / CronCreate / CronDelete / Artifact / ScheduleWakeup / EnterWorktree / ExitWorktree；**Monitor**（有 `command` → 走上面同一套 Bash 唯讀分類器；沒有 `command`（純 WebSocket）→ 一律要憑證，因為 `isReadOnlyCommand("")` 會回 true，讓空字串走分類器等於 fail-open）。**這些工具名必須同時出現在 settings.json 的 PreToolUse matcher，否則 hook 根本不會被叫起** —— `tests/matcher-contract.test.js` 會把兩邊釘在一起。
-- **豁免**：scratchpad（系統 Temp）與 `~/.claude` 底下的**檔案工具**寫入（但 `settings.json`/`settings.local.json`/`hooks\`/`.super-mode-*` 旗標憑證/`.codex-check-last`/`.codex-check-baseline` 等安全關鍵檔**不豁免**，防自我提權；`conftest.py`/`pytest.ini`/`package.json`/`Makefile`/`*.ps1` 等會被自動載入執行的檔名**也不豁免**）；`codex-consult.ps1` / `codex-check.ps1` / `super-mode.ps1` 腳本呼叫本身（僅限錨定在指令開頭、後面沒串接/替換其他指令）。（2026-09-23 事實訂正：原只寫無串接／替換時放行，未說明判定不理會引號；參數（含 `-Dir` 路徑）裡的 `& ; | < >` 或反引號即使在引號內也算串接，諮詢本身因此可能在無憑證時被擋，照拒絕訊息再諮詢會繞圈。） `-Dir .` 不會轉成絕對路徑再綁定憑證：腳本僅修整尾端反斜線，直接將 `$Dir` 寫入 `repo`，因此此處沒有可確認的同等脫困寫法。**注意：`codex-exec.ps1`（workspace-write 執行者）不在無條件放行內，派工也要先有憑證。**
+**硬性強制（consult-gate v2）**：超級模式啟用時（`scripts/super-mode.ps1 -On [-Scope <專案根>]`），PreToolUse hook（`~/.claude/hooks/super-mode-consult-gate.js`）的規則：
+- **範圍**：帶 `-Scope` 時，scope 外一般路徑的**檔案工具寫入**與 **cwd 在 scope 外的唯讀 shell** 可放行（檔案看 file_path、shell 看 cwd）；`~/.claude` 內與安全關鍵檔不因 scope 外而豁免，仍依下列豁免細則判定。scope 外**會改狀態的 shell／Monitor 仍要憑證**，其 repo 綁定須涵蓋該動作的 cwd，其他專案的憑證不通用；不帶則全域攔。**MCP 寫入類與外發內建工具不看 scope，一律受管**。旗標與憑證各為全機單一檔，scope 並非 session 隔離，同機其他 session 仍可能被擋。
+- **攔截面**：Edit / Write / MultiEdit / NotebookEdit；**Bash 與 PowerShell**（唯讀白名單自動放行：git status/log/diff（含 `-C`/`--no-pager`/grep）、ls / cat / rg / grep / `sed -n`、`Get-*` 等查詢 cmdlet、`$x = Get-*` 賦值、npm test / pytest / 絕對路徑 pytest；命令替換 `$(...)`/反引號、寫檔重導向一律不算唯讀；背景 `&` 與 `&&`／`||`／`;`／`|`／換行一樣只當分段符，每段都命中白名單才放行（所以 `ls &` 仍算唯讀）；**其餘 default-deny**。唯讀 runner（pytest/npm/node/python…）若指向暫存或 `~/.claude` 路徑仍要憑證——堵「先寫 conftest.py 到豁免區再 pytest 它」的繞過，Bash 與 PowerShell 同一套判準；但帶 `-Scope` 時，cwd 在 scope 外的唯讀指令會先走範圍捷徑、不經這道檢查）；MCP 工具（寫入/外發字樣 create/update/delete/submit/send/click/type/trigger… 攔；**未知工具也 default-deny**，只有明確唯讀字樣或 benign 白名單放行。**被攔的 MCP 工具不是有憑證就放行**：production 的 path-bound policy 是空的，只有 hook 內 `MCP_PATHLESS_ALLOW` 列名的工具在憑證窗內放行，其餘寫入／已知副作用（讀名誤導）／未知 MCP 工具即使有憑證也直接拒——要用就得關超級模式或把工具加進白名單）；外發/排程/worktree 內建工具 RemoteTrigger / PushNotification / CronCreate / CronDelete / Artifact / ScheduleWakeup / EnterWorktree / ExitWorktree；**Monitor**（有 `command` → 走上面同一套 Bash 唯讀分類器；沒有 `command`（純 WebSocket）→ 一律要憑證，因為 `isReadOnlyCommand("")` 會回 true，讓空字串走分類器等於 fail-open）。**這些工具名必須同時出現在 settings.json 的 PreToolUse matcher，否則 hook 根本不會被叫起** —— `tests/matcher-contract.test.js` 會把兩邊釘在一起。
+- **豁免**：scratchpad（系統 Temp）與 `~/.claude` 底下的**檔案工具**寫入（但 `settings.json`/`settings.local.json`/`hooks\`/`.super-mode-*` 旗標憑證/`.codex-check-last`/`.codex-check-baseline` 等安全關鍵檔**不豁免**，防自我提權；`conftest.py`/`pytest.ini`/`package.json`/`Makefile`/`*.ps1` 等會被自動載入執行的檔名**也不豁免**；但帶 `-Scope` 時，scope 外的暫存路徑寫入會先被範圍捷徑放行，這條排除實際只保護 `~/.claude` 內，以及全域模式）；`codex-consult.ps1` / `codex-check.ps1` / `super-mode.ps1` 腳本呼叫本身（regex 從指令開頭比對，但腳本檔名之前——開頭可選的 `&` 呼叫運算子與一個引號之後——允許任何不含引號、`; & | < >`、反引號的字詞，含空白；串接／替換／破壞性字樣只檢查腳本檔名**之後**的參數尾巴）。**已知缺陷（backlog [`GATE-SAFE-PREFIX`](https://github.com/rockon8765/Codex-for-CC/blob/main/docs/backlog.md#GATE-SAFE-PREFIX)）**：因此 `rm -rf <dir> super-mode.ps1` 這類動詞在前、腳本名在後的指令目前也會免憑證放行，`git push … super-mode.ps1` 也不觸發收尾降級——這不是可用的寫法。**串接判定不理會引號**：參數（含 `-Dir` 路徑）裡的 `& ; | < >`、反引號或 `$(` 即使在引號內也算串接，諮詢本身因此可能在無憑證時被擋，照拒絕訊息再諮詢會繞圈。`-Dir .` 不會轉成絕對路徑再綁定憑證：腳本僅修整尾端反斜線，直接將 `$Dir` 寫入 `repo`，因此此處沒有可確認的同等脫困寫法。**注意：`codex-exec.ps1`（workspace-write 執行者）不在無條件放行內，派工也要先有憑證。**
 - **憑證**：`codex-consult.ps1` 成功寫 `~/.claude/.super-mode-consult-ok`（JSON 含 `repo`＝諮詢綁定的專案（`-Dir`），hook 比對後續動作路徑要落在該 repo 下；舊格式純時間戳只驗時間），有效 20 分鐘。**收尾動作（git commit / push / merge / rebase、publish、deploy、terraform apply、gh pr create/merge）放行後憑證降為只剩 3 分鐘**——同一條指令內 `git commit ... && git push` 不受影響，但下一個里程碑必須重新諮詢。**內建工具中 `Artifact`（發佈）同樣消耗憑證**；`ScheduleWakeup`／`Enter·ExitWorktree` 不消耗（比照 Cron*／rm）。
 - **內建工具是 pathless（刻意）**：`Artifact` 的 `file_path` 常在 scratchpad、`ScheduleWakeup` 根本沒路徑 → 憑證對這些工具**只做時間綁定、不做 repo 綁定**（與 MCP 的 pathless-allow 同語義）。也就是說 repo A 的憑證會放行 repo B 的 Artifact —— 這是取捨不是漏洞，別誤讀成 repo-bound。
-- **防殘留**：旗標超過 8 小時視為上個 session 忘了關，hook 自動解除。**fail-open**：沒旗標或任何錯誤一律放行（一般模式不受影響）。退出時必跑 `super-mode.ps1 -Off`。
+- **防殘留**：旗標超過 8 小時視為上個 session 忘了關，hook 自動解除。**fail-open**：沒旗標、hook 輸入無法解析或判定過程拋例外一律放行（一般模式不受影響）；例外是檔案工具的路徑正規化刻意 fail-closed——可疑或非絕對路徑、lstat／realpath 出錯時一律當成要憑證，暫存目錄正規化失敗則停用 tmp 豁免。退出時必跑 `super-mode.ps1 -Off`。
 
 **先天限制（設計上，別誤以為滴水不漏）：**
 - Bash／PowerShell 動作分類是**啟發式**（curated 清單）；做窄會漏、做寬會煩，按需自行增修。
-- 只綁 repo + TTL；憑證的 `session` 欄只當 audit（consult 端讀不到 Claude Code 的 session id）。
+- 只綁 repo + TTL；Windows 版憑證只含 `repo`／`ts`，**沒有** `session` 欄，hook 也不讀 session，無法做 session 綁定（POSIX 版的 `session` 欄只當 audit；見 backlog [`CREDENTIAL-SESSION-ENV`](https://github.com/rockon8765/Codex-for-CC/blob/main/docs/backlog.md#CREDENTIAL-SESSION-ENV)）。
 - **擋不到 Codex 子程序自己寫的檔**——`codex-exec.ps1` 一放行，Codex CLI 之後的檔案改動不逐一經過 Claude Code hook。
 
-**註冊（部署）**：把下面合併進 `~/.claude/settings.json`（官方 settings 文件稱檔案變更會即時載入、每次變更觸發 `ConfigChange` hook；本 repo 未實測，仍以重跑 `matcher-contract --live` 為準——2026-09-14 訂正，原文寫「下個 session 才生效」）。
-⚠️ **合併的完整步驟照 Codex-for-CC checkout 裡的 [`docs/AI-INSTALL.md`](https://github.com/rockon8765/Codex-for-CC/blob/main/docs/AI-INSTALL.md) 步驟 2 做，這裡刻意不複述**
+**註冊（部署）**：把下面合併進 `~/.claude/settings.json`（官方 settings 文件稱檔案變更會即時載入、每次變更觸發 `ConfigChange` hook；本 repo 未實測，仍以重跑 `matcher-contract --live` 為準）。
+⚠️ **合併的完整步驟照 [`docs/AI-INSTALL.md`](https://github.com/rockon8765/Codex-for-CC/blob/main/docs/AI-INSTALL.md) 步驟 2 做，這裡刻意不複述**
 （skill 裝到 `~/.claude/` 後不含 `docs/`，要回 checkout 看）。那一節有兩道 probe，動手前與合併後各一次；
 **兩者各自的理由寫在那一節，本檔刻意不複述**（先前在 macOS 側抄過一份，共用模組上線後就過時了——那正是不該複述的原因）。
 ⚠️ **Windows 用的就是 `~/.claude/settings.json`**，不是 `settings.local.json`。macOS／Linux 那條
@@ -167,7 +171,7 @@ plugin manager——它同樣寫這個檔），都要重跑
 然後每次工作用 `super-mode.ps1 -On -Scope <dir>` 開、`super-mode.ps1 -Off` 關。
 **測試**：完整入口是 `tests/run-windows-suite.ps1`（`-Mode repo` 驗 repo 樹、`-Mode live` 驗已安裝副本；
 顯式 manifest，每列都釘檔名／host／timeout／成功 marker，marker 沒出現就算 FAIL）。
-若安裝副本早於 2026-08-19、`tests/` 裡沒有這支，就分別跑
+若安裝副本早於 2026-08-19、`tests/` 裡沒有這支，或只想單獨重跑其中一項時，可分別跑
 `node ~/.claude/skills/超級模式/tests/run-gate-tests.js`（案例回歸）與
 `node ~/.claude/skills/超級模式/tests/matcher-contract.test.js --live`（hook 清單 vs settings matcher 一致性）。
 改 hook 前先在 `tests/gate-cases.json` 加會 fail 的新案例，改完全綠才算數。
@@ -178,12 +182,12 @@ plugin manager——它同樣寫這個檔），都要重跑
 |---|:--:|---|
 | Spec-first（理解現況 / 比稿設計） | ✅ | 平行 agent 讀碼 + judge panel 比設計，再合成 spec |
 | 指揮 Codex 派工 | ❌ | `codex exec` 單線結構化下令 |
-| 審查 Codex 產出 | ✅ 但**分級** | **預設單線** diff 審查（輸入限 `git diff --stat` + 針對性 hunks + 測試輸出，禁止全檔重讀）；**三鏡頭對抗審查（正確性/安全/符合 spec）只在**碰安全敏感面（auth／支付／使用者資料／檔案系統／外部 API／加密）或架構層 diff 才升級，升級條件沿用 `code-review.md` 的安全觸發清單。有異議退回。 |
+| 審查 Codex 產出 | ✅ 但**分級** | **預設單線** diff 審查（輸入限 `git diff --stat` + 針對性 hunks + 測試輸出，禁止全檔重讀）；**三鏡頭對抗審查（正確性/安全/符合 spec）只在**碰安全敏感面（auth／支付／使用者資料／檔案系統／外部 API／加密）或架構層 diff 才升級。有異議退回。 |
 | 里程碑回寫 | ❌ | 單線做即可 |
 
 **兩條鐵則（條文在 SKILL §5，此處只講理由與做法）：**
-- **單一 writer pool**：`isolation: 'worktree'` 是 Claude 子代理的參數；本流程禁止子代理派工，因此不適用於這裡的 Codex 派工。平行的 `codex exec` 必須各自在獨立的 git worktree 執行，由 orchestrator 以 `git worktree add` 建立，再用腳本的 `-Dir <worktree>` 指向它，避免共用 working tree 互相覆蓋。Codex 有原生 `--worktree`（2026-10-17 事實訂正：原寫「Codex 0.156 有原生 `--worktree`（experimental）」。`worktrees` feature 自 0.156.0 起已是 stable 且預設開啟；`--worktree` 不能與 `--ephemeral`、`--ignore-user-config` 併用，`exec resume`／`exec review` 執行時也會拒絕，雖然兩者的 `--help` 仍列出這個旗標），本 skill 的腳本尚未接入。
-- **子代理不得自行諮詢／派工**：代價有三層——N 個平行子代理各自諮詢會燒 Codex 額度；任一子代理的諮詢會 mint **全機**憑證（憑證不分代理）；其中任一次 commit 會把**全體**憑證降到 3 分鐘。所以由主線統一諮詢與派工。consult-gate 在子代理內同樣會觸發，且它的拒絕訊息已含「子代理請回報 orchestrator 後停手」的分支。
+- **單一 writer pool**：`isolation: 'worktree'` 是 Claude 子代理的參數；本流程禁止子代理派工，因此不適用於這裡的 Codex 派工。平行的 `codex exec` 必須各自在獨立的 git worktree 執行，由 orchestrator 以 `git worktree add` 建立，再用腳本的 `-Dir <worktree>` 指向它，避免共用 working tree 互相覆蓋。Codex CLI 有原生 `codex exec --worktree`（在新的受管 git worktree 執行；`worktrees` feature 自 0.156.0 起 stable 且預設開啟，0.164.0 起標為 removed——旗標已無作用、僅為相容保留，功能常駐；本機 0.164.0 的 `codex features list` 顯示 `worktrees removed true`。`--worktree` 不能與 `--ephemeral`、`--ignore-user-config` 併用，`exec resume`／`exec review` 執行時也會拒絕，雖然兩者的 `--help` 仍列出這個旗標），本 skill 的腳本尚未接入。另外，Codex 進程內仍可能自行派子代理：`codex-exec.ps1` 沒有傳任何關閉子代理的設定，而全域 `~/.codex/AGENTS.md` 的「平行分工」條鼓勵主動委派——所以派工簡報固定帶「角色契約」一格（見 §3）。這是降低誤判的程序控制，不是強制隔離。（`--disable multi_agent` 對宣告 multi_agent v2 的模型無效；`-c agents.enabled=false` 讀碼有效、對 exec 的副作用未驗——要硬控制得改本機 `codex-exec.ps1`，另案處理。）
+- **子代理不得自行諮詢／派工**：代價有三層——N 個平行子代理各自諮詢會燒 Codex 額度；任一子代理的諮詢會 mint **全機**憑證（憑證不分代理）；其中任一次 commit 會把**全體**憑證降到 3 分鐘。所以由主線統一諮詢與派工。consult-gate 在子代理內同樣會觸發；「需要 20 分鐘內諮詢憑證」那則拒絕訊息含「子代理請回報 orchestrator 後停手」的分支，但「憑證屬於另一個專案」與 MCP 硬拒兩則訊息沒有（前者直接叫人重新諮詢），子代理撞到任何一則都照本條回報主線、不要自行諮詢。
 **派工簡報的驗收條件內建「Codex 自審 + 跑測試 + lint 並回報自審結論」**（見 §3 範本），讓第一道審查花 Codex 額度、不花 Claude。
 **審查產出 findings 後先呈報使用者選擇要修哪些，勿自動批次修。**（出處：改寫自 [openai/codex-plugin-cc](https://github.com/openai/codex-plugin-cc) `plugins/codex/skills/codex-result-handling/SKILL.md` 的同義規則，v1.0.5（v1.0.6 相同），Apache-2.0；已修改，見 [`NOTICE`](https://github.com/rockon8765/Codex-for-CC/blob/main/NOTICE) 與 [`THIRD_PARTY_NOTICES.md`](https://github.com/rockon8765/Codex-for-CC/blob/main/THIRD_PARTY_NOTICES.md)）
 審查型派工帶 `-SchemaFile "$env:USERPROFILE\.claude\skills\超級模式\references\review-output.schema.json"`（相對 schema 路徑是依**呼叫端 cwd** 解析，不是 skill 根目錄，也不是 `-Dir` 指定的 worker 目錄；因此範例使用已安裝位置的絕對路徑），收工用 JSON 解析驗收 findings；驗證失敗 fallback 讀全文。
