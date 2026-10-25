@@ -18,9 +18,12 @@
 #    以 root（euid=0）執行時該節同樣印 SKIP 並扣除：BSD rm 對 root 會先清掉 uchg／uappnd 再刪
 #    （推論，依 FreeBSD／Apple rm.c 的 `!uid` 分支），鎖不會生效，案子會以錯誤的理由變紅。
 #    正式驗收請用一般使用者跑（macOS 上應為 pass=74）。
-# ⚠️ GNU vs BSD：本檔在 GNU userland（Linux／Git Bash）也能跑，但 find -mtime 的取整不同
-#    （BSD 無條件進位、GNU 捨去）。案例只用 13／16／30 天以上，兩邊結論相同（16 而不是 15：
-#    GNU 捨去取整，春季跳時後 15 天內「牆鐘 15 天前」實際只過 14 天 23 小時，會假紅）；
+# ⚠️ GNU vs BSD：本檔在 GNU userland（Linux／Git Bash）也能跑。find -mtime 的取整：GNU 捨去；
+#    macOS 預設（COMMAND_MODE 未設＝unix2003 模式）也捨去，只有 COMMAND_MODE=legacy 才無條件進位，
+#    man find 寫的「rounded up」是 legacy 行為（讀碼：Apple shell_cmds find/function.c:330、
+#    main.c:95，Libc gen/get_compat.c 的 UNIX2003_DEFAULT_MODE；未在 Mac 上跑邊界案例）。
+#    案例只用 13／16／30 天以上，各模式結論相同（16 而不是 15：捨去取整時，春季跳時後
+#    15 天內「牆鐘 15 天前」實際只過 14 天 23 小時，會假紅）；
 #    date 取「N 天前」先試 BSD 的 -v 再退回 GNU 的 -d。正式證據仍要在 macOS 上跑。
 
 set -uo pipefail
