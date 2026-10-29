@@ -7,7 +7,7 @@
 
 - 你在 macOS（BSD userland）→ 用 [`macos/`](../macos/)（bash 腳本 `.sh`）。
 - 你在 Windows PowerShell 環境 → 用 [`windows/`](../windows/)（PowerShell 腳本 `.ps1`）。**先做下面的 0a**：Claude Code 會用的 Git Bash 不能用就停止，不要往下做。
-- ⛔ **你在 Linux（GNU userland，包括在 WSL2 的 Linux 環境裡執行）→ 停止，不要執行本文件的任何步驟。** Linux 版已於 2026-10-14 凍結：不修、不驗收、不提供支援。先把這件事告訴使用者。使用者仍堅持要裝時，唯一的做法是**另開一份 clone，或用 `git worktree add <dir> pre-lts`** 取得凍結快照 tag `pre-lts`（＝`80c60a8`；**tag 建立前請用 commit `80c60a8`**），照**該快照內**的 `docs/AI-INSTALL.md` 安裝——**不要在使用者現有的 clone 裡 checkout**（那會切換使用者的工作目錄、甚至打斷進行中的工作）；並明白告知：沒有支援、Linux 從未做過 live 驗收、`codex-check.sh` 的能力面盤點與 baseline diff 沒有移植到 Linux。⚠️ **不要拿 `macos/` 代替**：macOS 的 hook 會把路徑轉成小寫再比對（大小寫敏感的檔案系統會誤判範圍），腳本的 `stat` 也是 BSD 語法。
+- ⛔ **你在 Linux（GNU userland，包括在 WSL2 的 Linux 環境裡執行）→ 停止，不要執行本文件的任何步驟。** Linux 版已於 2026-10-14 凍結：不修、不驗收、不提供支援。先把這件事告訴使用者。使用者仍堅持要裝時，唯一的做法是**另開一份 clone，或用 `git worktree add <dir> 80c60a8`** 取得凍結快照 commit `80c60a8`（原本預計的 tag `pre-lts` 沒有建立），照**該快照內**的 `docs/AI-INSTALL.md` 安裝——**不要在使用者現有的 clone 裡 checkout**（那會切換使用者的工作目錄、甚至打斷進行中的工作）；並明白告知：沒有支援、Linux 從未做過 live 驗收、`codex-check.sh` 的能力面盤點與 baseline diff 沒有移植到 Linux。⚠️ **不要拿 `macos/` 代替**：macOS 的 hook 會把路徑轉成小寫再比對（大小寫敏感的檔案系統會誤判範圍），腳本的 `stat` 也是 BSD 語法。
 
 ### 0a. Windows 前置條件：Git for Windows（必要；macOS 跳過本節）
 
@@ -144,12 +144,12 @@ if ($why) {
 "GIT_BASH_OK path=$gitBash"
 ```
 
-> ℹ️ **LTS 建置中（2026-10-14 起）**：目前沒有任何經過准入的版本，見 [README](../README.md) 頂端說明與 [`LTS-ADMISSION-PLAN.md`](LTS-ADMISSION-PLAN.md)。
+> ℹ️ **個人工具（2026-10-19 起；LTS 已停止）**：不提供支援、不做准入，見 [README](../README.md) 頂端說明。
 
 以下每步先列 macOS 指令、再列 Windows 對應。（凍結前本段另有「Linux 照 macOS 指令做」的說明，已隨 Linux 凍結移除。）
 
 > ℹ️ **`linux.yml`（凍結快照 CI）**：GitHub Actions 的 `ubuntu-latest` 仍會跑凍結的 `linux/` 樹與頂層共用測試（`tests/*.test.js` 等），
-> 直到 LTS 凍結第二階段移除；它的綠燈不構成任何平台的支援宣稱，也不代表本文件適用於 Linux。
+> 它的綠燈不構成任何平台的支援宣稱，也不代表本文件適用於 Linux。
 
 ## 1. 安裝 skill 與 hook（先驗證 → 先備份 → 安裝，失敗可回滾）
 
