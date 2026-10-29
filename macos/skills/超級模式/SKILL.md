@@ -14,7 +14,7 @@ description: 重型工程協作工作流的「明確開關」——spec-first �
 
 ## 0. 啟用閘門（先做 30 秒自評，不值得就退出）
 超級模式很燒 token，**只給大型工作用**。**啟動後第一件事先做這個 gate**：
-- ✅ 跨多 session、多檔案、要回測 / 交付、規格會反覆改、大規模重構 → 繼續：宣告進入，並跑 `scripts/super-mode.sh on --scope <專案根>`（開啟 consult-gate 強制；`--scope` 讓 scope 外一般路徑的檔案工具寫入與 cwd 在 scope 外的唯讀 shell 不受管；`~/.claude` 內與安全關鍵檔不因 scope 外而豁免，scope 外會改狀態的 shell／Monitor、MCP 寫入與外發內建工具仍受管，所以同機其他 session 仍可能被擋（2026-09-23 事實訂正：原寫只管本專案、不擋其他 session；旗標與憑證各為全機單一檔，scope 並非 session 隔離），**建議都帶**）。
+- ✅ 跨多 session、多檔案、要回測 / 交付、規格會反覆改、大規模重構 → 繼續：宣告進入，並跑 `scripts/super-mode.sh on --scope <專案根>`（開啟 consult-gate 強制；`--scope` 讓 scope 外的 session（cwd 與啟動專案都在 scope 外）不受管，scope 外一般路徑的檔案工具寫入也不受管；`~/.claude` 內與安全關鍵檔不因 scope 外而豁免，細節見 orchestration §3.5「範圍」。旗標與憑證各為全機單一檔，兩個 session 同時開超級模式仍會互相覆寫，**建議都帶**）。
 - ❌ 單檔改動、一次性腳本、3 步內完成、純探索 / 問答 → 直接說「這個任務不需要超級模式，建議直接做」並退出，用一般模式。
 
 **與 UltraCode 的分辨（別搞錯旋鈕）**：超級模式換的是「**省 Claude 額度**」（把實作外包給 Codex）；UltraCode 換的是「**品質**」（派更多 Claude 子代理，反而**更花** Claude）。兩者獨立、互不觸發：

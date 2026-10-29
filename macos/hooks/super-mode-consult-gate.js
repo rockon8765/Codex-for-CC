@@ -21,6 +21,10 @@
  *
  * 旗標第一行若是路徑（super-mode.sh on --scope <dir>）→ 只在該路徑底下強制；
  * 空內容 → 全域強制。旗標超過 8 小時視為上個 session 殘留 → 自動解除（自癒）。
+ * scope 外的 session（cwd 與 CLAUDE_PROJECT_DIR 都在 scope 外、也都不在 ~/.claude 內）：
+ *   shell／Monitor／外發內建工具／沒有 path policy 的 MCP 一律不管，免得一個專案開超級模式
+ *   就卡住同機其他專案（GATE-SCOPE-CROSS-SESSION）。檔案工具仍看 file_path；shell 指令字面
+ *   提到 scope 路徑或 gate 自己的狀態檔時不吃這個捷徑（啟發式防呆，不是邊界）。
  *
  * 部署位置：~/.claude/hooks/super-mode-consult-gate.js（I3 保護目錄，勿放 skill 內），
  * 由 ~/.claude/settings.json 的 PreToolUse 註冊。
@@ -134,6 +138,9 @@ const MCP_READ_RE = /(read|get|list|search|fetch|query|download|view|describe|in
 const MCP_WRITE_RE = /(create|update|delete|remove|move|write|submit|publish|send|upload|archive|duplicate|add|insert|patch|post|execute|fill|click|type|press|key|drag|join|copy|trigger|run_now|scale|deploy)/i;
 // 純標註/無副作用的 MCP 工具白名單（未知 MCP 一律 default-deny，這些例外放行）
 const MCP_BENIGN_RE = /(mark_chapter|read_widget)/i;
+// 桌面 app 的純 UI 工具：只更新任務清單／收尾框，按鈕要使用者自己點。名字含 update 會被
+// MCP_WRITE_RE 判成寫入，所以用完整工具名精確比對、排在所有 MCP 分類之前，任何 scope 都放行。
+const MCP_UI_EXACT = new Set(["mcp__ccd_turn__update_plan", "mcp__ccd_turn__wrap_up"]);
 // N5：名字含 read-y 字（get/read/resolve/view…）、實際有外發副作用的已知工具 → 精確封鎖(比對 action 尾段、
 // 不看 server 名，避免 server 名含 read/get/context 污染)。這是「已證實清單」而非「封住整類」：姿態 A 下用最小改動
 // 關掉誤放行(set_budget/resolve_comment/mark_as_read/reply_to_thread/request_copilot_review …)，未列舉的新
@@ -199,12 +206,18 @@ function decide(input, testOpts) {
   const scope = readScope(flag);
   const tool = String(input.tool_name || "");
   const ti = input.tool_input || {};
+  // 啟動專案根：測試臺一律經 testOpts 傳(避免繼承跑測試那個 session 的環境變數)；生產讀環境變數。
+  const projectDir = typeof testOpts.projectDir === "string"
+    ? testOpts.projectDir
+    : String(process.env.CLAUDE_PROJECT_DIR || "");
+  const sessionOutside = scope ? isSessionOutsideScope(input.cwd, projectDir, scope, claude) : false;
 
   let gated = false;
   let consuming = false;
   let category = "";
   let mcpAuth = null;
   let actionPath = ""; // 本動作綁定的路徑(檔案 file_path / shell cwd)，供憑證範圍比對
+  let altActionPath = ""; // scope 外 session 的指令提到 scope 路徑時：scope 的憑證也算數(免得為 cwd 另鑄憑證、覆寫 scope 的)
 
   if (MUTATING_FILE_TOOLS.includes(tool)) {
     const fp = String(ti.file_path || ti.notebook_path || "");
@@ -243,6 +256,11 @@ function decide(input, testOpts) {
     //    這一條不能省：isReadOnlyCommand("") 回 true，讓空字串走分類器等於 fail-open。
     const cmd = String(ti.command || "");
     actionPath = String(input.cwd || "");
+    if (sessionOutside) {
+      const guard = mentionsGuardedPath(cmd, scope, claude);
+      if (!guard.scope && !guard.gateState) return { allow: true }; // scope 外 session(含 ws 監看)不管
+      if (guard.scope) altActionPath = scope;
+    }
     if (!cmd) {
       gated = true;
       category = ti && ti.ws ? "Monitor(WebSocket 外發)" : "Monitor(無 command 可分類)";
@@ -262,6 +280,13 @@ function decide(input, testOpts) {
   } else if (tool === "Bash" || tool === "PowerShell") {
     const cwd = String(input.cwd || "");
     const cmd = String(ti.command || "");
+    // scope 外 session：不論唯讀與否都不管；但指令字面提到 scope 路徑或 gate 狀態檔 → 照下方原規則判。
+    // 提到 scope 時 scope 的憑證也算數(altActionPath)，避免叫人為 cwd 另鑄憑證、覆寫 scope 那張。
+    if (sessionOutside) {
+      const guard = mentionsGuardedPath(cmd, scope, claude);
+      if (!guard.scope && !guard.gateState) return { allow: true };
+      if (guard.scope) altActionPath = scope;
+    }
     // CLASS A shell facet 修補：cwd 在 scope 外的捷徑放行「僅限唯讀指令」；會改狀態的指令一律
     // 落回下方 default-deny/破壞性判定(需憑證)。可疑 cwd(含 ..)不吃此捷徑。
     // (operand/git -C 綁定屬 P0.4，此處不解析 operand。)
@@ -299,10 +324,12 @@ function decide(input, testOpts) {
     // ScheduleWakeup 根本沒有路徑。故 actionPath 留空 = 憑證只做**時間綁定、不做 repo 綁定**，
     // 與 MCP 的 pathless-allow 同一套語義。別誤以為 repo A 的憑證擋得住 repo B 的 Artifact——擋不住，
     // 這是取捨不是漏洞；要 repo 綁定得先有可信路徑欄位。
+    if (sessionOutside) return { allow: true }; // scope 外 session 不管
     gated = true;
     consuming = CONSUMING_BUILTIN.has(tool);
     category = consuming ? "外發內建工具(發佈，會消耗憑證)" : "外發/排程內建工具";
   } else if (tool.startsWith("mcp__")) {
+    if (MCP_UI_EXACT.has(tool)) return { allow: true }; // 桌面 app 純 UI 工具
     // 唯讀/良性 MCP 維持放行；寫入與未知工具必須走 repo-bound policy。
     const mcpIsWrite = MCP_WRITE_RE.test(tool);
     const mcpForceGate = MCP_FORCE_GATE_ACTION.has(mcpAction(tool)); // N5：讀名誤導的已知副作用工具
@@ -333,6 +360,8 @@ function decide(input, testOpts) {
         for (const field of mcpPolicyEntry.pathFields) values[field] = ti[field];
       } catch (e) {}
       mcpAuth = { kind: "pathbound", entry: mcpPolicyEntry, values };
+    } else if (sessionOutside) {
+      return { allow: true }; // 沒有 path policy 可判目標 → 依 session 所在專案；scope 外不管(有 policy 的照 policy)
     } else if (isMcpPathlessAllowed(tool)) {
       mcpAuth = { kind: "pathless-allow" };
     } else {
@@ -378,13 +407,15 @@ function decide(input, testOpts) {
         }
       }
     }
-    if (credRepo && actionPath && !isUnder(actionPath, credRepo)) {
+    if (credRepo && actionPath && !isUnder(actionPath, credRepo) && !(altActionPath && isUnder(altActionPath, credRepo))) {
       return {
         allow: false,
         reason:
           "[超級模式] 現有諮詢憑證的範圍是另一個專案(" + credRepo + ")，本動作在 " +
-          (actionPath || "(未知路徑)") + "。請針對本專案重新諮詢：" +
-          "codex-consult.sh -d <本專案根> -f <brief>。",
+          (actionPath || "(未知路徑)") + "。" + (altActionPath
+            ? "這條指令涉及超級模式專案(" + altActionPath + ")：請用該專案的憑證(codex-consult.sh -d " +
+              altActionPath + " -f <brief>)，不要為目前目錄另鑄憑證。"
+            : "請針對本專案重新諮詢：codex-consult.sh -d <本專案根> -f <brief>。"),
       };
     }
     if (consuming) demoteToken(token); // 收尾動作 → 憑證只剩 3 分鐘餘裕
@@ -395,6 +426,7 @@ function decide(input, testOpts) {
     allow: false,
     reason:
       "[超級模式] 此動作(" + category + ": " + tool + ")需要 20 分鐘內的 Codex 諮詢憑證。" +
+      (altActionPath ? "這條指令提到超級模式專案(" + altActionPath + ")，-d 請用該專案根。" : "") +
       "若你是子代理(subagent / Workflow agent)：禁止自行諮詢或派工——把被擋的動作與本理由回報 orchestrator(主 Claude)後就停手，由主線統一處理。" +
       "主線 Claude 的步驟：" +
       "①用 Write 工具把諮詢簡報寫進 scratchpad(豁免路徑，別用 shell 寫) " +
@@ -410,7 +442,10 @@ function decide(input, testOpts) {
 
 function readScope(flag) {
   try {
-    const first = fs.readFileSync(flag, "utf8").split(/\r?\n/)[0].trim();
+    const raw = fs.readFileSync(flag, "utf8").split(/\r?\n/)[0];
+    const first = raw.trim();
+    // 前後有空白 → trim 後可能變成別的目錄(GATE-SCOPE-TRIM)，scope 自己的 session 會被誤判成 scope 外 → 當全域
+    if (first && raw !== first) return "";
     if (first.startsWith("/") && !isDangerousPath(first)) return first; // 可疑 scope → 視為無 scope(全域強制,較嚴格)
   } catch (e) {}
   return ""; // 空 / 舊格式(時間戳) → 全域強制
@@ -530,6 +565,70 @@ function isScopeOutside(canon, scope) {
   const s = canonicalize(scope);
   if (s.dangerous) return false;
   return !isUnder(canon, s.path || scope);
+}
+
+// session 是否明確在 scope 外：cwd 必須有，CLAUDE_PROJECT_DIR 有就一起看(session 中途 cd 出去，
+// 啟動專案仍在 scope 內就照管)。每個都與 scope、~/.claude 走同一套 canonicalize(解 symlink/大小寫)；
+// 在 scope 內、是 scope 的上層目錄、或在 ~/.claude 內都不算在外。任何一項缺失/可疑/正規化失敗 → false
+// (不吃捷徑、照原規則判，不是直接拒絕)。
+function isSessionOutsideScope(cwd, projectDir, scope, claude) {
+  try {
+    if (typeof cwd !== "string" || !cwd) return false;
+    const s = canonicalize(scope);
+    const c = canonicalize(claude);
+    if (s.dangerous || !s.path || c.dangerous || !c.path) return false;
+    const dirs = projectDir ? [cwd, projectDir] : [cwd];
+    for (const d of dirs) {
+      const r = canonicalize(d);
+      if (r.dangerous || !r.path) return false;
+      if (isUnder(r.path, s.path) || isUnder(s.path, r.path) || isUnderClaudeRoot(r.path, c.path)) return false;
+    }
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
+// scope 外 session 的 shell/Monitor 字面防呆(啟發式，不是邊界；變數、相對路徑、跳脫空白都會漏)：
+//  scope：指令提到 scope 路徑(原樣或 canonical；不分大小寫，後面要接路徑邊界，A-other 不算)。
+//  gateState：提到 gate 自己的狀態檔(.super-mode-*、.codex-check-*)，或「家目錄的」.claude 本身、
+//  其 hooks、settings*、超級模式 skill。家目錄要寫成 ~、$HOME、${HOME} 或絕對路徑；
+//  相對的 .claude/...(專案自己的 settings.json、hooks)不算，免得又卡住無關專案。
+function mentionsGuardedPath(cmd, scope, claude) {
+  const res = { scope: false, gateState: false };
+  try {
+    const low = String(cmd || "").replace(/\\/g, "/").replace(/\/{2,}/g, "/").toLowerCase();
+    if (!low) return res;
+    const targets = [norm(scope)];
+    const sc = canonicalize(scope);
+    if (!sc.dangerous && sc.path) targets.push(norm(sc.path));
+    res.scope = targets.some((t) => t && containsBoundedPath(low, t));
+    // .claude 之後：hooks／settings*／超級模式 skill，或目錄本身(可帶結尾分隔符，後接邊界或萬用字元)
+    const sub = "(/(hooks\\b|settings|skills/超級模式)|/?(?=$|[\\s\"'`*;|&)<>,]))";
+    const homes = ["(^|[\\s\"'=(;|&,<>])(~|\\$home|\\$\\{home\\})[\"']?/\\.claude"];
+    for (const c of [claude, canonicalize(claude).path]) {
+      if (c) homes.push(norm(c).replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+    }
+    // 狀態檔名要出現在路徑裡(前面接分隔符)才算；commit 訊息或 sed 樣式裡提到檔名不算
+    res.gateState = /\/\.(super-mode-|codex-check-)/.test(low) ||
+      homes.some((h) => new RegExp("(" + h + ")" + sub).test(low));
+  } catch (e) {
+    res.scope = true; // 判不了 → 保守視為有提到(照原規則判)
+  }
+  return res;
+}
+
+// 兩側都要是路徑邊界：左邊是開頭或分隔字元(/x/Users/u/scopeA 的尾段不算)，右邊是結尾、
+// 子路徑或分隔字元(scopeA-other 不算；`:` 算，例如 docker -v <scope>:/app)。
+function containsBoundedPath(hay, needle) {
+  let i = hay.indexOf(needle);
+  while (i !== -1) {
+    const before = i === 0 ? "" : hay.charAt(i - 1);
+    const after = hay.charAt(i + needle.length);
+    if ((!before || /[\s"'`=(;|&,<>]/.test(before)) && (!after || /[\/\s"'`;|&)<>,:]/.test(after))) return true;
+    i = hay.indexOf(needle, i + 1);
+  }
+  return false;
 }
 
 function isUnder(p, root) {

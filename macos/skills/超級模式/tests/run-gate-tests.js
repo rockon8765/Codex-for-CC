@@ -62,10 +62,15 @@ for (const tc of cases) {
     }
 
     const input = replacePlaceholders(tc.input, replacements);
-    // MCP policy 注入走第二參數(物件形式)；一般案例維持傳字串 baseDir(向後相容)。
-    const testOpts = (tc.mcpPolicy !== undefined && tc.mcpPolicy !== null)
-      ? { baseDir: fakeBaseDir, mcpPolicy: replacePlaceholders(tc.mcpPolicy, replacements) }
-      : fakeBaseDir;
+    // 一律傳物件：projectDir 每案明確給(預設空字串)，不讓 hook 讀到跑測試那個 session 的
+    // CLAUDE_PROJECT_DIR；MCP policy 同樣走第二參數注入。
+    const testOpts = {
+      baseDir: fakeBaseDir,
+      projectDir: typeof tc.projectDir === "string" ? replacePlaceholders(tc.projectDir, replacements) : "",
+    };
+    if (tc.mcpPolicy !== undefined && tc.mcpPolicy !== null) {
+      testOpts.mcpPolicy = replacePlaceholders(tc.mcpPolicy, replacements);
+    }
     const res = decide(input, testOpts);
     const got = res && res.allow ? "allow" : "deny";
     if (got !== tc.expect) {
