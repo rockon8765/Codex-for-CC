@@ -11,3 +11,10 @@ super-mode-logs/
 .idea/
 Thumbs.db
 desktop.ini
+
+# Secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
