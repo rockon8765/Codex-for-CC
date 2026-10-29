@@ -160,6 +160,7 @@ hook 在 `super-mode on` 之前不作用，安裝它不會影響一般 session�
 **macOS**
 - 沒有 BOM 問題 — 那些步驟已刻意移除。簡報以一般 stdin 重導向（`< file`）送給 Codex；stderr 收到獨立檔再併進 log（絕不用 `2>&1`，那會把 Codex 的雜訊回灌進 Claude 的 context）。
 - `set -e` + pipeline 會吞掉 Codex 的 exit code — 腳本用固定的 `set +e … ${PIPESTATUS[0]} … set -e` 寫法（見 [`docs/history/FIX-PLAN-macos-2026-07-03.md`](docs/history/FIX-PLAN-macos-2026-07-03.md) §0.5）。
+- **非 git 專案以子目錄當 `-d`，Codex 會漏載專案根的 AGENTS.md**：找不到 project root（預設標記只有 `.git`）時，Codex 只載入 cwd 的 AGENTS.md，外表看不出差別。在專案根放空檔 `.codex-project-root`；`codex-exec.sh`／`codex-consult.sh`（Windows 為 `.ps1`、`-Dir`）從 `-d` 往上找到它，就以單次 `-c 'project_root_markers=[".git",".codex-project-root"]'` 呼叫，`-C` 仍是 `-d`、不改 `~/.codex/config.toml`，成功摘要印 cwd、預期的指示根與是否帶覆寫。較近的巢狀 `.git`（例如 worktree）仍會先被當成根；`.git` 是檔案、甚至 gitdir 已失效也一樣（2026-10-20 實測）。驗收要看非 ephemeral 探測的 rollout，consult 是 `--ephemeral`、不留 rollout。Windows 版已移植（2026-10-20，同一套偵測與摘要）：覆寫值裡的 `"` 寫成 `\"` 才能穿過 `cmd /c` → `codex.cmd` 的 `%*` → node 的 argv 剖析，裸 `"` 會被剝掉；`project-root-marker.tests.ps1` 以 stub 驗 codex 實收的 argv 與摘要。2026-10-20 Windows 真機實測（pwsh 7.6.7 與 5.1、codex-cli 0.163.0）：該測試兩個 host 皆 80/80，對舊版 48/80（有牙齒）；真 codex 非 ephemeral 探測帶標記時 rollout 載入根 AGENTS.md，拿掉標記則沒有。另外 Windows 的 `-Dir` 本來就拒收含 `&` 的路徑（`Assert-CmdSafePath`），`遠雄債券評價&風險值` 這類目錄不能直接當 `-Dir`。
 - `stat` 是 BSD 語法（`-f %m`）；凍結的 `linux/` 用 GNU 語法（`-c %Y`），別把版本拿錯邊。
 
 ## 這個 repo 有什麼

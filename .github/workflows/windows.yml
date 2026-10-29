@@ -8,8 +8,8 @@
 #    由各 job 的「證據」步驟量出來，存成 artifact（ImageOS、ImageVersion、OS build、host 版本）。
 #
 # ── 涵蓋範圍（別讀成「全部驗過」）──────────────────────────────────────────────
-#   ✅ run-windows-suite.ps1 -Mode repo（14 條：含 codex-check、consult-schema 的 pwsh／5.1 兩條腿，
-#      與 off-cleanup 的 pwsh／5.1 兩個 child host）；
+#   ✅ run-windows-suite.ps1 -Mode repo（16 條：含 codex-check、consult-schema 的 pwsh／5.1 兩條腿，
+#      與 off-cleanup、project-root-marker 的 pwsh／5.1 兩個 child host）；
 #      全套的 runner host 是 pwsh，5.1 當 runner host 只做 -Filter smoke（全套 5.1 runner 僅有本機證據）
 #   ✅ tests/ai-install/run-windows.ps1 與 run-mutation-controls.ps1，pwsh 與 Windows PowerShell 5.1 各一輪
 #      （run-mutation-controls.ps1 內部固定用 pwsh 跑受測的測試臺；matrix.host 只決定 controls runner 與 -Shell）
@@ -104,7 +104,7 @@ jobs:
         run: >-
           ./.github/scripts/windows-ci.ps1 -Action Run -Name suite-repo -Exe pwsh
           -ArgList @('-NoProfile', '-File', (Join-Path $env:SKILL_TESTS 'run-windows-suite.ps1'), '-Mode', 'repo')
-          -Require @('^SUITE_RESULT=OK$', '^run-windows-suite \[mode=repo\]: entries=14 ran=14 skipped=0 fail=0$')
+          -Require @('^SUITE_RESULT=OK$', '^run-windows-suite \[mode=repo\]: entries=16 ran=16 skipped=0 fail=0$')
           -Forbid @('^FAIL  ')
 
       # 2026-10-14 本機實測：以 Windows PowerShell 5.1 當 runner host 時，舊版 run-windows-suite.ps1
@@ -115,7 +115,7 @@ jobs:
         run: >-
           ./.github/scripts/windows-ci.ps1 -Action Run -Name suite-runner-winps51-smoke -Exe powershell
           -ArgList @('-NoProfile', '-File', (Join-Path $env:SKILL_TESTS 'run-windows-suite.ps1'), '-Mode', 'repo', '-Filter', 'gate-cases')
-          -Require @('^gate-cases\s+OK\s', '^run-windows-suite \[mode=repo\]: entries=14 ran=1 skipped=0 fail=0$', '^SUITE_RESULT=FILTERED')
+          -Require @('^gate-cases\s+OK\s', '^run-windows-suite \[mode=repo\]: entries=16 ran=1 skipped=0 fail=0$', '^SUITE_RESULT=FILTERED')
           -Forbid @('^FAIL  ')
 
       - name: 變異注入：8.3 短名（拿掉 realpath，class-b-8dot3 必須變紅）

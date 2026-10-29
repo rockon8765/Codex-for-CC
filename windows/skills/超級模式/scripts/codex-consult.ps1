@@ -310,8 +310,40 @@ $Dir = $Dir.TrimEnd('\')
 if ($Dir -match '^[A-Za-z]:$') { $Dir += '\' }
 Assert-CmdSafePath $Dir 'Dir'   # $Dir 也進 cmd /c 字串(既有注入面)，一併 fail-closed
 
+# 專案指示根（2026-10-20）：與 codex-exec.ps1 同一段，理由與引號說明見該檔。只決定帶不帶單次
+# project_root_markers 覆寫；-C 仍是 -Dir（既有前處理後的字串）、唯讀/ephemeral 不變。
+# ⚠️ 本支用 --ephemeral，不留 rollout：不能拿「沒有 rollout」判定 AGENTS.md 漏載。
+function Find-Up([string]$start, [string]$name) {   # start 起往上第一個含 name（檔案或目錄）的目錄
+  $d = $start
+  while ($d) {
+    $p = [System.IO.Path]::Combine($d, $name)
+    if ([System.IO.File]::Exists($p) -or [System.IO.Directory]::Exists($p)) { return $d }
+    $d = [System.IO.Path]::GetDirectoryName($d)      # 磁碟根（C:\）回 $null ⇒ 結束
+  }
+  return $null
+}
+$rootArg = ''; $rootOverride = 'no'; $instrRoot = 'unknown'; $cwdAbs = $null
+try {
+  $ri = Resolve-Path -LiteralPath $Dir -ErrorAction Stop
+  if ($ri.Provider.Name -eq 'FileSystem' -and [System.IO.Directory]::Exists($ri.ProviderPath)) { $cwdAbs = $ri.ProviderPath }
+  if ($cwdAbs) {
+    $markerDir = Find-Up $cwdAbs '.codex-project-root'
+    $gitDir = Find-Up $cwdAbs '.git'
+    if ($markerDir) {
+      $rootOverride = 'yes'
+      $rootArg = '-c project_root_markers=[\".git\",\".codex-project-root\"] '
+    }
+    $instrRoot = $gitDir
+    if ($markerDir -and (-not $instrRoot -or $markerDir.Length -gt $instrRoot.Length)) { $instrRoot = $markerDir }
+    if (-not $instrRoot) { $instrRoot = 'none (cwd only)' }
+  }
+}
+catch { $rootArg = ''; $rootOverride = 'no'; $instrRoot = 'unknown'; $cwdAbs = $null }
+$rootNote = ' ; cwd: ' + $(if ($cwdAbs) { $cwdAbs } else { $Dir }) + ' ; instructions root: ' + $instrRoot +
+  ' ; project_root_markers override: ' + $rootOverride
+
 # 正規化落地 UTF-8(無 BOM)暫存簡報，cmd `<` 重導向 → 位元組直達 codex
-$brief = Join-Path $env:TEMP ("codex_brief_{0}.txt" -f ([guid]::NewGuid().ToString('N')))
+$brief =Join-Path $env:TEMP ("codex_brief_{0}.txt" -f ([guid]::NewGuid().ToString('N')))
 $errFile = Join-Path $env:TEMP ("codex_err_{0}.txt" -f ([guid]::NewGuid().ToString('N')))
 # codex 的 **stdout 專用**副本，餵給判準用。⚠️ 不能拿 $log 代替：log 事後會被接上
 # "===== STDERR =====" 區段，把 stderr 一起送進判準會改變裁決（例如 schema 模式的 JSON 解析）。
@@ -341,7 +373,8 @@ try {
   # consult 必須是「獨立第二意見」→ use_memories=false 斷讀入(否則反方審查被過往記憶污染)、
   # generate_memories=false 斷寫出(否則簡報進全域 memories，下次 consult 又讀到，形成自我強化閉環)。
   # 0.144.1 實測：加這兩個 -c 後 MEMORIES: NO_MEMORIES_VISIBLE、exit 0、MCP 工具面/沙箱邊界皆不受影響。
-  $inner = ('"{0}" exec --sandbox read-only --ephemeral --skip-git-repo-check -c memories.use_memories=false -c memories.generate_memories=false -C "{1}" ' + $schemaArg + '< "{2}" 2> "{3}"') -f $codexCmd, $Dir, $brief, $errFile, $SchemaFile
+  # $rootArg（專案指示根，見上方）沒有大括號、不佔 -f 編號；空字串時本行與加入前逐位相同。
+  $inner = ('"{0}" exec --sandbox read-only --ephemeral --skip-git-repo-check -c memories.use_memories=false -c memories.generate_memories=false ' + $rootArg + '-C "{1}" ' + $schemaArg + '< "{2}" 2> "{3}"') -f $codexCmd, $Dir, $brief, $errFile, $SchemaFile
 
   # ══ native capture scope ══════════════════════════════════════════════════
   # 這一段的唯一任務是「把 codex 跑完、把退出碼與兩條 stream 完整帶出來」。
@@ -444,7 +477,7 @@ if ($code -eq 0) {
   if ($NoCredential) {
     # Discussion-partner mode: no credential, so a casual consult can never
     # unlock super-mode gated actions in a concurrent session on this repo.
-    Write-Output "consult OK -- no credential (discussion mode); transcript: $log"
+    Write-Output ("consult OK -- no credential (discussion mode); transcript: $log" + $rootNote)
   } else {
     $token = Join-Path $env:USERPROFILE ".claude\.super-mode-consult-ok"
     # 憑證決策範圍：綁定本次諮詢的 repo(-Dir)。hook 會比對後續動作路徑是否在此 repo 下。
@@ -484,9 +517,9 @@ if ($code -eq 0) {
     }
     $verdictNote = ($v.Out.Trim() -split '\s+')[-1]
     if ($verdictNote -ceq 'BLOCK') {
-      Write-Output "consult OK -- credential written, but Codex 裁決為 BLOCK：依 §3.5 不得執行原動作，先向使用者回報。transcript: $log"
+      Write-Output ("consult OK -- credential written, but Codex 裁決為 BLOCK：依 §3.5 不得執行原動作，先向使用者回報。transcript: $log" + $rootNote)
     } else {
-      Write-Output "consult OK -- credential written; transcript: $log"
+      Write-Output ("consult OK -- credential written; transcript: $log" + $rootNote)
     }
   }
 } else {
