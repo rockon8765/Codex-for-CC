@@ -83,14 +83,42 @@ $env:USERPROFILE = $fakeHome
 try {
   # 建「檔名含不安全字元、但內容是合法 JSON」的檔，逼流程走過 Test-Path/Resolve-Path 才撞守衛
   $pct = Join-Path $tmp "t2b_pct_%x.json"; Set-Content -LiteralPath $pct -Value '{}' -Encoding utf8
-  $amp = Join-Path $tmp "t2b_amp_&x.json"; Set-Content -LiteralPath $amp -Value '{}' -Encoding utf8
+  $caret = Join-Path $tmp "t2b_caret_^x.json"; Set-Content -LiteralPath $caret -Value '{}' -Encoding utf8
+  $ampCmd = Join-Path $tmp "t2b_amp_&x.cmd"; Set-Content -LiteralPath $ampCmd -Value '@echo off' -Encoding ascii
+  $ampJson = Join-Path $tmp "t2b_amp_&x.json"; Set-Content -LiteralPath $ampJson -Value '{}' -Encoding utf8
+  $stubCmd = Join-Path $tmp "t2b_stub.cmd"; Set-Content -LiteralPath $stubCmd -Value '@exit /b 0' -Encoding ascii
+  $nodeCmd = Join-Path $tmp "t2b_node.cmd"
+  Set-Content -LiteralPath $nodeCmd -Value ('@"' + (Get-Command node -CommandType Application | Select-Object -First 1).Source + '" %*') -Encoding ascii
   $bad = Join-Path $tmp "t2b_bad.json";    Set-Content -LiteralPath $bad -Value '{nope' -Encoding utf8
 
   T "schema-not-found"  "SchemaFile not found"  @{ Dir=$dir; Prompt='t'; SchemaFile="C:\__t2b_no_such__.json" }
   T "schema-bad-json"   "is not valid JSON"     @{ Dir=$dir; Prompt='t'; SchemaFile=$bad }
   T "schema-pct-unsafe" "不安全字元"            @{ Dir=$dir; Prompt='t'; SchemaFile=$pct }
-  T "schema-amp-unsafe" "不安全字元"            @{ Dir=$dir; Prompt='t'; SchemaFile=$amp }
+  # & 只對 -Dir／-SchemaFile 放行（正向案例在 project-root-marker.tests.ps1 的 H，那裡才有 stub 擋住真 codex）；其餘字元照擋。
+  T "schema-caret-unsafe" "不安全字元"          @{ Dir=$dir; Prompt='t'; SchemaFile=$caret }
   T "dir-pct-unsafe"    "不安全字元"            @{ Dir='C:\proj\%EVIL%'; Prompt='t' }
+  T "dir-bang-unsafe"   "不安全字元"            @{ Dir='C:\proj\!EVIL!'; Prompt='t' }
+  T "dir-caret-unsafe"  "不安全字元"            @{ Dir='C:\proj\a^b'; Prompt='t' }
+  # 接縫路徑不放行 &：npm 的 codex.cmd 有未加引號的 SET dp0=%~dp0，shim 放在含 & 的目錄會斷句。
+  $env:SUPER_MODE_CODEX_CMD = $ampCmd
+  T "override-amp-unsafe" "不安全字元"          @{ Dir=$dir; Prompt='t' }
+  Remove-Item -LiteralPath Env:SUPER_MODE_CODEX_CMD -ErrorAction SilentlyContinue
+  $env:SUPER_MODE_CODEX_CMD_EXEC = $ampCmd
+  T "exec-override-amp-unsafe" "不安全字元"     @{ Dir=$dir; Prompt='t' } $exec
+  Remove-Item -LiteralPath Env:SUPER_MODE_CODEX_CMD_EXEC -ErrorAction SilentlyContinue
+  # exec 放寬後的守衛也要有負向案例。exec 是 workspace-write，守衛一旦退化不能走到真 codex ⇒ 先把接縫指向 stub。
+  $env:SUPER_MODE_CODEX_CMD_EXEC = $stubCmd
+  T "exec-schema-pct-unsafe" "不安全字元"       @{ Dir=$dir; Prompt='t'; SchemaFile=$pct } $exec
+  T "exec-schema-caret-unsafe" "不安全字元"     @{ Dir=$dir; Prompt='t'; SchemaFile=$caret } $exec
+  T "exec-dir-pct-unsafe" "不安全字元"          @{ Dir='C:\proj\%EVIL%'; Prompt='t' } $exec
+  T "exec-dir-bang-unsafe" "不安全字元"         @{ Dir='C:\proj\!EVIL!'; Prompt='t' } $exec
+  T "exec-dir-caret-unsafe" "不安全字元"        @{ Dir='C:\proj\a^b'; Prompt='t' } $exec
+  Remove-Item -LiteralPath Env:SUPER_MODE_CODEX_CMD_EXEC -ErrorAction SilentlyContinue
+  # --check-json 不走 $inner：node 是批次檔時，含 & 的 schema 路徑要在呼叫 node 之前就擋下。
+  $env:SUPER_MODE_NODE = $nodeCmd
+  $env:SUPER_MODE_CODEX_CMD = $stubCmd
+  T "schema-amp-batch-node" "node 是批次檔"     @{ Dir=$dir; Prompt='t'; SchemaFile=$ampJson }
+  Remove-Item -LiteralPath Env:SUPER_MODE_NODE, Env:SUPER_MODE_CODEX_CMD -ErrorAction SilentlyContinue
 
   # C5 stage 1：-Prompt 與 -PromptFile 互斥。舊行為是靜默採用 -PromptFile，呼叫端不會發現
   # 自己的 inline 簡報被丟掉 → 改 fail-fast。consult 與 exec 都要有，兩者是同一個坑。
@@ -141,7 +169,7 @@ if (($realLogNew.Count -eq 0) -and (-not $claudeCreated)) { Write-Output "PASS  
 else { Write-Output ("FAIL  real-home-untouched (真的 logdir 新增=" + ($realLogNew -join ',') + " 建出 .claude=" + $claudeCreated + ")"); $fail++ }
 Remove-Item -LiteralPath $fakeHome -Recurse -Force -ErrorAction SilentlyContinue
 
-Remove-Item -LiteralPath $pct, $amp, $bad -Force -ErrorAction SilentlyContinue
+Remove-Item -LiteralPath $pct, $caret, $ampCmd, $ampJson, $stubCmd, $nodeCmd, $bad -Force -ErrorAction SilentlyContinue
 Write-Output ""
 Write-Output ("CONSULT-SCHEMA {0}/{1}" -f $pass, ($pass + $fail))
 # else 分支不可省。實測三種呼叫方式的差別：

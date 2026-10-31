@@ -16,11 +16,11 @@
 #   - 每案先驗 stub 恰跑一次（X0）：證明接縫生效，不是因為根本沒跑而讓斷言以錯誤理由通過。
 #   - G 案（macOS 版沒有）：只有 .git **目錄**、沒有標記 ⇒ 不帶覆寫、指示根＝那一層。
 #   - 「-C 是原 -Dir」指的是既有前處理（TrimEnd('\')、磁碟根補 \）之後的字串，與加入前相同；
-#     本修法不再改動 -Dir。磁碟根 `-C "C:\"` 的結尾 `\"` 是既有的引號邊界，本檔不涵蓋。
+#     本修法不再改動 -Dir。I 案：磁碟根的 -Dir 字串仍是 `C:\`，只有拼進 cmd 字串時才把結尾 \ 加倍。
 #   - 不涵蓋：symlink／junction（偵測走 Resolve-Path 的邏輯路徑，macOS 走 pwd -P 實體路徑）、
 #     呼叫端設 $PSNativeCommandArgumentPassing='Standard'（pwsh 7.3+；cmd.exe 只在預設的 Windows 模式走 Legacy）。
-#   - 情境路徑含空白與 CJK，但**不含 `&`**：Assert-CmdSafePath 本來就拒收含 & 的 -Dir（既有行為，
-#     所以 `遠雄債券評價&風險值` 這類目錄在 Windows 不能直接當 -Dir；本修法不改這點）。
+#   - A–G 的情境路徑含空白與 CJK；H 案（2026-10-31）另驗含 & 的目錄：-Dir／-SchemaFile／$PWD.ProviderPath 都逐字到達
+#     argv、cmd 沒有斷句，cwd、-C 與憑證的 repo 三者一致。目錄名刻意含 `&echo INJECTED`：& 若被當成運算子，argv 會被截斷。
 #
 # ⚠️ 本檔只驗 wrapper 的 argv 與摘要，**不證明** codex 真的載入了 AGENTS.md。
 #    那要用非 ephemeral 的真 codex 探測，看 ~/.codex/sessions 的 rollout 初始 user 訊息。
@@ -113,7 +113,7 @@ const fs = require('fs');
 fs.appendFileSync(process.env.FAKE_TRACE, 'RAN\n');
 fs.writeFileSync(process.env.FAKE_ARGV, JSON.stringify(process.argv.slice(2)), 'utf8');
 try { fs.readFileSync(0); } catch (e) { /* stdin 已關閉也無妨 */ }
-process.stdout.write('stub answer: ready\n');
+process.stdout.write(process.env.FAKE_ANSWER || 'stub answer: ready\n');
 '@
 $fakeCodex = Join-Path $stubDir "fake-codex.cmd"
 @'
@@ -126,8 +126,9 @@ exit /b %ERRORLEVEL%
 # ⚠️ 必須 UTF-8 **with BOM**：WinPS 5.1 讀無 BOM 的 .ps1 用 ANSI 解碼。
 $wrapper = Join-Path $root "wrapper.ps1"
 $wrapperSrc = @'
-$ht = @{ Dir = $env:PRM_DIR; PromptFile = $env:PRM_BRIEF }
-if ($env:PRM_MODE -eq 'exec') { $ht['Quiet'] = $true } else { $ht['NoCredential'] = $true }
+$ht = @{ Dir = $(if ($env:PRM_USE_PWD) { $PWD.ProviderPath } else { $env:PRM_DIR }); PromptFile = $env:PRM_BRIEF }
+if ($env:PRM_SCHEMA) { $ht['SchemaFile'] = $env:PRM_SCHEMA }
+if ($env:PRM_MODE -eq 'exec') { $ht['Quiet'] = $true } elseif (-not $env:PRM_CRED) { $ht['NoCredential'] = $true }
 & $env:PRM_TARGET @ht
 exit $LASTEXITCODE
 '@
@@ -139,12 +140,17 @@ $probe = Join-Path $root "probe.ps1"
   "`r`n" + '$PSVersionTable.PSVersion.ToString(); $env:USERPROFILE'),
   (New-Object System.Text.UTF8Encoding $true))
 
-# 情境目錄：名稱刻意含空白與 CJK（不含 &，理由見檔頭）。
+# 情境目錄：名稱刻意含空白與 CJK。
 $P = Join-Path $root "proj 專案"
 foreach ($sub in @("sub\deep", "wt\x")) { New-Item -ItemType Directory -Path (Join-Path $P $sub) -Force | Out-Null }
 New-Item -ItemType Directory -Path (Join-Path $root "plain\sub") -Force | Out-Null
 New-Item -ItemType Directory -Path (Join-Path $root "gitrepo\.git") -Force | Out-Null   # 只有 .git **目錄**、沒有標記
 New-Item -ItemType Directory -Path (Join-Path $root "gitrepo\sub") -Force | Out-Null
+$AMP = Join-Path $root "proj 專案&echo INJECTED"      # H 案：& 若被 cmd 當運算子，argv 會在這裡斷掉
+New-Item -ItemType Directory -Path $AMP -Force | Out-Null
+$ampSchema = Join-Path $AMP "schema&x.json"; Write-Utf8 $ampSchema "{}"
+$ZW = Join-Path $root ([string][char]0x200D)         # I3：文化比較的 EndsWith('\') 會把它誤判成以 \ 結尾
+New-Item -ItemType Directory -Path $ZW -Force | Out-Null
 Write-Utf8 (Join-Path $P ".codex-project-root") ""
 Write-Utf8 (Join-Path $P "wt\.git") "gitdir: C:\nonexistent\.git\worktrees\wt`n"   # 巢狀 .git 檔（gitdir 失效）
 
@@ -173,13 +179,18 @@ function Start-Child([string]$argString, [string]$cwd) {
 }
 
 # Invoke-Sut exec|consult <dir> [cwd]：回傳 rc、stdout、stderr、stub 執行次數、codex 實收的 argv。
-function Invoke-Sut([string]$Mode, [string]$Dir, [string]$Cwd = '') {
+# -Schema 帶 -SchemaFile；-UsePwd 以 $PWD.ProviderPath 當 -Dir；-Credential 讓 consult 走鑄證模式；-Answer 換 stub 的回覆。
+function Invoke-Sut([string]$Mode, [string]$Dir, [string]$Cwd = '', [string]$Schema = '', [switch]$UsePwd, [switch]$Credential, [string]$Answer = '') {
   if (-not $Cwd) { $Cwd = $root }
   Remove-Item -LiteralPath $argvFile, $trace -Force -ErrorAction SilentlyContinue
   $env:PRM_MODE = $Mode
   $env:PRM_TARGET = $(if ($Mode -eq 'exec') { $ExecSut } else { $ConsultSut })
   $env:PRM_DIR = $Dir
   $env:PRM_BRIEF = $brief
+  $env:PRM_SCHEMA = $Schema
+  $env:PRM_USE_PWD = $(if ($UsePwd) { '1' } else { '' })
+  $env:PRM_CRED = $(if ($Credential) { '1' } else { '' })
+  $env:FAKE_ANSWER = $Answer
   $r = Start-Child ('-NoProfile -File "' + $wrapper + '"') $Cwd
   $ran = @((Read-Text $trace) -split "`r?`n" | Where-Object { $_ -eq 'RAN' }).Count
   $argv = @()
@@ -324,11 +335,47 @@ try {
     Check "$mode G1 不帶覆寫" ((Get-ElemCount $r.Argv $MARKERS) -eq 0) $ctx
     Check "$mode G2 指示根＝.git 目錄那層" (Test-Has $r.Out ("instructions root: " + (Join-Path $root "gitrepo") + " ;")) $ctx
     Check "$mode G3 argv 與加入前逐元素相同" (Test-ArgvExact $r.Argv (Get-ExpectedArgv $mode $dG $false)) $ctx
+
+    Write-Output ("§" + $mode + " H -Dir／-SchemaFile 含 & ⇒ 逐字到達 argv，cmd 沒有斷句")
+    $r = Invoke-Sut $mode $AMP
+    $ctx = "rc=" + $r.Code + " argv=" + (Format-Argv $r.Argv) + " out=" + $r.Out + " err=" + $r.Err
+    Check "$mode H0 stub 恰跑一次" ($r.Ran -eq 1) ("Ran=" + $r.Ran + " " + $ctx)
+    Check "$mode H1 rc=0" ($r.Code -eq 0) $ctx
+    Check "$mode H2 argv 與不含 & 的路徑同形" (Test-ArgvExact $r.Argv (Get-ExpectedArgv $mode $AMP $false)) $ctx
+    Check "$mode H3 摘要 cwd" (Test-Has $r.Out ("cwd: " + $AMP + " ;")) $ctx
+    $r = Invoke-Sut $mode $AMP -Schema $ampSchema -Answer '{"ok":true}'
+    $ctx = "rc=" + $r.Code + " argv=" + (Format-Argv $r.Argv) + " out=" + $r.Out + " err=" + $r.Err
+    Check "$mode H4 schema rc=0" ($r.Code -eq 0) $ctx
+    Check "$mode H5 --output-schema 逐字到達" ((Get-PairCount $r.Argv '--output-schema' $ampSchema) -eq 1) $ctx
+    $r = Invoke-Sut $mode "unused" $AMP -UsePwd
+    $ctx = "rc=" + $r.Code + " argv=" + (Format-Argv $r.Argv) + " out=" + $r.Out + " err=" + $r.Err
+    Check "$mode H6 PWD.ProviderPath rc=0" ($r.Code -eq 0) $ctx
+    Check "$mode H7 PWD.ProviderPath 到達 -C" ((Get-PairCount $r.Argv '-C' $AMP) -eq 1) $ctx
+
+    Write-Output ("§" + $mode + " I 磁碟根 ⇒ 結尾 \ 不吃掉收尾引號，後面的參數不併進路徑")
+    $dI = [System.IO.Path]::GetPathRoot($root)
+    $r = Invoke-Sut $mode $dI
+    $ctx = "rc=" + $r.Code + " argv=" + (Format-Argv $r.Argv) + " out=" + $r.Out + " err=" + $r.Err
+    Check "$mode I0 stub 恰跑一次" ($r.Ran -eq 1) ("Ran=" + $r.Ran + " " + $ctx)
+    Check "$mode I1 rc=0" ($r.Code -eq 0) $ctx
+    Check "$mode I2 argv 與一般路徑同形" (Test-ArgvExact $r.Argv (Get-ExpectedArgv $mode $dI $false)) $ctx
+    $r = Invoke-Sut $mode $ZW
+    $ctx = "rc=" + $r.Code + " argv=" + (Format-Argv $r.Argv) + " out=" + $r.Out + " err=" + $r.Err
+    Check "$mode I3 零寬目錄名不被當成結尾 \" (Test-ArgvExact $r.Argv (Get-ExpectedArgv $mode $ZW $false)) $ctx
   }
 
+  # H 的憑證案只有 consult 有：cwd、-C、憑證的 repo 三者要一致，hook 才比對得上後續動作。
+  Write-Output "§consult H 鑄證模式 ⇒ 憑證的 repo 是含 & 的絕對路徑"
+  $r = Invoke-Sut consult "unused" $AMP -UsePwd -Credential -Answer ('ALLOW: stub ' + ('x' * 60))
+  $ctx = "rc=" + $r.Code + " argv=" + (Format-Argv $r.Argv) + " out=" + $r.Out + " err=" + $r.Err
+  Check "consult H8 鑄證 rc=0、-C＝cwd" (($r.Code -eq 0) -and ((Get-PairCount $r.Argv '-C' $AMP) -eq 1)) $ctx
+  $credText = Read-Text (Join-Path $fakeHome ".claude\.super-mode-consult-ok")
+  $credRepo = $(if ($credText) { (ConvertFrom-Json -InputObject $credText).repo } else { '' })
+  Check "consult H9 credential.repo＝cwd" ($credRepo -ceq $AMP) ("repo=" + $credRepo + " " + $ctx)
+
   # 案數守衛：只證明「沒少跑案」，不證明案子有牙齒（牙齒見檔頭 -ExecSut／-ConsultSut 用法）。
-  # §0 3 + 每個 mode (A 9 + B 7 + C 4 + D 3 + E 5 + F 6 + G 4 = 38) × 2；全綠時摘要為 pass=80（含本守衛）
-  $expected = 79
+  # §0 3 + 每個 mode (A 9 + B 7 + C 4 + D 3 + E 5 + F 6 + G 4 + H 8 + I 4 = 50) × 2 + consult 鑄證 2；全綠時摘要為 pass=106（含本守衛）
+  $expected = 105
   $ran = $script:pass + $script:fail
   Check "案數守衛：實跑 $expected 案" ($ran -eq $expected) ("實跑=" + $ran + " 期望=" + $expected)
 }
@@ -341,7 +388,7 @@ catch {
 }
 finally {
   foreach ($v in @('SUPER_MODE_CODEX_CMD', 'SUPER_MODE_CODEX_CMD_EXEC', 'PRM_NODE', 'PRM_DUMP_JS', 'PRM_MODE',
-      'PRM_TARGET', 'PRM_DIR', 'PRM_BRIEF', 'FAKE_ARGV', 'FAKE_TRACE')) {
+      'PRM_TARGET', 'PRM_DIR', 'PRM_BRIEF', 'PRM_SCHEMA', 'PRM_USE_PWD', 'PRM_CRED', 'FAKE_ARGV', 'FAKE_TRACE', 'FAKE_ANSWER')) {
     Remove-Item -LiteralPath ("Env:" + $v) -ErrorAction SilentlyContinue
   }
   Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue

@@ -35,6 +35,8 @@ const path = require("path");
 const WINDOW_MS = 20 * 60 * 1000; // 諮詢憑證有效視窗
 const GRACE_MS = 3 * 60 * 1000; // 收尾動作後保留的餘裕
 const FLAG_STALE_MS = 8 * 60 * 60 * 1000; // 旗標殘留自動解除門檻
+// 鑄證判準強制首行裁決；拒絕訊息不講的話，照訊息寫的簡報可能回 exit 43、整趟諮詢白跑。
+const VERDICT_HINT = "簡報結尾要明確要求 Codex 最終回覆第一行必須是 ALLOW: <理由> 或 BLOCK: <理由>，否則 exit 43、不鑄造憑證。";
 
 const MUTATING_FILE_TOOLS = ["Edit", "Write", "MultiEdit", "NotebookEdit"];
 // 會外發/排程/觸發遠端/改工作區的內建工具（非 shell、非 MCP）→ 也要憑證。
@@ -403,8 +405,8 @@ function decide(input, testOpts) {
           "[超級模式] 現有諮詢憑證的範圍是另一個專案(" + credRepo + ")，本動作在 " +
           (actionPath || "(未知路徑)") + "。" + (altActionPath
             ? "這條指令涉及超級模式專案(" + altActionPath + ")：請用該專案的憑證(codex-consult.ps1 -Dir " +
-              altActionPath + " -PromptFile <brief>)，不要為目前目錄另鑄憑證。"
-            : "請針對本專案重新諮詢：codex-consult.ps1 -Dir <本專案根> -PromptFile <brief>。"),
+              altActionPath + " -PromptFile <brief>)，不要為目前目錄另鑄憑證。" + VERDICT_HINT
+            : "請針對本專案重新諮詢：codex-consult.ps1 -Dir <本專案根> -PromptFile <brief>。" + VERDICT_HINT),
       };
     }
     if (consuming) demoteToken(token); // 收尾動作 → 憑證只剩 3 分鐘餘裕
@@ -418,7 +420,7 @@ function decide(input, testOpts) {
       (altActionPath ? "這條指令提到超級模式專案(" + altActionPath + ")，-Dir 請用該專案根。" : "") +
       "若你是子代理(subagent / Workflow agent)：禁止自行諮詢或派工——把被擋的動作與本理由回報 orchestrator(主 Claude)後就停手，由主線統一處理。" +
       "主線 Claude 的步驟：" +
-      "①用 Write 工具把諮詢簡報寫進 scratchpad(豁免路徑，別用 shell 寫) " +
+      "①用 Write 工具把諮詢簡報寫進 scratchpad(豁免路徑，別用 shell 寫)。" + VERDICT_HINT + " " +
       "②用 PowerShell 工具(非 Bash 包 powershell -Command)跑 " +
       "~/.claude/skills/超級模式/scripts/codex-consult.ps1 -Dir <repo> -PromptFile <brief>(一律 -PromptFile) " +
       "③成功後重試此動作。若超級模式其實已結束，用 PowerShell 工具跑 scripts/super-mode.ps1 -Off 解除。" +

@@ -35,9 +35,15 @@ param(
 $codexCmd = "C:\npm\codex.cmd"
 
 # $Dir / $SchemaFile 會拼進 cmd /c 字串執行 → 進 cmd 前必須擋注入面(fail-closed)。
-# cmd 即使在雙引號內也會展開 %VAR%(! 可能延遲展開；& | < > ^ 為運算子)；合法 repo/schema 路徑不含這些字元。
-function Assert-CmdSafePath([string]$value, [string]$name) {
-  if ($value -match '[%!"&|<>^]') { throw ($name + ' 含 cmd 不安全字元(% ! " & | < > ^ 之一)，拒絕以防注入: ' + $value) }
+# cmd 即使在雙引號內也會展開 %VAR%(! 可能延遲展開；& | < > ^ 為運算子)。
+# -AllowAmpersand（2026-10-31）：只給 $Dir／$SchemaFile 用。它們在 $inner 裡一律包在雙引號內、值又不能含 "，
+# 所以在 $inner 這條路上 & 碰不到 cmd 的運算子解析（專案路徑可能真的含 &，例如 遠雄債券評價&風險值）。
+# ⚠️ Resolve-CodexOverride 不可帶這個開關：npm 的 codex.cmd 有未加引號的 SET dp0=%~dp0，shim 放在含 & 的目錄會斷句。
+function Assert-CmdSafePath([string]$value, [string]$name, [switch]$AllowAmpersand) {
+  $unsafe = if ($AllowAmpersand) { '[%!"|<>^]' } else { '[%!"&|<>^]' }
+  if ($value -match $unsafe) {
+    throw ($name + ' 含 cmd 不安全字元(' + $(if ($AllowAmpersand) { '% ! " | < > ^' } else { '% ! " & | < > ^' }) + ' 之一)，拒絕以防注入: ' + $value)
+  }
 }
 
 # 測試接縫的解析器。⚠️ 只換「執行哪支程式」，不改任何判準或鑄造規則；正式使用不需要設它。
@@ -265,7 +271,11 @@ $schemaArg = ""
 if ($SchemaFile) {
   if (-not (Test-Path -LiteralPath $SchemaFile)) { throw "SchemaFile not found: $SchemaFile" }
   $SchemaFile = (Resolve-Path -LiteralPath $SchemaFile).Path   # consult 有 -C 換工作根，必須絕對路徑
-  Assert-CmdSafePath $SchemaFile 'SchemaFile'                  # 進 cmd /c 前擋注入字元
+  Assert-CmdSafePath $SchemaFile 'SchemaFile' -AllowAmpersand   # 進 cmd /c 前擋注入字元
+  # 下面的 --check-json 不走 $inner：node 是批次檔時會經 cmd，PowerShell 又只在含空白時才加引號，裸 & 就成了運算子。
+  if ($SchemaFile.Contains('&') -and $nodeExe -match '\.(cmd|bat)$') {
+    throw "SchemaFile 路徑含 &，而 node 是批次檔($nodeExe)，拒絕以防注入。請把 schema 放到不含 & 的路徑，或讓 node 解析到 node.exe。"
+  }
   # ⚠️ 2026-08-18：這裡原本用 ConvertFrom-Json，而 POSIX 兩支用的是 node 的 JSON.parse。
   #    那不是同一個 JSON 方言（pwsh 7.x 接受註解與 trailing comma、WinPS 5.1 拒；兩者都接受
   #    NaN 與 01，node 全拒）⇒ 同一份 schema 檔會在不同平台一邊過一邊不過。改成三平台
@@ -308,7 +318,11 @@ catch {
 
 $Dir = $Dir.TrimEnd('\')
 if ($Dir -match '^[A-Za-z]:$') { $Dir += '\' }
-Assert-CmdSafePath $Dir 'Dir'   # $Dir 也進 cmd /c 字串(既有注入面)，一併 fail-closed
+Assert-CmdSafePath $Dir 'Dir' -AllowAmpersand   # $Dir 也進 cmd /c 字串(既有注入面)，一併 fail-closed
+# 磁碟根只在拼 cmd 字串時把結尾 \ 加倍：`-C "C:\"` 在 MSVCRT 規則下 \" 是字面引號，後面的參數全併進路徑。
+# $Dir 本身不動（憑證的 repo 與摘要用的是它）；上面已 TrimEnd，只有磁碟根會以 \ 結尾。
+# ⚠️ 一定要 Ordinal：預設的文化比較會忽略零寬字元，`C:\a\<ZWJ>` 也會判成以 \ 結尾。
+$dirArg = if ($Dir.EndsWith('\', [StringComparison]::Ordinal)) { $Dir + '\' } else { $Dir }
 
 # 專案指示根（2026-10-20）：與 codex-exec.ps1 同一段，理由與引號說明見該檔。只決定帶不帶單次
 # project_root_markers 覆寫；-C 仍是 -Dir（既有前處理後的字串）、唯讀/ephemeral 不變。
@@ -374,7 +388,7 @@ try {
   # generate_memories=false 斷寫出(否則簡報進全域 memories，下次 consult 又讀到，形成自我強化閉環)。
   # 0.144.1 實測：加這兩個 -c 後 MEMORIES: NO_MEMORIES_VISIBLE、exit 0、MCP 工具面/沙箱邊界皆不受影響。
   # $rootArg（專案指示根，見上方）沒有大括號、不佔 -f 編號；空字串時本行與加入前逐位相同。
-  $inner = ('"{0}" exec --sandbox read-only --ephemeral --skip-git-repo-check -c memories.use_memories=false -c memories.generate_memories=false ' + $rootArg + '-C "{1}" ' + $schemaArg + '< "{2}" 2> "{3}"') -f $codexCmd, $Dir, $brief, $errFile, $SchemaFile
+  $inner = ('"{0}" exec --sandbox read-only --ephemeral --skip-git-repo-check -c memories.use_memories=false -c memories.generate_memories=false ' + $rootArg + '-C "{1}" ' + $schemaArg + '< "{2}" 2> "{3}"') -f $codexCmd, $dirArg, $brief, $errFile, $SchemaFile
 
   # ══ native capture scope ══════════════════════════════════════════════════
   # 這一段的唯一任務是「把 codex 跑完、把退出碼與兩條 stream 完整帶出來」。

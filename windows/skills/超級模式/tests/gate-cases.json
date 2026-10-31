@@ -95,6 +95,41 @@
     "expect": "allow"
   },
   {
+    "name": "consult -Dir $PWD.ProviderPath allows in a project path containing &",
+    "flagContent": "",
+    "tokenAgeMs": null,
+    "input": {
+      "tool_name": "PowerShell",
+      "tool_input": { "command": "C:\\Users\\user\\.claude\\skills\\超級模式\\scripts\\codex-consult.ps1 -Dir $PWD.ProviderPath -PromptFile x" },
+      "cwd": "E:\\proj&risk"
+    },
+    "expect": "allow"
+  },
+  {
+    "name": "consult literal & in -Dir still denies without token",
+    "flagContent": "",
+    "tokenAgeMs": null,
+    "input": {
+      "tool_name": "PowerShell",
+      "tool_input": { "command": "C:\\Users\\user\\.claude\\skills\\超級模式\\scripts\\codex-consult.ps1 -Dir \"E:\\proj&risk\" -PromptFile x" },
+      "cwd": "E:\\proj&risk"
+    },
+    "expect": "deny",
+    "expectReasonIncludes": "第一行必須是 ALLOW:"
+  },
+  {
+    "name": "exec -Dir $PWD.ProviderPath allows with a token bound to the & project",
+    "flagContent": "",
+    "tokenAgeMs": 60000,
+    "tokenContent": "{\"repo\":\"E:\\\\proj&risk\",\"ts\":\"2026-10-31T00:00:00Z\"}",
+    "input": {
+      "tool_name": "PowerShell",
+      "tool_input": { "command": "C:\\Users\\user\\.claude\\skills\\超級模式\\scripts\\codex-exec.ps1 -Dir $PWD.ProviderPath -PromptFile x" },
+      "cwd": "E:\\proj&risk"
+    },
+    "expect": "allow"
+  },
+  {
     "name": "codex exec script denies without token",
     "flagContent": "",
     "tokenAgeMs": null,
@@ -371,5 +406,7 @@
   {"name":"XS52 scope 外 session 用 Git Bash 的 $USERPROFILE 寫 settings.json denies","flagContent":"C:\\scopeA","tokenAgeMs":null,"input":{"tool_name":"Bash","tool_input":{"command":"cp x.json $USERPROFILE/.claude/settings.json"},"cwd":"C:\\projB"},"expect":"deny"},
   {"name":"XS53 scope 外 session 用 ${env:USERPROFILE} 寫 settings.json denies","flagContent":"C:\\scopeA","tokenAgeMs":null,"input":{"tool_name":"PowerShell","tool_input":{"command":"Copy-Item x.json ${env:USERPROFILE}\\.claude\\settings.json"},"cwd":"C:\\projB"},"expect":"deny"},
   {"name":"XS54 只有尾段相同的別處路徑不算提到 scope allows","flagContent":"C:\\scopeA","tokenAgeMs":null,"input":{"tool_name":"PowerShell","tool_input":{"command":"Remove-Item D:\\x\\scopeA\\y"},"cwd":"C:\\projB"},"expect":"allow"},
-  {"name":"XS55 docker -v <scope>:/app 算提到 scope denies","flagContent":"C:\\scopeA","tokenAgeMs":null,"input":{"tool_name":"Bash","tool_input":{"command":"docker run -v C:\\scopeA:/app img"},"cwd":"C:\\projB"},"expect":"deny"}
+  {"name":"XS55 docker -v <scope>:/app 算提到 scope denies","flagContent":"C:\\scopeA","tokenAgeMs":null,"input":{"tool_name":"Bash","tool_input":{"command":"docker run -v C:\\scopeA:/app img"},"cwd":"C:\\projB"},"expect":"deny"},
+  {"name":"XS56 憑證屬另一專案 denies 且提示首行裁決","flagContent":"","tokenAgeMs":60000,"tokenContent":"{\"repo\":\"C:\\\\other\",\"ts\":\"x\"}","input":{"tool_name":"PowerShell","tool_input":{"command":"Remove-Item -Recurse C:\\proj\\x"},"cwd":"C:\\proj"},"expect":"deny","expectReasonIncludes":"第一行必須是 ALLOW:"},
+  {"name":"XS57 scope 外指令提到 scope、憑證屬 C 專案 denies 且提示首行裁決","flagContent":"C:\\scopeA","tokenAgeMs":60000,"tokenContent":"{\"repo\":\"C:\\\\projC\",\"ts\":\"x\"}","input":{"tool_name":"Bash","tool_input":{"command":"git -C C:\\scopeA commit -m x"},"cwd":"C:\\projB"},"expect":"deny","expectReasonIncludes":"第一行必須是 ALLOW:"}
 ]

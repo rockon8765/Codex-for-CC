@@ -164,7 +164,7 @@ hook 在 `super-mode on` 之前不作用，安裝它不會影響一般 session�
 - `stat` 是 BSD 語法（`-f %m`）；凍結的 `linux/` 用 GNU 語法（`-c %Y`），別把版本拿錯邊。
 
 **兩平台共通**
-- **非 git 專案以子目錄派工，Codex 會漏載專案根的 AGENTS.md**：Codex 預設只認 `.git` 當 project root，找不到時只載入 cwd 的 AGENTS.md，外表看不出差別。在專案根放空檔 `.codex-project-root`，`codex-exec`／`codex-consult`（macOS 的 `-d`、Windows 的 `-Dir`）往上找到它就單次加 `-c project_root_markers=[".git",".codex-project-root"]`；`-C` 不變、不改 `~/.codex/config.toml`，成功摘要印出 cwd、預期的指示根與是否帶覆寫。限制：較近的巢狀 `.git`（例如 worktree，`.git` 是檔案或 gitdir 已失效也一樣）仍會先被當成根；Windows 的 `-Dir` 拒收含 `&` 的路徑（`Assert-CmdSafePath`）。摘要只是預期值，要確認真的載入得看非 ephemeral 執行的 rollout（consult 是 `--ephemeral`、不留 rollout）。測試與實測紀錄見 `project-root-marker.tests.{sh,ps1}` 與 commit `d6617b4`、`c07db4b`、`1e06b1e`。
+- **非 git 專案以子目錄派工，Codex 會漏載專案根的 AGENTS.md**：Codex 預設只認 `.git` 當 project root，找不到時只載入 cwd 的 AGENTS.md，外表看不出差別。在專案根放空檔 `.codex-project-root`，`codex-exec`／`codex-consult`（macOS 的 `-d`、Windows 的 `-Dir`）往上找到它就單次加 `-c project_root_markers=[".git",".codex-project-root"]`；`-C` 不變、不改 `~/.codex/config.toml`，成功摘要印出 cwd、預期的指示根與是否帶覆寫。限制：較近的巢狀 `.git`（例如 worktree，`.git` 是檔案或 gitdir 已失效也一樣）仍會先被當成根；Windows 的 `-Dir` 拒收含 `%`、`!`、`^` 的路徑（`Assert-CmdSafePath`）；含 `&` 的路徑可以用，但超級模式啟用時要在該目錄裡寫 `-Dir $PWD.ProviderPath`，否則 gate 把 `&` 當指令串接。摘要只是預期值，要確認真的載入得看非 ephemeral 執行的 rollout（consult 是 `--ephemeral`、不留 rollout）。測試與實測紀錄見 `project-root-marker.tests.{sh,ps1}` 與 commit `d6617b4`、`c07db4b`、`1e06b1e`。
 
 ## 這個 repo 有什麼
 
