@@ -15,7 +15,7 @@
 5. **驗證**：依變更跑相關測試，如實區分通過、沒跑與限制。測試綠燈、Codex 諮詢收據都不等於使用者授權。
 6. **commit 與 push**：都等使用者要求；push、打 tag、改 GitHub 設定要使用者同意，不需要另做帳本。
 
-**`linux/` 維持凍結**（不修改，也不為了 parity 同步）。鏡像檔（各平台 `skills/超級模式/` 底下的 `lib/gate-registration.js`、`lib/consult-answer.js`、`tests/matcher-contract.test.js`，清單以 `tests/gate-registration.test.js` 的 `MIRRORED` 為準）的測試仍要求三平台逐位元相同。真的需要改鏡像檔或移除 `linux/` 時，用一小批變更把集合改成 Windows＋macOS，並保留兩份之間的一致性檢查；不要為了過測試去改 `linux/`。
+**`linux/` 維持凍結**（不修改，也不為了 parity 同步）。鏡像檔（各平台 `skills/超級模式/` 底下的 `lib/gate-registration.js`、`lib/consult-answer.js`、`tests/matcher-contract.test.js`，清單以 `tests/gate-registration.test.js` 的 `MIRRORED` 為準）的測試要求逐位元相同：`lib/consult-answer.js` 自 2026-10-31 起只比 Windows＋macOS，其餘兩個仍比三平台。真的需要改其餘鏡像檔或移除 `linux/` 時，用一小批變更把集合改成 Windows＋macOS，並保留兩份之間的一致性檢查；不要為了過測試去改 `linux/`。
 
 **歷史**：2026-08-29 至 2026-10-14 產品層凍結；2026-10-14 至 2026-10-19 是 LTS 建置期（`lts/build` 分支）。經過與裁決見 [`docs/DECISION-MEMO-lts-2026-09-30.md`](docs/DECISION-MEMO-lts-2026-09-30.md) §8。
 

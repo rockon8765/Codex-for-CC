@@ -49,10 +49,12 @@ const MIRRORED = [
   },
   {
     rel: "skills/超級模式/lib/consult-answer.js",
-    why: "憑證鑄造判準的單一邏輯版本。鎖 byte 的理由是**裁決規則必須三平台完全一致**——" +
+    // linux/ 凍結後不再跟改，這份只比 Windows＋macOS（2026-10-31，錯誤訊息文字訂正時改的）。
+    platforms: ["windows", "macos"],
+    why: "憑證鑄造判準的單一邏輯版本。鎖 byte 的理由是**裁決規則必須各平台完全一致**——" +
       "同一份 codex 回覆若在不同平台得到不同裁決，超級模式的閘門就是不可預測的。" +
       "任何平台差異（node 怎麼找、stdout 怎麼收、憑證怎麼寫）一律留在 shell adapter，" +
-      "不得進 validator。⚠️ byte 相同只能防三份 node 副本彼此漂移，" +
+      "不得進 validator。⚠️ byte 相同只能防 node 副本彼此漂移，" +
       "**不能證明對 380462f 的移植忠實**——那要靠 tests/consult-answer.test.js 的行為 fixtures。",
   },
 ];
@@ -745,15 +747,16 @@ check("B13 LEGAL_TYPES 是官方那五種",
 console.log("\n§C 鏡像逐位元同一性");
 // ════════════════════════════════════════════════════════════════════════
 for (const m of MIRRORED) {
+  const plats = m.platforms || PLATFORMS;
   const bufs = [];
   let allPresent = true;
-  for (const plat of PLATFORMS) {
+  for (const plat of plats) {
     const p = path.join(__dirname, "..", plat, m.rel.split("/").join(path.sep));
     if (!fs.existsSync(p)) { allPresent = false; bufs.push(null); continue; }
     bufs.push(fs.readFileSync(p));
   }
-  if (!check("C 三平台都有 " + m.rel, allPresent, "缺少：" +
-    PLATFORMS.filter((_, i) => bufs[i] === null).join("／"))) continue;
+  if (!check("C 各平台都有 " + m.rel, allPresent, "缺少：" +
+    plats.filter((_, i) => bufs[i] === null).join("／"))) continue;
   check("C 非空 " + m.rel, bufs.every((b) => b.length > 0), "有空檔");
   const same = bufs.every((b) => b.equals(bufs[0]));
   check("C 逐位元相同 " + m.rel, same,

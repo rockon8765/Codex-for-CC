@@ -186,7 +186,7 @@ function testConsultAnswer(opts) {
     return { ok: true, code: 0, mode: MODES.VERDICT, verdict: m[1], reason: "" };
   }
 
-  return fail(43, "CONSULT_NO_VERDICT: 首行不是 ^(ALLOW|BLOCK): 格式(大小寫敏感)，" +
+  return fail(43, "CONSULT_NO_VERDICT: 首行不是 ALLOW/BLOCK 裁決格式(大寫動詞＋冒號，冒號前可有空白)，" +
     "依 SKILL §3.5 視為 BLOCK，未鑄造憑證。首行實際內容: '" + first.slice(0, 120) + "'。" +
     "請在簡報結尾明確要求首行裁決後重問一次。");
 }

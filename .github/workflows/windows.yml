@@ -253,7 +253,7 @@ jobs:
           -ArgList @('tests/probe-gate-registration.test.js')
           -Require @('^TOTAL ([1-9]\d*)  PASS \1  FAIL 0$')
 
-      # --strict：SKIP 也算失敗。它同時比對 windows／macos／linux 三份鏡像的 bytes（linux 凍結中仍存在）。
+      # --strict：SKIP 也算失敗。它同時比對鏡像的 bytes（清單與平台集合見 MIRRORED；linux 凍結中仍存在）。
       - name: gate-registration 共用模組回歸（--strict）
         run: >-
           ./.github/scripts/windows-ci.ps1 -Action Run -Name gate-registration -Exe node
