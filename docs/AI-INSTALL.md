@@ -161,6 +161,7 @@ macOS:
 ```bash
 node "macos/skills/超級模式/tests/run-gate-tests.js"               # 這裡就 FAIL → repo 版本本身有問題，別安裝，回報使用者
 node "macos/skills/超級模式/tests/matcher-contract.test.js" --repo # hook 的工具清單 vs settings matcher 是否一致
+node "macos/skills/超級模式/tests/canonical-alias.test.js"         # 真 symlink 下的 scope 比對；要看到 CANONICAL-ALIAS n/n
 bash "macos/skills/超級模式/tests/exit-code-contract.smoke.sh"     # consult 的退出碼契約(42/46/原樣傳回)與配額判準
 bash "macos/skills/超級模式/tests/fault-injection.smoke.sh"        # cat/rm/mktemp 故障注入 ＋ 三個 mutant（上一支沒刺激到的三條路）
 bash "macos/skills/超級模式/tests/off-cleanup.tests.sh"            # super-mode off 只清頂層白名單逐字稿；暫存 HOME，不碰真的 ~/.claude
@@ -175,6 +176,8 @@ node ".\windows\skills\超級模式\tests\matcher-contract.test.js" --repo # hoo
 #   （已含 tests\no-multibyte-varref.test.js：禁止 $var 緊接多位元組字元）
 #   （已含 project-root-marker.tests.ps1：.codex-project-root ⇒ 單次 project_root_markers 覆寫、-C 不變；stub codex，暫存 USERPROFILE）
 #   （已含 on-scope.tests.ps1：-On 寫出的旗標要被 hook 認得，不合的 -Scope 要拒收；暫存 USERPROFILE）
+#   （已含 hook-cli.test.js：真的 spawn hook，驗 stdin → exit 2 與 fail-open；暫存 USERPROFILE）
+#   （已含 canonical-alias.test.js：真 junction／8.3 別名下的 scope 比對）
 ```
 
 > ℹ️ **`run-windows-suite.ps1` 約需 6 分鐘**（含 codex-check 的 pwsh／5.1 兩條腿，各約 2 分鐘）。
@@ -634,6 +637,7 @@ hook 在啟用前是 fail-open 且停用的——安裝它不影響一般 sessio
 node ~/.claude/skills/超級模式/tests/run-gate-tests.js               # 應全數 PASS
 node ~/.claude/skills/超級模式/tests/matcher-contract.test.js --live # ★ 必跑，見下方說明
 bash ~/.claude/skills/超級模式/tests/run-e2e.sh                      # 應全數 passed（會印 GATE_UNDER_TEST 供核對）
+node ~/.claude/skills/超級模式/tests/canonical-alias.test.js         # 要看到 CANONICAL-ALIAS n/n
 bash ~/.claude/skills/超級模式/tests/exit-code-contract.smoke.sh     # 退出碼契約；驗的是**剛安裝的那份** consult
 bash ~/.claude/skills/超級模式/tests/fault-injection.smoke.sh        # 故障注入 ＋ mutant；同樣驗**剛安裝的那份**
 bash ~/.claude/skills/超級模式/tests/off-cleanup.tests.sh            # off 的逐字稿清理範圍；暫存 HOME，驗**剛安裝的那份** super-mode.sh

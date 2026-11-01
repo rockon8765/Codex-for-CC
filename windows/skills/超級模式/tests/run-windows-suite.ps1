@@ -85,6 +85,10 @@ $MANIFEST = @(
   # on-scope（2026-11-01）：super-mode.ps1 -On 寫出的旗標要被 hook 認得，不合的 -Scope 要拒收。runner 固定 pwsh，暫存 USERPROFILE（§0 先驗）。
   @{ Name = 'on-scope-7';             Exe = 'pwsh';        Args = @('on-scope.tests.ps1', '-Shell', 'pwsh');        Marker = '(?m)^on-scope \[pwsh\]: pass=[1-9]\d* fail=0\r?$'; TimeoutMs = 300000 }
   @{ Name = 'on-scope-51';            Exe = 'pwsh';        Args = @('on-scope.tests.ps1', '-Shell', 'powershell');  Marker = '(?m)^on-scope \[powershell\]: pass=[1-9]\d* fail=0\r?$'; TimeoutMs = 300000 }
+  # hook-cli（2026-11-01）：真的 spawn hook，守 stdin → exit 2 的水管與 fail-open。暫存 USERPROFILE（先驗 child 的家目錄），repo／live 兩種 mode 都安全。
+  @{ Name = 'hook-cli';               Exe = 'node';        Args = @('hook-cli.test.js');                        Marker = '(?m)^HOOK-CLI ([1-9]\d*)/\1\r?$';            TimeoutMs = 120000 }
+  # canonical-alias（2026-11-01）：真 junction／8.3 別名下的 scope 比對。8.3 不可用時只略過那幾案；建不出 junction 就沒有摘要行，算 FAIL。
+  @{ Name = 'canonical-alias';        Exe = 'node';        Args = @('canonical-alias.test.js');                 Marker = '(?m)^CANONICAL-ALIAS ([1-9]\d*)/\1\r?$';     TimeoutMs = 120000 }
   # ⚠️ repo 層級的規則：這支測試**不在 skill payload 內**，live 安裝時根本不存在
   #    （從 ~/.claude/skills/超級模式/tests 往上四層是 %USERPROFILE%，不是 repo 根）。
   #    2026-08-19 我上一輪才修掉「matcher 寫死 --repo 導致 live 必敗」，
@@ -98,9 +102,10 @@ $MANIFEST = @(
 # 2026-10-14：10 → 12（新增 consult-schema-51 與 codex-check-7 兩條 host 腿；原兩列改名加 -7／-51）；
 #             12 → 14（新增 off-cleanup-7／off-cleanup-51，F2 修正的回歸守衛）。
 #             14 → 16（新增 project-root-marker-7／project-root-marker-51，.codex-project-root 的回歸守衛）。
-# 2026-11-01：16 → 18（新增 on-scope-7／on-scope-51，-On 寫入端的回歸守衛）。
+# 2026-11-01：16 → 18（新增 on-scope-7／on-scope-51，-On 寫入端的回歸守衛）；
+#             18 → 20（新增 hook-cli、canonical-alias，hook 主區塊與 scope canonical 比對的回歸守衛）。
 # ⚠️ .github/workflows/windows.yml 也在 YAML 端釘死摘要行的 entries／ran／skipped，三處要一起改。
-$EXPECTED_ENTRIES = 18
+$EXPECTED_ENTRIES = 20
 
 $results = @()
 $fail = 0
@@ -205,7 +210,8 @@ foreach ($m in $MANIFEST) {
   $results += ("{0,-22} {1,-6} {2,6}s  {3}" -f $m.Name, $(if ($ok) { 'OK' } else { 'FAIL' }), [int]$sw.Elapsed.TotalSeconds, $m.Exe)
 }
 
-# 受測 bytes 的指紋：把所有 resolved target 依路徑排序後串接內容取 SHA-256。
+# 受測 bytes 的指紋：把 resolved target 與 ..\scripts 的檔案依路徑排序後串接內容取 SHA-256。
+# ⚠️ 範圍只有這兩類：hooks\、lib\、gate-cases.json、settings.snippet.json 不在內，改它們 digest 不變。
 # ⚠️ 這是「證據信任根從 label 換成 bytes」的最小做法 —— `mode=live`、`22/0`、`@sha`
 #    三者可以各自為真而組合起來不是你以為的那個測量（Codex 第六輪的核心指控）。
 $digest = "?"
@@ -238,7 +244,7 @@ if ($skipped.Count -gt 0) {
 }
 Write-Output ""
 Write-Output ("runner-root = " + $here)
-Write-Output ("sut-digest  = " + $digest + "   （所有受測檔內容的 SHA-256 前 16 碼）")
+Write-Output ("sut-digest  = " + $digest + "   （manifest 測試檔與 scripts\ 的 SHA-256 前 16 碼；不含 hooks\、lib\、gate-cases.json）")
 Write-Output ("run-windows-suite [mode=" + $Mode + "]: entries=" + $MANIFEST.Count +
   " ran=" + $results.Count + " skipped=" + $skipped.Count + " fail=" + $fail)
 
@@ -255,8 +261,9 @@ if ($Filter) {
 # 2026-10-14：repo 10 → 12、live 9 → 11（兩條新腿兩種 mode 都跑；live 仍只跳過 no-multibyte-varref）；
 #             再加 off-cleanup 兩條腿：repo 12 → 14、live 11 → 13。
 # 2026-10-20：再加 project-root-marker 兩條腿：repo 14 → 16、live 13 → 15。
-# 2026-11-01：再加 on-scope 兩條腿：repo 16 → 18、live 15 → 17。
-$EXPECTED = @{ repo = @{ ran = 18; skipped = 0 }; live = @{ ran = 17; skipped = 1 } }
+# 2026-11-01：再加 on-scope 兩條腿：repo 16 → 18、live 15 → 17；
+#             再加 hook-cli、canonical-alias：repo 18 → 20、live 17 → 19。
+$EXPECTED = @{ repo = @{ ran = 20; skipped = 0 }; live = @{ ran = 19; skipped = 1 } }
 $want = $EXPECTED[$Mode]
 if ($results.Count -eq 0) {
   Write-Output "FAIL  一支都沒跑到 —— 零案不算通過。"

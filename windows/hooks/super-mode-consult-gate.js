@@ -594,7 +594,7 @@ function mentionsGuardedPath(cmd, scope, claude) {
   return res;
 }
 
-// 兩側都要是路徑邊界：左邊是開頭或分隔字元(C:\x\scopeA、D:\scopeA 的尾段不算)，右邊是結尾、
+// 兩側都要是路徑邊界：左邊是開頭或分隔字元(xc:\scopeA、D:\host\share\scope 這類前面還黏著字的不算)，右邊是結尾、
 // 子路徑或分隔字元(scopeA-other 不算；`:` 算，例如 docker -v <scope>:/app)。
 function containsBoundedPath(hay, needle) {
   let i = hay.indexOf(needle);

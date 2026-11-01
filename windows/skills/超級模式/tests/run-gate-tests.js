@@ -44,11 +44,12 @@ for (const tc of cases) {
 
   try {
     if (tc.flagContent !== null && tc.flagContent !== undefined) {
-      fs.writeFileSync(
-        path.join(fakeBaseDir, ".super-mode-active"),
-        replacePlaceholders(String(tc.flagContent), replacements),
-        "utf8"
-      );
+      const flag = path.join(fakeBaseDir, ".super-mode-active");
+      fs.writeFileSync(flag, replacePlaceholders(String(tc.flagContent), replacements), "utf8");
+      if (tc.flagAgeMs !== null && tc.flagAgeMs !== undefined) {
+        const t = new Date(Date.now() - Number(tc.flagAgeMs));
+        fs.utimesSync(flag, t, t);
+      }
     }
 
     if (tc.tokenAgeMs !== null && tc.tokenAgeMs !== undefined) {
@@ -106,6 +107,15 @@ for (const tc of cases) {
           got: "tokenDemoted=" + demoted + (ageMs === null ? " (無憑證檔)" : " (age=" + Math.round(ageMs / 1000) + "s)"),
           reason: "憑證消耗狀態不符"
         });
+      }
+    }
+
+    // 自癒檢查：過期旗標要連憑證一起刪，未過期的都要留著。expectTokenDemoted 分不出「憑證被刪」與「新鮮憑證」。
+    for (const [key, file] of [["expectFlagGone", ".super-mode-active"], ["expectTokenGone", ".super-mode-consult-ok"]]) {
+      if (tc[key] === undefined || got !== tc.expect) continue;
+      const gone = !fs.existsSync(path.join(fakeBaseDir, file));
+      if (gone !== Boolean(tc[key])) {
+        failures.push({ name: tc.name, expect: key + "=" + Boolean(tc[key]), got: key + "=" + gone, reason: file + " 的存在狀態不符" });
       }
     }
   } catch (e) {
