@@ -253,7 +253,7 @@ function decide(input, testOpts) {
     if (sessionOutside) {
       const guard = mentionsGuardedPath(cmd, scope, claude);
       if (!guard.scope && !guard.gateState) return { allow: true }; // scope 外 session(含 ws 監看)不管
-      if (guard.scope && !guard.gateState) altActionPath = scope;
+      if (guard.scope && !guard.gateBeyondExec) altActionPath = scope;
     }
     if (!cmd) {
       gated = true;
@@ -280,7 +280,7 @@ function decide(input, testOpts) {
     if (sessionOutside) {
       const guard = mentionsGuardedPath(cmd, scope, claude);
       if (!guard.scope && !guard.gateState) return { allow: true };
-      if (guard.scope && !guard.gateState) altActionPath = scope;
+      if (guard.scope && !guard.gateBeyondExec) altActionPath = scope;
     }
     // CLASS A shell facet 修補：cwd 在 scope 外的捷徑放行「僅限唯讀指令」；會改狀態的指令一律
     // 落回下方 default-deny/破壞性判定(需憑證)。可疑 cwd(含 ..)不吃此捷徑。
@@ -572,7 +572,7 @@ function isSessionOutsideScope(cwd, projectDir, scope, claude) {
 //  其 hooks、settings*、超級模式 skill。家目錄要寫成 ~、$HOME、$env:USERPROFILE、%USERPROFILE% 或絕對路徑；
 //  相對的 .claude\...(專案自己的 settings.json、hooks)不算，免得又卡住無關專案。
 function mentionsGuardedPath(cmd, scope, claude) {
-  const res = { scope: false, gateState: false };
+  const res = { scope: false, gateState: false, gateBeyondExec: false };
   try {
     const low = String(cmd || "").replace(/\//g, "\\").replace(/\\+/g, "\\").toLowerCase();
     if (!low) return res;
@@ -584,15 +584,21 @@ function mentionsGuardedPath(cmd, scope, claude) {
     res.scope = targets.some((t) => t && (containsBoundedPath(low, collapse(t)) || containsGlobPath(low, collapse(t))));
     // .claude 之後：hooks／settings*／超級模式 skill，或目錄本身(可帶結尾分隔符，後接邊界或萬用字元)
     const sub = "(\\\\(hooks\\b|settings|skills\\\\超級模式)|\\\\?(?=$|[\\s\"'`*;|&)<>,}]))";
-    const homes = ["(^|[\\s\"'=(;|&,<>{])(~|\\$home|\\$\\{home\\}|\\$userprofile|\\$\\{userprofile\\}|\\$env:userprofile|\\$\\{env:userprofile\\}|\\$env:home|\\$\\{env:home\\}|%userprofile%)[\"']?\\\\\\.claude"];
-    for (const c of [claude, canonicalize(claude).path]) {
-      if (c) homes.push(collapse(norm(c)).replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
-    }
+    const homeWords = "(~|\\$home|\\$\\{home\\}|\\$userprofile|\\$\\{userprofile\\}|\\$env:userprofile|\\$\\{env:userprofile\\}|\\$env:home|\\$\\{env:home\\}|%userprofile%)[\"']?\\\\\\.claude";
+    const absolutes = [claude, canonicalize(claude).path].filter(Boolean)
+      .map((c) => collapse(norm(c)).replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+    const homes = ["(^|[\\s\"'=(;|&,<>{])" + homeWords].concat(absolutes);
     // 狀態檔名要出現在路徑裡(前面接分隔符)才算；commit 訊息或 sed 樣式裡提到檔名不算
-    res.gateState = /\\\.(super-mode-|codex-check-)/.test(low) ||
-      homes.some((h) => new RegExp("(" + h + ")" + sub).test(low));
+    const mentionsGate = (t) => /\\\.(super-mode-|codex-check-)/.test(t) ||
+      homes.some((h) => new RegExp("(" + h + ")" + sub).test(t));
+    res.gateState = mentionsGate(low);
+    // 開頭呼叫 codex-exec 只是派工：去掉這段後還提到 gate 的檔，scope 憑證才不算數
+    const execCall = new RegExp("^\\s*(&\\s*)?[\"']?(" + [homeWords].concat(absolutes).join("|") +
+      ")\\\\skills\\\\超級模式\\\\scripts\\\\codex-exec\\.ps1(?=[\\s\"'`;|&)<>]|$)");
+    res.gateBeyondExec = mentionsGate(low.replace(execCall, " "));
   } catch (e) {
     res.scope = true; // 判不了 → 保守視為有提到(照原規則判)
+    res.gateBeyondExec = res.gateState;
   }
   return res;
 }
