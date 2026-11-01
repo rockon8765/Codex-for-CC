@@ -103,6 +103,7 @@ New-Item -ItemType Directory -Path $stubDir -Force | Out-Null
 $brief = Join-Path $root "brief.md"; Write-Utf8 $brief "測試用簡報`n"
 $argvFile = Join-Path $root "argv.json"
 $trace = Join-Path $root "stub-trace.txt"
+$stdinFile = Join-Path $root "stub-stdin.txt"
 
 # stub codex：.cmd 以 %* 交給 node（同 npm shim），node 把收到的 argv 寫成 JSON、每跑一次記一行 trace，
 # stdout 給一段非空答案（consult -NoCredential 只要求非空）。
@@ -112,7 +113,7 @@ Write-Utf8 $dumpJs @'
 const fs = require('fs');
 fs.appendFileSync(process.env.FAKE_TRACE, 'RAN\n');
 fs.writeFileSync(process.env.FAKE_ARGV, JSON.stringify(process.argv.slice(2)), 'utf8');
-try { fs.readFileSync(0); } catch (e) { /* stdin 已關閉也無妨 */ }
+try { fs.writeFileSync(process.env.FAKE_STDIN, fs.readFileSync(0)); } catch (e) { /* stdin 已關閉也無妨 */ }
 process.stdout.write(process.env.FAKE_ANSWER || 'stub answer: ready\n');
 '@
 $fakeCodex = Join-Path $stubDir "fake-codex.cmd"
@@ -126,6 +127,7 @@ exit /b %ERRORLEVEL%
 # ⚠️ 必須 UTF-8 **with BOM**：WinPS 5.1 讀無 BOM 的 .ps1 用 ANSI 解碼。
 $wrapper = Join-Path $root "wrapper.ps1"
 $wrapperSrc = @'
+if ($env:PRM_CD) { Set-Location -LiteralPath $env:PRM_CD }
 $ht = @{ Dir = $(if ($env:PRM_USE_PWD) { $PWD.ProviderPath } else { $env:PRM_DIR }); PromptFile = $env:PRM_BRIEF }
 if ($env:PRM_SCHEMA) { $ht['SchemaFile'] = $env:PRM_SCHEMA }
 if ($env:PRM_MODE -eq 'exec') { $ht['Quiet'] = $true } elseif (-not $env:PRM_CRED) { $ht['NoCredential'] = $true }
@@ -149,6 +151,10 @@ New-Item -ItemType Directory -Path (Join-Path $root "gitrepo\sub") -Force | Out-
 $AMP = Join-Path $root "proj 專案&echo INJECTED"      # H 案：& 若被 cmd 當運算子，argv 會在這裡斷掉
 New-Item -ItemType Directory -Path $AMP -Force | Out-Null
 $ampSchema = Join-Path $AMP "schema&x.json"; Write-Utf8 $ampSchema "{}"
+$cwdA = Join-Path $root "cwd-a"; $cwdB = Join-Path $root "cwd-b"   # J 案：行程 cwd＝A、$PWD＝B，兩邊都有同名簡報
+New-Item -ItemType Directory -Path $cwdA, $cwdB -Force | Out-Null
+Write-Utf8 (Join-Path $cwdA "rel-brief.md") "BRIEF-IN-PROCESS-CWD`n"
+Write-Utf8 (Join-Path $cwdB "rel-brief.md") "BRIEF-IN-PWD`n"
 $ZW = Join-Path $root ([string][char]0x200D)         # I3：文化比較的 EndsWith('\') 會把它誤判成以 \ 結尾
 New-Item -ItemType Directory -Path $ZW -Force | Out-Null
 Write-Utf8 (Join-Path $P ".codex-project-root") ""
@@ -179,14 +185,15 @@ function Start-Child([string]$argString, [string]$cwd) {
 }
 
 # Invoke-Sut exec|consult <dir> [cwd]：回傳 rc、stdout、stderr、stub 執行次數、codex 實收的 argv。
-# -Schema 帶 -SchemaFile；-UsePwd 以 $PWD.ProviderPath 當 -Dir；-Credential 讓 consult 走鑄證模式；-Answer 換 stub 的回覆。
-function Invoke-Sut([string]$Mode, [string]$Dir, [string]$Cwd = '', [string]$Schema = '', [switch]$UsePwd, [switch]$Credential, [string]$Answer = '') {
+# -BriefArg 換 -PromptFile 的值；-Cd 讓 wrapper 先 Set-Location（$PWD 與行程 cwd 分歧）。-Schema 帶 -SchemaFile；-UsePwd 以 $PWD.ProviderPath 當 -Dir；-Credential 讓 consult 走鑄證模式；-Answer 換 stub 的回覆。
+function Invoke-Sut([string]$Mode, [string]$Dir, [string]$Cwd = '', [string]$Schema = '', [switch]$UsePwd, [switch]$Credential, [string]$Answer = '', [string]$BriefArg = '', [string]$Cd = '') {
   if (-not $Cwd) { $Cwd = $root }
-  Remove-Item -LiteralPath $argvFile, $trace -Force -ErrorAction SilentlyContinue
+  Remove-Item -LiteralPath $argvFile, $trace, $stdinFile -Force -ErrorAction SilentlyContinue
   $env:PRM_MODE = $Mode
   $env:PRM_TARGET = $(if ($Mode -eq 'exec') { $ExecSut } else { $ConsultSut })
   $env:PRM_DIR = $Dir
-  $env:PRM_BRIEF = $brief
+  $env:PRM_BRIEF = $(if ($BriefArg) { $BriefArg } else { $brief })
+  $env:PRM_CD = $Cd
   $env:PRM_SCHEMA = $Schema
   $env:PRM_USE_PWD = $(if ($UsePwd) { '1' } else { '' })
   $env:PRM_CRED = $(if ($Credential) { '1' } else { '' })
@@ -198,6 +205,7 @@ function Invoke-Sut([string]$Mode, [string]$Dir, [string]$Cwd = '', [string]$Sch
   if ($json) { $parsed = ConvertFrom-Json -InputObject $json; $argv = @($parsed | ForEach-Object { [string]$_ }) }
   $r['Ran'] = $ran
   $r['Argv'] = $argv
+  $r['Stdin'] = Read-Text $stdinFile
   return $r
 }
 
@@ -262,6 +270,7 @@ try {
   $env:PRM_DUMP_JS = $dumpJs
   $env:FAKE_ARGV = $argvFile
   $env:FAKE_TRACE = $trace
+  $env:FAKE_STDIN = $stdinFile
 
   foreach ($mode in @('exec', 'consult')) {
     Write-Output ("§" + $mode + " A 子目錄、祖先有標記 ⇒ 帶覆寫，-C 不變，指示根＝標記目錄")
@@ -362,6 +371,17 @@ try {
     $r = Invoke-Sut $mode $ZW
     $ctx = "rc=" + $r.Code + " argv=" + (Format-Argv $r.Argv) + " out=" + $r.Out + " err=" + $r.Err
     Check "$mode I3 零寬目錄名不被當成結尾 \" (Test-ArgvExact $r.Argv (Get-ExpectedArgv $mode $ZW $false)) $ctx
+
+    Write-Output ("§" + $mode + " J 相對 -PromptFile ⇒ 以 PowerShell 目前位置解析，不是行程 cwd；找不到就報錯")
+    $r = Invoke-Sut $mode $P $cwdA -BriefArg "rel-brief.md" -Cd $cwdB
+    $ctx = "rc=" + $r.Code + " stdin=" + $r.Stdin + " out=" + $r.Out + " err=" + $r.Err
+    Check "$mode J0 stub 恰跑一次" ($r.Ran -eq 1) ("Ran=" + $r.Ran + " " + $ctx)
+    Check "$mode J1 stub 收到目前位置的簡報" ($r.Stdin -ceq "BRIEF-IN-PWD`n") $ctx
+    $r = Invoke-Sut $mode $P $cwdA -BriefArg "no-such-brief.md" -Cd $cwdB
+    $ctx = "rc=" + $r.Code + " stdin=" + $r.Stdin + " out=" + $r.Out + " err=" + $r.Err
+    Check "$mode J2 找不到簡報 rc≠0" ($r.Code -ne 0) $ctx
+    Check "$mode J3 不呼叫 codex" ($r.Ran -eq 0) ("Ran=" + $r.Ran + " " + $ctx)
+    Check "$mode J4 訊息指出找不到檔案" (Test-Has $r.Err "PromptFile not found") $ctx
   }
 
   # H 的憑證案只有 consult 有：cwd、-C、憑證的 repo 三者要一致，hook 才比對得上後續動作。
@@ -374,8 +394,8 @@ try {
   Check "consult H9 credential.repo＝cwd" ($credRepo -ceq $AMP) ("repo=" + $credRepo + " " + $ctx)
 
   # 案數守衛：只證明「沒少跑案」，不證明案子有牙齒（牙齒見檔頭 -ExecSut／-ConsultSut 用法）。
-  # §0 3 + 每個 mode (A 9 + B 7 + C 4 + D 3 + E 5 + F 6 + G 4 + H 8 + I 4 = 50) × 2 + consult 鑄證 2；全綠時摘要為 pass=106（含本守衛）
-  $expected = 105
+  # §0 3 + 每個 mode (A 9 + B 7 + C 4 + D 3 + E 5 + F 6 + G 4 + H 8 + I 4 + J 5 = 55) × 2 + consult 鑄證 2；全綠時摘要為 pass=116（含本守衛）
+  $expected = 115
   $ran = $script:pass + $script:fail
   Check "案數守衛：實跑 $expected 案" ($ran -eq $expected) ("實跑=" + $ran + " 期望=" + $expected)
 }
@@ -388,7 +408,7 @@ catch {
 }
 finally {
   foreach ($v in @('SUPER_MODE_CODEX_CMD', 'SUPER_MODE_CODEX_CMD_EXEC', 'PRM_NODE', 'PRM_DUMP_JS', 'PRM_MODE',
-      'PRM_TARGET', 'PRM_DIR', 'PRM_BRIEF', 'PRM_SCHEMA', 'PRM_USE_PWD', 'PRM_CRED', 'FAKE_ARGV', 'FAKE_TRACE', 'FAKE_ANSWER')) {
+      'PRM_TARGET', 'PRM_DIR', 'PRM_BRIEF', 'PRM_CD', 'PRM_SCHEMA', 'PRM_USE_PWD', 'PRM_CRED', 'FAKE_ARGV', 'FAKE_TRACE', 'FAKE_ANSWER', 'FAKE_STDIN')) {
     Remove-Item -LiteralPath ("Env:" + $v) -ErrorAction SilentlyContinue
   }
   Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue

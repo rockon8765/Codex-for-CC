@@ -114,6 +114,11 @@ foreach ($pair in ($env:XC_ARGS -split "`n")) {
   $k, $v = $pair -split '=', 2
   if ($v -eq '__SWITCH__') { $ht[$k] = $true } else { $ht[$k] = $v }
 }
+if ($env:XC_THROW) {
+  try { & $env:XC_TARGET @ht | ForEach-Object { throw 'DOWNSTREAM-BOOM' } }
+  catch { Write-Output 'DOWNSTREAM-CAUGHT' }
+  exit 0
+}
 & $env:XC_TARGET @ht
 exit $LASTEXITCODE
 '@
@@ -128,7 +133,11 @@ function Invoke-Sut {
     [string]$SeamVar = 'SUPER_MODE_CODEX_CMD',
     [switch]$LockLog, [switch]$BreakLogDir,
     # 新 preflight 的兩條路：logdir 建不出來、暫存簡報寫不出去。
-    [switch]$BreakClaudeRoot, [switch]$BreakTemp
+    [switch]$BreakClaudeRoot, [switch]$BreakTemp,
+    # PATH 只剩空目錄 ⇒ cmd.exe 找不到（node 另由 SUPER_MODE_NODE 指定）。
+    [switch]$BreakPath,
+    # wrapper 在下游丟例外（native 已在跑）。
+    [switch]$DownstreamThrow
   )
   $o = Join-Path $root "o.txt"; $e = Join-Path $root "e.txt"
   Remove-Item -LiteralPath $o, $e, $trace -Force -ErrorAction SilentlyContinue
@@ -174,6 +183,7 @@ function Invoke-Sut {
   $env:FAKE_TRACE = $trace
   $env:XC_WARN = $Warn; $env:XC_EAP = $Eap; $env:XC_NATIVE = $Native
   $env:XC_TARGET = $Target
+  $env:XC_THROW = $(if ($DownstreamThrow) { "1" } else { "" })
   $env:XC_ARGS = (($Params.GetEnumerator() | ForEach-Object { "$($_.Key)=$($_.Value)" }) -join "`n")
 
   $oldHome = $env:USERPROFILE
@@ -185,8 +195,17 @@ function Invoke-Sut {
     if (-not (Test-Path -LiteralPath $badTemp)) { Set-Content -LiteralPath $badTemp -Value "x" -Encoding ascii }
     $env:TEMP = $badTemp; $env:TMP = $badTemp
   }
+  $oldPath = $env:PATH
+  $childExe = $Shell
+  if ($BreakPath) {
+    $childExe = (Get-Command $Shell -CommandType Application | Select-Object -First 1).Source   # 改 PATH 前先解析
+    $env:SUPER_MODE_NODE = (Get-Command node -CommandType Application | Select-Object -First 1).Source
+    $emptyDir = Join-Path $root "empty-path"
+    New-Item -ItemType Directory -Path $emptyDir -Force | Out-Null
+    $env:PATH = $emptyDir
+  }
   try {
-    $pr = Start-Process -FilePath $Shell -ArgumentList @('-NoProfile', '-File', $wrapper) `
+    $pr = Start-Process -FilePath $childExe -ArgumentList @('-NoProfile', '-File', $wrapper) `
       -NoNewWindow -PassThru -RedirectStandardOutput $o -RedirectStandardError $e
     if (-not $pr.WaitForExit($CHILD_TIMEOUT_MS)) {
       try { $pr.Kill() } catch {}
@@ -201,6 +220,8 @@ function Invoke-Sut {
   finally {
     $env:USERPROFILE = $oldHome
     $env:TEMP = $oldTemp; $env:TMP = $oldTmp
+    $env:PATH = $oldPath
+    if ($BreakPath) { Remove-Item -LiteralPath Env:SUPER_MODE_NODE -ErrorAction SilentlyContinue }
     if (Test-Path -LiteralPath $fakeLogDir -PathType Container) {
       Get-ChildItem -LiteralPath $fakeLogDir -File -Force -ErrorAction SilentlyContinue |
         ForEach-Object { try { $_.IsReadOnly = $false } catch {} }
@@ -386,6 +407,27 @@ try {
   Check "6e 有 TRANSCRIPT_UNAVAILABLE 哨兵" ($r.Err -match 'CONSULT_TRANSCRIPT_UNAVAILABLE') ("err=" + $r.Err)
   Check "6f codex 根本不該被呼叫" ($r.Ran -eq 0) ("Ran=" + $r.Ran)
 
+  # ═══ §7 cmd.exe 啟動失敗（2026-11-01）═══════════════════════════════════════
+  # `& cmd.exe` 找不到是語句終止錯誤，舊版會跳過 127 守衛、落到 `exit $null` ＝ exit 0。
+  Write-Output "§7 cmd.exe 啟動失敗 ⇒ 127，不得假成功"
+  # §6 的 -BreakClaudeRoot 把 ~/.claude 留成檔案，這裡要走到 native 那一步，先還原。
+  Remove-Item -LiteralPath (Join-Path $fakeHome ".claude") -Recurse -Force
+  New-Item -ItemType Directory -Path (Join-Path $fakeHome ".claude") -Force | Out-Null
+  $r = Invoke-Sut -Target $consult -Params $consultArgs -BreakPath -StdoutText "x" -StderrText "" -FakeExit 0
+  Check "7a consult 精確 exit 127" ($r.Code -eq 127) ("exit=" + $r.Code + " err=" + $r.Err)
+  Check "7b consult 有 NATIVE_UNAVAILABLE 哨兵" ($r.Err -match 'CONSULT_NATIVE_UNAVAILABLE') ("err=" + $r.Err)
+  Check "7c codex 根本不該被呼叫" ($r.Ran -eq 0) ("Ran=" + $r.Ran)
+  $r = Invoke-Sut -Target $execSut -Params $execArgs -SeamVar 'SUPER_MODE_CODEX_CMD_EXEC' -BreakPath -StdoutText "x" -StderrText "" -FakeExit 0
+  Check "7d exec 精確 exit 127" ($r.Code -eq 127) ("exit=" + $r.Code + " err=" + $r.Err)
+  Check "7e exec 有 NATIVE_UNAVAILABLE 哨兵" ($r.Err -match 'EXEC_NATIVE_UNAVAILABLE') ("err=" + $r.Err)
+  Check "7f codex 根本不該被呼叫" ($r.Ran -eq 0) ("Ran=" + $r.Ran)
+  # catch 只接「找不到 cmd.exe」：native 已在跑時，呼叫端下游丟的例外要照舊傳回呼叫端，不能報成沒啟動。
+  foreach ($pair in @(@('g', $consult, 'CONSULT', $consultArgs, 'SUPER_MODE_CODEX_CMD'), @('h', $execSut, 'EXEC', $execArgs, 'SUPER_MODE_CODEX_CMD_EXEC'))) {
+    $r = Invoke-Sut -Target $pair[1] -Params $pair[3] -SeamVar $pair[4] -DownstreamThrow -StdoutText "line1`nline2`n" -StderrText "" -FakeExit 0
+    Check ("7" + $pair[0] + " 下游例外傳回呼叫端") ($r.Out -match 'DOWNSTREAM-CAUGHT') ("out=" + $r.Out + " err=" + $r.Err)
+    Check ("7" + $pair[0] + "2 不報成 native 沒啟動") ($r.Err -notmatch ($pair[2] + '_NATIVE_UNAVAILABLE')) ("err=" + $r.Err)
+  }
+
   # ═══ §4 靜態守衛（AST）══════════════════════════════════════════════════
   # 規則：這兩支 process wrapper **不得使用 PowerShell 的 warning stream**。
   # ⚠️ 名稱刻意叫「靜態可解析」：AST 抓不到 `& $cmd` 這種動態命令名，也抓不到
@@ -414,14 +456,14 @@ try {
       ("命中 " + $hits.Count + " 處 (" + ($hits -join ',') + ")；改用 [Console]::Error.WriteLine")
   }
   # 案數守衛：只證明「沒少跑案」，**不證明案子有牙齒**（刪 stimulus 留 assertion 的 mutant 案數不變）。
-  # 公式：§2 固定 2 案 + §1 每 profile 7 案 + §2 4 案 + §3a 1 案 + §3 每 profile 3 案 + §4 6 案。
-  $expected = 37 + 10 * $profiles.Count   # 13 原有 + §5 的 11 + §2 新增的 4（2e2/2e3/2f/2g）
+  # 公式：§2 固定 2 案 + §1 每 profile 7 案 + §2 4 案 + §3a 1 案 + §3 每 profile 3 案 + §4 6 案 + §7 10 案。
+  $expected = 47 + 10 * $profiles.Count   # 13 原有 + §5 的 11 + §2 新增的 4（2e2/2e3/2f/2g）+ §7 的 10
   $ran = $script:pass + $script:fail
   Check "案數守衛：實跑 $expected 案" ($ran -eq $expected) ("實跑=" + $ran + " 期望=" + $expected)
 }
 finally {
   foreach ($v in @('SUPER_MODE_CODEX_CMD', 'SUPER_MODE_CODEX_CMD_EXEC', 'FAKE_OUT_FILE', 'FAKE_ERR_FILE',
-      'FAKE_EXIT', 'FAKE_TRACE', 'FAKE_LOGDIR', 'FAKE_LOCK_LOG', 'XC_WARN', 'XC_EAP', 'XC_NATIVE', 'XC_TARGET', 'XC_ARGS')) {
+      'FAKE_EXIT', 'FAKE_TRACE', 'FAKE_LOGDIR', 'FAKE_LOCK_LOG', 'SUPER_MODE_NODE', 'XC_THROW', 'XC_WARN', 'XC_EAP', 'XC_NATIVE', 'XC_TARGET', 'XC_ARGS')) {
     Remove-Item -LiteralPath ("Env:" + $v) -ErrorAction SilentlyContinue
   }
   Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue

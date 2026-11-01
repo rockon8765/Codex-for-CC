@@ -255,7 +255,11 @@ catch {
 if ($PromptFile -and $Prompt) {
   throw "同時給了 -Prompt 與 -PromptFile：語意不明確(舊行為靜默採用 -PromptFile)，拒絕執行。請只給 -PromptFile。"
 }
-if ($PromptFile)   { $p = Read-TextSmart $PromptFile }
+if ($PromptFile)   {
+  if (-not (Test-Path -LiteralPath $PromptFile -PathType Leaf)) { throw "PromptFile not found: $PromptFile" }
+  # 先解析再讀：Read-TextSmart 走 .NET，相對路徑會以行程 cwd 解析而不是 $PWD，可能靜默讀到同名的另一份簡報。
+  $p = Read-TextSmart (Resolve-Path -LiteralPath $PromptFile).ProviderPath
+}
 elseif ($Prompt)   {
   $p = $Prompt
   # 用 [Console]::Error 而非 Write-Warning：實測 powershell.exe -File 跨 process 時 warning stream
@@ -422,6 +426,13 @@ try {
     }
     $code = $LASTEXITCODE       # pipeline 完整結束後**立刻**擷取
   }
+  catch [System.Management.Automation.CommandNotFoundException] {
+    # 只接這一型：其他例外（例如呼叫端下游丟的）代表 native 已經在跑，要照舊傳回呼叫端，不能報成沒啟動。
+    # `& cmd.exe` 找不到是語句終止錯誤：沒有這個 catch，例外會連下面的 127 守衛一起跳過，
+    # 腳本落到最後的 `exit $null` ＝ exit 0（2026-10-31 兩 host 實測）。
+    $code = $null
+    $nativeError = "$_"
+  }
   finally {
     $ErrorActionPreference = $prevEap
     Remove-Variable -Name 'PSNativeCommandUseErrorActionPreference' -Scope 0 -ErrorAction SilentlyContinue
@@ -429,11 +440,12 @@ try {
   # ══ capture scope 結束 ════════════════════════════════════════════════════
 
   # ⚠️ 拿不到整數退出碼＝native 根本沒被啟動（典型原因：PATH 缺 System32，cmd.exe 找不到）。
-  #    此時 $LASTEXITCODE 維持未設定，`exit $code` 會變成 **exit 0** —— 假成功。
+  #    `exit $code` 會變成 **exit 0** —— 假成功。
   #    映射成 127（POSIX 的 command not found），與 POSIX 版天然行為一致。
   if ($null -eq $code -or -not ($code -is [int])) {
     [Console]::Error.WriteLine("CONSULT_NATIVE_UNAVAILABLE: 無法取得 codex 的退出碼（native 很可能根本沒啟動，" +
-      "例如 PATH 缺 System32 導致找不到 cmd.exe）。**不得視為成功**。transcript: $log")
+      "例如 PATH 缺 System32 導致找不到 cmd.exe）" + $(if ($nativeError) { " -- $nativeError" } else { "" }) +
+      "。**不得視為成功**。transcript: $log")
     $code = 127
   }
   # ⚠️ 先把 raw stderr 讀進記憶體，**之後**才准清 temp。裁決只吃這份副本。

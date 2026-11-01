@@ -3,6 +3,7 @@
   超級模式開關旗標（給 consult-gate hook 用）。
     -On [-Scope <dir>]  啟用。-Scope 限定只在該專案路徑內強制（Windows 專案建議都帶，
                         避免擋到其他 session）；WSL/UNC 專案省略 -Scope 用全域強制。
+                        -Scope 必須是存在的磁碟機目錄，其他值一律拒收、不啟用。
     -Off                退出：清掉旗標與諮詢憑證，順手清舊逐字稿（範圍見 .NOTES）。收尾時**必跑**。
     (無參數)            查目前狀態。
 .NOTES
@@ -20,9 +21,21 @@ $token  = Join-Path $claude ".super-mode-consult-ok"
 
 if ($On) {
   $content = ""
-  if ($Scope) {
+  # 看「有沒有帶 -Scope」，不看值：呼叫端的變數是空的時，不能靜默變成全域強制。
+  if ($PSBoundParameters.ContainsKey('Scope')) {
+    if ([string]::IsNullOrWhiteSpace($Scope) -or -not (Test-Path -LiteralPath $Scope -PathType Container)) {
+      Write-Error "Scope 必須是存在的目錄: '$Scope'（未啟用，避免誤靜默降級為全域強制，或把 repo 內的動作變成 scope 外）"; exit 1
+    }
     $rp = Resolve-Path -LiteralPath $Scope -ErrorAction SilentlyContinue
     if (-not $rp) { Write-Error "Scope 路徑不存在: $Scope（未啟用，避免誤靜默降級為全域強制）"; exit 1 }
+    # hook 的 readScope 看不懂的值，寫進旗標會被靜默當成全域，所以這裡要比它嚴：
+    #   - UNC 的 .Path 帶 provider 前綴；registry 與 session 專屬的 PSDrive 不是 OS 看得到的磁碟機（hook 在 node 裡解析不了）。
+    #   - 段尾的點或空白：Win32 會去掉所以 Test-Path 成立，hook 卻判可疑（isDangerousPath）。
+    # ⚠️ UNC 不要靠改 .ProviderPath 打開：別名路徑與憑證的比對會對不上，也沒在真 WSL 驗過（2026-10-31 反方審查）。
+    if (($rp.Provider.Name -ne 'FileSystem') -or ($rp.Path -notmatch '^[A-Za-z]:[\\/]') -or
+        (-not [System.IO.Directory]::Exists($rp.Path)) -or ($rp.Path -match '[ .]([\\/]|$)')) {
+      Write-Error "Scope 只支援磁碟機路徑: $($rp.Path)（未啟用）。UNC／WSL 專案請省略 -Scope，改用全域強制。"; exit 1
+    }
     $content = $rp.Path
   }
   Set-Content -LiteralPath $flag -Value $content -Encoding utf8
