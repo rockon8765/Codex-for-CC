@@ -73,6 +73,8 @@ try {
   check("cwd=symlink 算 scope 內 denies", { scope: real, cwd: link, cmd: STASH, expect: "deny", reason: NOT_READONLY });
   check("scope=symlink、cwd=實體 denies", { scope: link, cwd: real, cmd: STASH, expect: "deny", reason: NOT_READONLY });
   check("scope=symlink、指令寫實體路徑走 scope 分支", { scope: link, cwd: outside, cmd: removeIn(real), expect: "deny", reason: SCOPE_HINT });
+  check("scope=實體、指令寫實體路徑走 scope 分支", { scope: real, cwd: outside, cmd: removeIn(real), expect: "deny", reason: SCOPE_HINT });
+  check("scope=symlink、指令寫 symlink 路徑走 scope 分支", { scope: link, cwd: outside, cmd: removeIn(link), expect: "deny", reason: SCOPE_HINT });
 
   console.log("CANONICAL-ALIAS " + passed + "/" + total);
   exitCode = passed === total ? 0 : 1;

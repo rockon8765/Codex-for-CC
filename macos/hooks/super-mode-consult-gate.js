@@ -592,7 +592,8 @@ function isSessionOutsideScope(cwd, projectDir, scope, claude) {
 }
 
 // scope 外 session 的 shell/Monitor 字面防呆(啟發式，不是邊界；變數、相對路徑、跳脫空白都會漏)：
-//  scope：指令提到 scope 路徑(原樣或 canonical；不分大小寫，後面要接路徑邊界，A-other 不算)。
+//  scope：指令提到 scope 路徑(原樣或 canonical，/tmp、/var、/etc 底下另比 /private 拼法；不分大小寫，
+//  後面要接路徑邊界，A-other 不算)。
 //  gateState：提到 gate 自己的狀態檔(.super-mode-*、.codex-check-*)，或「家目錄的」.claude 本身、
 //  其 hooks、settings*、超級模式 skill。家目錄要寫成 ~、$HOME、${HOME} 或絕對路徑；
 //  相對的 .claude/...(專案自己的 settings.json、hooks)不算，免得又卡住無關專案。
@@ -601,9 +602,8 @@ function mentionsGuardedPath(cmd, scope, claude) {
   try {
     const low = String(cmd || "").replace(/\\/g, "/").replace(/\/{2,}/g, "/").toLowerCase();
     if (!low) return res;
-    const targets = [norm(scope)];
     const sc = canonicalize(scope);
-    if (!sc.dangerous && sc.path) targets.push(norm(sc.path));
+    const targets = [scope].concat(!sc.dangerous && sc.path ? [sc.path] : []).flatMap(pathSpellings);
     res.scope = targets.some((t) => t && containsBoundedPath(low, t));
     // .claude 之後：hooks／settings*／超級模式 skill，或目錄本身(可帶結尾分隔符，後接邊界或萬用字元)
     const sub = "(/(hooks\\b|settings|skills/超級模式)|/?(?=$|[\\s\"'`*;|&)<>,]))";
@@ -618,6 +618,13 @@ function mentionsGuardedPath(cmd, scope, claude) {
     res.scope = true; // 判不了 → 保守視為有提到(照原規則判)
   }
   return res;
+}
+
+// norm 會把開頭的 /private/{tmp,var,etc} 摺掉，但指令可能照實體路徑寫，所以兩種拼法都要比。
+// 指令字串不摺：它是整段文字，路徑中段的 private/tmp 只是普通目錄。
+function pathSpellings(p) {
+  const n = norm(p);
+  return /^\/(tmp|var|etc)(\/|$)/.test(n) ? [n, "/private" + n] : [n];
 }
 
 // 兩側都要是路徑邊界：左邊是開頭或分隔字元(/x/Users/u/scopeA 的尾段不算)，右邊是結尾、
