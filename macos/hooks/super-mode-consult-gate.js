@@ -292,8 +292,9 @@ function decide(input, testOpts) {
     }
     // CLASS A shell facet 修補：cwd 在 scope 外的捷徑放行「僅限唯讀指令」；會改狀態的指令一律
     // 落回下方 default-deny/破壞性判定(需憑證)。可疑 cwd(含 ..)不吃此捷徑。
+    // 唯讀 runner 碰到暫存/~/.claude 路徑也不吃：落回下方 runner 檢查，與 Monitor 同一判準。
     // (operand/git -C 綁定屬 P0.4，此處不解析 operand。)
-    if (!isDangerousPath(cwd) && scope && !isUnder(cwd, scope) && isReadOnlyCommand(cmd)) return { allow: true };
+    if (!isDangerousPath(cwd) && scope && !isUnder(cwd, scope) && isReadOnlyCommand(cmd) && !isRunnerTouchingSensitive(cmd, claude)) return { allow: true };
     actionPath = cwd;
 
     // 唯讀諮詢/查版/開關腳本：錨定開頭 + 參數尾巴無串接/替換/破壞性字樣才放行
