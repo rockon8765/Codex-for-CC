@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * consult-answer.js —— 憑證鑄造條件的單一邏輯版本（三平台逐位元鏡像）。
+ * consult-answer.js —— 憑證鑄造條件的單一邏輯版本（Windows／macOS 逐位元鏡像；linux/ 已凍結，不再跟改）。
  *
  * 為什麼是 node 而不是每平台各寫一份：
  *   判準裡有 \p{L}\p{N} 計數、首行定義、大小寫敏感 regex、JSON 可解析性四件事。

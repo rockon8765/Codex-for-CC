@@ -37,7 +37,7 @@ else echo "need -f <brief-file> (preferred) or -p (deprecated)" >&2; exit 2; fi
 [ -n "${p//[[:space:]]/}" ] || { echo "prompt is empty" >&2; exit 2; }
 
 # ── validator（憑證鑄造判準）─────────────────────────────────────────────────
-# 判準是三平台共用的單一 node 模組 lib/consult-answer.js。這裡只負責「找到 node、
+# 判準是 Windows／macOS 共用的單一 node 模組 lib/consult-answer.js。這裡只負責「找到 node、
 # 找到模組、確認它真的活著」——任何判準邏輯都不在這支裡（那正是要消除的副本）。
 here="$(cd "$(dirname "$0")" && pwd)"
 validator="$here/../lib/consult-answer.js"
@@ -256,7 +256,7 @@ if [ "$code" -eq 0 ]; then
   fi
   # ⚠️ 2026-08-18：codex exit 0 **不再等於**可以鑄證。舊行為讓 codex 回空字串或幾個字
   #    也照樣解鎖 gate 20 分鐘，而那種情況通常正代表諮詢其實沒送到。
-  #    判準本體在三平台共用的 lib/consult-answer.js，這裡只負責叫它並看結果。
+  #    判準本體在 Windows／macOS 共用的 lib/consult-answer.js，這裡只負責叫它並看結果。
   v_nocred=""; [ "$nocred" -eq 1 ] && v_nocred="--no-credential"
   v_schema=""; [ -n "$schema" ] && v_schema="--schema"
   run_validator "$ans_tmp" "$v_nocred" "$v_schema"

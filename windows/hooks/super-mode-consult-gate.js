@@ -378,7 +378,7 @@ function decide(input, testOpts) {
         return {
           allow: false,
           reason: mcpDenyBase + " 被擋工具: " + safeTool +
-            "。白名單真值在 Codex-for-CC repo 三平台 hooks/super-mode-consult-gate.js(改完須重裝同步 ~/.claude/hooks/)。",
+            "。白名單真值在 Codex-for-CC repo 的 windows／macos hooks/super-mode-consult-gate.js(改完須重裝同步 ~/.claude/hooks/)。",
         };
       }
       if (mcpAuth.kind === "pathbound") {

@@ -141,7 +141,7 @@ function Move-ConsultTokenIntoPlace([string]$tmp, [string]$target) {
 }
 
 # ── validator（憑證鑄造判準）─────────────────────────────────────────────────
-# 判準是三平台共用的單一 node 模組 lib/consult-answer.js。這裡只負責「找到 node、
+# 判準是 Windows／macOS 共用的單一 node 模組 lib/consult-answer.js。這裡只負責「找到 node、
 # 找到模組、確認它真的活著」——任何判準邏輯都不在這支裡（那正是要消除的副本）。
 $validatorPath = Join-Path $PSScriptRoot "..\lib\consult-answer.js"
 
@@ -481,7 +481,7 @@ if ($code -eq 0) {
   }
   # ⚠️ 2026-08-18：codex exit 0 **不再等於**可以鑄證。舊行為讓 codex 回空字串或幾個字
   #    也照樣解鎖 gate 20 分鐘，而那種情況通常正代表諮詢其實沒送到。
-  #    判準本體在三平台共用的 lib/consult-answer.js，這裡只負責叫它並看結果。
+  #    判準本體在 Windows／macOS 共用的 lib/consult-answer.js，這裡只負責叫它並看結果。
   $vArgs = @()
   if ($NoCredential) { $vArgs += "--no-credential" }
   if ($SchemaFile) { $vArgs += "--schema" }
@@ -564,7 +564,7 @@ if ($code -eq 0) {
   # ⚠️ 我們**沒有**任何「真的配額耗盡」的逐字稿樣本 ⇒ 寫不出有證據支撐的精確正例。
   #    故 Tier 1 只在「錯誤行 ∧ 配額字樣」時才 fail-fast；其餘只提示、不下判斷。
   #    哨兵文案一律是「疑似…（未確證）」——不要再寫成斷言。
-  # ⚠️ 這兩條 regex 必須與 POSIX 版**語意等價**（repo 規約：三平台行為等價）。
+  # ⚠️ 這兩條 regex 必須與 POSIX 版**語意等價**（repo 規約：Windows／macOS 行為等價）。
   #    數字用「兩側非英數」圍界：`\b401\b` 在 `auth401beta` 不命中，POSIX 若寫成
   #    `[^0-9]` 圍界就會命中 —— 那就是兩邊判準漂掉（2026-08-19 Codex 舉的例子）。
   $quotaRe = '(?i)usage limit|rate limit|(^|[^0-9A-Za-z])429([^0-9A-Za-z]|$)|quota|not logged in|unauthorized|(^|[^0-9A-Za-z])401([^0-9A-Za-z]|$)'

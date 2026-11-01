@@ -13,7 +13,7 @@
  * 三段：
  *   §A 模組單元案 —— assessProbe / assessMatcher 的 code、exit、render 出來的字串
  *   §B 成對契約案 —— 同一份 fixture，probe 停手但 matcher 照樣驗（刻意的規則差異）
- *   §C 鏡像同一性 —— 宣告哪些 payload 檔必須三平台逐位元相同，以及**為什麼**
+ *   §C 鏡像同一性 —— 宣告哪些 payload 檔必須逐位元相同、各比哪些平台，以及**為什麼**
  *
  * ⚠️ 斷言刻意不只看 code。2026-08-08 的教訓：只核對總數或退出碼時，
  * 無從得知失敗的是不是「該失敗的那幾條」——修正前的 matcher-contract 對
