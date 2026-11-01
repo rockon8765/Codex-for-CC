@@ -253,7 +253,7 @@ function decide(input, testOpts) {
     if (sessionOutside) {
       const guard = mentionsGuardedPath(cmd, scope, claude);
       if (!guard.scope && !guard.gateState) return { allow: true }; // scope 外 session(含 ws 監看)不管
-      if (guard.scope) altActionPath = scope;
+      if (guard.scope && !guard.gateState) altActionPath = scope;
     }
     if (!cmd) {
       gated = true;
@@ -276,10 +276,11 @@ function decide(input, testOpts) {
     const cmd = String(ti.command || "");
     // scope 外 session：不論唯讀與否都不管；但指令字面提到 scope 路徑或 gate 狀態檔 → 照下方原規則判。
     // 提到 scope 時 scope 的憑證也算數(altActionPath)，避免叫人為 cwd 另鑄憑證、覆寫 scope 那張。
+    // 同時提到 gate 狀態檔就不算：否則順手寫出 scope 字樣，scope 憑證就能改 gate 自己的檔。
     if (sessionOutside) {
       const guard = mentionsGuardedPath(cmd, scope, claude);
       if (!guard.scope && !guard.gateState) return { allow: true };
-      if (guard.scope) altActionPath = scope;
+      if (guard.scope && !guard.gateState) altActionPath = scope;
     }
     // CLASS A shell facet 修補：cwd 在 scope 外的捷徑放行「僅限唯讀指令」；會改狀態的指令一律
     // 落回下方 default-deny/破壞性判定(需憑證)。可疑 cwd(含 ..)不吃此捷徑。
@@ -563,8 +564,9 @@ function isSessionOutsideScope(cwd, projectDir, scope, claude) {
   }
 }
 
-// scope 外 session 的 shell/Monitor 字面防呆(啟發式，不是邊界；變數、相對路徑、Git Bash 的 /c/... 形式都會漏)：
-//  scope：指令提到 scope 路徑(原樣或 canonical；斜線不拘、不分大小寫，後面要接路徑邊界，A-other 不算)。
+// scope 外 session 的 shell/Monitor 字面防呆(啟發式，不是邊界；變數、相對路徑、Git Bash 的 /c/... 形式、路徑中段的大括號都會漏)：
+//  scope：指令提到 scope 路徑(原樣或 canonical；斜線不拘、不分大小寫，兩側要接路徑邊界，A-other 不算；
+//  路徑帶 * ? [ 時比對展開後會不會命中 scope)。
 //  gateState：提到 gate 自己的狀態檔(.super-mode-*、.codex-check-*)，或「家目錄的」.claude 本身、
 //  其 hooks、settings*、超級模式 skill。家目錄要寫成 ~、$HOME、$env:USERPROFILE、%USERPROFILE% 或絕對路徑；
 //  相對的 .claude\...(專案自己的 settings.json、hooks)不算，免得又卡住無關專案。
@@ -578,10 +580,10 @@ function mentionsGuardedPath(cmd, scope, claude) {
     const targets = [norm(scope)];
     const sc = canonicalize(scope);
     if (!sc.dangerous && sc.path) targets.push(norm(sc.path));
-    res.scope = targets.some((t) => t && containsBoundedPath(low, collapse(t)));
+    res.scope = targets.some((t) => t && (containsBoundedPath(low, collapse(t)) || containsGlobPath(low, collapse(t))));
     // .claude 之後：hooks／settings*／超級模式 skill，或目錄本身(可帶結尾分隔符，後接邊界或萬用字元)
-    const sub = "(\\\\(hooks\\b|settings|skills\\\\超級模式)|\\\\?(?=$|[\\s\"'`*;|&)<>,]))";
-    const homes = ["(^|[\\s\"'=(;|&,<>])(~|\\$home|\\$\\{home\\}|\\$userprofile|\\$\\{userprofile\\}|\\$env:userprofile|\\$\\{env:userprofile\\}|\\$env:home|\\$\\{env:home\\}|%userprofile%)[\"']?\\\\\\.claude"];
+    const sub = "(\\\\(hooks\\b|settings|skills\\\\超級模式)|\\\\?(?=$|[\\s\"'`*;|&)<>,}]))";
+    const homes = ["(^|[\\s\"'=(;|&,<>{])(~|\\$home|\\$\\{home\\}|\\$userprofile|\\$\\{userprofile\\}|\\$env:userprofile|\\$\\{env:userprofile\\}|\\$env:home|\\$\\{env:home\\}|%userprofile%)[\"']?\\\\\\.claude"];
     for (const c of [claude, canonicalize(claude).path]) {
       if (c) homes.push(collapse(norm(c)).replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
     }
@@ -594,17 +596,79 @@ function mentionsGuardedPath(cmd, scope, claude) {
   return res;
 }
 
-// 兩側都要是路徑邊界：左邊是開頭或分隔字元(xc:\scopeA、D:\host\share\scope 這類前面還黏著字的不算)，右邊是結尾、
-// 子路徑或分隔字元(scopeA-other 不算；`:` 算，例如 docker -v <scope>:/app)。
+// 路徑的左邊界：開頭或分隔字元，中間可隔黏著的短旗標(-CC:\path)或 PowerShell 的 -Path:C:\path。
+// 用列舉不用「非路徑名字元」：多認的多半是文字樣式或訊息，誤判會要憑證，commit 還會消耗共用的 scope 憑證。
+// `{` 是 {<scope>,C:\x}。單獨的 `:` 不算：D:\host\share\scope 不是 UNC scope \\host\share\scope，
+// 這裡的 PATH 也不用 `:` 分隔(macOS 版算)。xc:\scopeA 這類前面還黏著字的同樣不算。
+const PATH_LEFT_BOUNDARY = /(^|[\s"'`=(;|&,<>{])(-[a-z]+:?)?$/;
+
+// 兩側都要是路徑邊界。右邊是結尾、子路徑或分隔字元(scopeA-other 不算；`:` 算，例如
+// docker -v <scope>:/app；`{}` 算，例如 {C:\x,<scope>}\m、<scope>{,.old})。
 function containsBoundedPath(hay, needle) {
   let i = hay.indexOf(needle);
   while (i !== -1) {
-    const before = i === 0 ? "" : hay.charAt(i - 1);
     const after = hay.charAt(i + needle.length);
-    if ((!before || /[\s"'`=(;|&,<>]/.test(before)) && (!after || /[\\\s"'`;|&)<>,:]/.test(after))) return true;
+    if (PATH_LEFT_BOUNDARY.test(hay.slice(0, i)) && (!after || /[\\\s"'`;|&)<>,:{}]/.test(after))) return true;
     i = hay.indexOf(needle, i + 1);
   }
   return false;
+}
+
+// 帶 * ? [ 的路徑逐段比對：要寫到 scope 那一層或更深才算，只寫到上層和字面比對一樣不算。
+function containsGlobPath(hay, target) {
+  const want = target.split("\\");
+  for (const m of hay.matchAll(/[a-z]:\\[^\s"'`;|&<>(){},:=]*|\\[^\s"'`;|&<>(){},:=]*/g)) {
+    if (!/[*?[]/.test(m[0]) || !PATH_LEFT_BOUNDARY.test(hay.slice(0, m.index))) continue;
+    const segs = m[0].split("\\");
+    if (segs.length >= want.length && want.every((w, i) => globSegmentMatches(segs[i], w))) return true;
+  }
+  return false;
+}
+
+// 單段 glob 比對(* ? [...])。失配時只退回最後一個 *，成本是 段長 × 名稱長，沒有 RegExp 的組合爆炸。
+function globSegmentMatches(seg, name) {
+  let s = 0;
+  let n = 0;
+  let starS = -1;
+  let starN = 0;
+  while (n < name.length) {
+    const step = seg[s] === "*" || s >= seg.length ? 0 : globUnitLength(seg, s, name[n]);
+    if (step) {
+      s += step;
+      n++;
+    } else if (seg[s] === "*") {
+      starS = ++s;
+      starN = n;
+    } else if (starS !== -1) {
+      s = starS;
+      n = ++starN;
+    } else {
+      return false;
+    }
+  }
+  while (seg[s] === "*") s++;
+  return s === seg.length;
+}
+
+// seg[s] 開頭的 glob 單位比對字元 ch：比到回傳單位長度，沒比到回傳 0。
+// 方括號不成對時 [ 是字面字元(與 shell 相同，後面的 * 照常作用)；`]` 排第一時是集合成員。
+function globUnitLength(seg, s, ch) {
+  if (seg[s] === "?") return 1;
+  if (seg[s] !== "[") return seg[s] === ch ? 1 : 0;
+  const negated = seg[s + 1] === "!" || seg[s + 1] === "^";
+  const first = s + (negated ? 2 : 1);
+  const close = seg.indexOf("]", first + 1);
+  if (close === -1) return ch === "[" ? 1 : 0;
+  let hit = false;
+  for (let i = first; i < close; i++) {
+    if (seg[i + 1] === "-" && i + 2 < close) {
+      hit = hit || (seg[i] <= ch && ch <= seg[i + 2]);
+      i += 2;
+    } else {
+      hit = hit || seg[i] === ch;
+    }
+  }
+  return hit !== negated ? close - s + 1 : 0;
 }
 
 // Windows 專屬 decide-layer 防線：canonical 路徑的「直屬 ~/.claude 根、且長得像 DOS 8.3 短名(~數字)的

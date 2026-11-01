@@ -75,6 +75,12 @@ try {
   check("scope=symlink、指令寫實體路徑走 scope 分支", { scope: link, cwd: outside, cmd: removeIn(real), expect: "deny", reason: SCOPE_HINT });
   check("scope=實體、指令寫實體路徑走 scope 分支", { scope: real, cwd: outside, cmd: removeIn(real), expect: "deny", reason: SCOPE_HINT });
   check("scope=symlink、指令寫 symlink 路徑走 scope 分支", { scope: link, cwd: outside, cmd: removeIn(link), expect: "deny", reason: SCOPE_HINT });
+  if (link.startsWith("/private/")) {
+    // symlink 的 canonical 是實體路徑，/private 摺疊只能靠 norm：大寫前綴的 scope 也要認得 /tmp 類拼法
+    const upper = link.replace("/private/", "/Private/");
+    const collapsed = link.replace("/private/", "/");
+    check("scope=大寫 /Private 的 symlink、指令寫摺疊拼法走 scope 分支", { scope: upper, cwd: outside, cmd: removeIn(collapsed), expect: "deny", reason: SCOPE_HINT });
+  }
 
   console.log("CANONICAL-ALIAS " + passed + "/" + total);
   exitCode = passed === total ? 0 : 1;
