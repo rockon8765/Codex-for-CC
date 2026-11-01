@@ -221,6 +221,48 @@ check("copy-phase-failure-rolls-back", (a) => {
   a(baks(h).length === 0, "回收後仍留下 " + baks(h).length + " 個備份");
 });
 
+// 複製階段撞名：預檢通過後才被別的程序搶先建立。那個檔不是本次建立的，必須留著，
+// 也不能回報成「本次建立的備份」。用預載模組在 copyFileSync 之前建出目的檔。
+function runColliding(home, needle) {
+  const args = ["--require", path.join(__dirname, "helpers", "collide-on-copy.js"), tool];
+  const env = Object.assign({}, process.env, { HOME: home, USERPROFILE: home, COLLIDE_ON_COPY: needle });
+  const r = spawnSync(process.execPath, args, { encoding: "utf8", env });
+  return { status: r.status, out: (r.stdout || "") + (r.stderr || "") };
+}
+
+check("copy-phase-eexist-keeps-other-backup", (a) => {
+  const h = newHome("eexist-single");
+  fs.writeFileSync(path.join(h, ".claude", "settings.json"), MAIN);
+  const r = runColliding(h, "settings.json.bak-");
+  a(r.status === 1, "退出碼 " + r.status + "（預期 1）");
+  a(r.out.includes("EEXIST"), "沒有回報 EEXIST，代表注入沒走到複製階段");
+  a(!r.out.includes("backup ts="), "中止了卻仍印出 backup ts=");
+  a(!r.out.includes("已回收本次建立的備份"), "把別人的備份印成本次建立");
+  a(r.out.includes("未產生任何備份"), "本次沒有留下備份，卻沒有如實回報");
+  const b = baks(h);
+  a(b.length === 1, "別人的備份被刪掉了（剩 " + b.length + " 個，預期 1）");
+  if (b.length === 1) {
+    a(fs.readFileSync(path.join(h, ".claude", b[0]), "utf8") === "別的程序的備份", "別人的備份內容被改掉");
+  }
+});
+
+// 第一個檔已由本次建立、第二個才撞名：只回收自己的，別人的留著。
+check("copy-phase-eexist-rolls-back-only-own", (a) => {
+  const h = newHome("eexist-second");
+  fs.writeFileSync(path.join(h, ".claude", "settings.json"), MAIN);
+  fs.writeFileSync(path.join(h, ".claude", "settings.local.json"), LOCAL);
+  const r = runColliding(h, "settings.local.json.bak-");
+  a(r.status === 1, "退出碼 " + r.status + "（預期 1）");
+  a(r.out.includes("EEXIST"), "沒有回報 EEXIST，代表注入沒走到複製階段");
+  a(!r.out.includes("backup ts="), "中止了卻仍印出 backup ts=");
+  a(r.out.includes("已回收本次建立的備份"), "沒有回報回收本次建立的備份");
+  const line = r.out.split(/\r?\n/).find((l) => l.includes("已回收本次建立的備份")) || "";
+  a(!line.includes("settings.local.json.bak-"), "回收清單列入了別人的備份");
+  const b = baks(h);
+  a(b.length === 1 && b[0].startsWith("settings.local.json.bak-"),
+    "預期只剩別人的 local 備份，實際：" + b.join("、"));
+});
+
 fs.rmSync(work, { recursive: true, force: true });
 
 const total = pass + failed.length + skipped.length;

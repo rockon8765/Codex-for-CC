@@ -150,6 +150,8 @@ function run() {
       }
     } catch (e) {
       if (e === BAIL) throw e; // 雜湊不符已經在上面回報並回收過了
+      // EEXIST＝目的檔是別人建的，這次什麼都沒寫：要從回收清單拿掉，否則會刪掉別人的備份。
+      if (e && e.code === "EEXIST") created.pop();
       dieAfterCopy("備份 " + item.src + " 失敗：" + (e && e.code ? e.code : e && e.message), created);
     }
     console.log(item.bak + "  OK");

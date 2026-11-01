@@ -88,7 +88,7 @@ const DESTRUCTIVE = [
   /\bconda\s+(install|remove|update|create)\b/i,
   /\bcargo\s+(publish|install)\b/i,
   /\bgo\s+install\b/i,
-  /\bgh\s+(pr\s+(create|merge|close|edit)|issue\s+(create|edit|close)|release|repo\s+(create|delete|edit))\b/i,
+  /\bgh\s+(pr\s+(create|merge|close|edit)|issue\s+(create|edit|close)|release\s+(create|delete|edit|upload|delete-asset)|repo\s+(create|delete|edit))\b/i,
   /\bgh\s+api\b[^;|&]*(-X|--method)\s+(POST|PUT|PATCH|DELETE)/i,
   /(^|[;&|]\s*)(deploy|netlify|vercel|gh-pages)\b|\bfirebase\s+deploy\b/i,
   /\bterraform\s+(apply|destroy)\b/i,

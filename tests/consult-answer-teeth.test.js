@@ -11,6 +11,10 @@
  *
  * 做法：把 validator 複製到暫存目錄、套一個字面替換（mutation）、用**同一份** fixtures 跑，
  * 然後比對「實際具名失敗集合」與「預期具名失敗集合」。
+ *
+ * ⚠️ 變異一律施加在 **temp 目錄的副本**上，永不改動工作目錄：硬殺或兩支交錯時，
+ *    finally 還原擋不住，repo 的判準檔會留在變異版。副本要保留 repo 的相對佈局，
+ *    因為 fixtures 用 __dirname 的相對路徑載入 validator。
  */
 
 "use strict";
@@ -23,7 +27,7 @@ const { execFileSync } = require("child_process");
 const REPO = path.join(__dirname, "..");
 const LIB_REL = path.join("windows", "skills", "超級模式", "lib", "consult-answer.js");
 const LIB = path.join(REPO, LIB_REL);
-const FIXTURES = path.join(__dirname, "consult-answer.test.js");
+const FIXTURES_REL = path.join("tests", "consult-answer.test.js");
 
 /**
  * 每個 mutant：把 validator 的某個判準改壞，宣告**恰好**哪些具名案例必須因此變紅。
@@ -113,6 +117,9 @@ const MUTANTS = [
 
 // ── harness ────────────────────────────────────────────────────────────────
 const original = fs.readFileSync(LIB, "utf8");
+const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "consult-teeth-"));
+const TMP_LIB = path.join(tmp, LIB_REL);
+const TMP_FIXTURES = path.join(tmp, FIXTURES_REL);
 let pass = 0, fail = 0;
 const failed = [];
 
@@ -123,19 +130,12 @@ function check(name, cond, detail) {
   return false;
 }
 
-/** 跑一次 fixtures，回 { rc, failedNames }。 */
-function runFixtures(libOverride) {
-  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "consult-teeth-"));
-  const shim = path.join(tmp, "shim.js");
-  // fixtures 用 require(LIB) 直接載入；改用 module cache 注入太脆弱，
-  // 這裡改成實際覆寫檔案再還原（單執行緒、finally 一定還原）。
-  fs.rmSync(tmp, { recursive: true, force: true });
-  void shim;
-
-  if (libOverride !== null) fs.writeFileSync(LIB, libOverride, "utf8");
+/** 在副本上跑一次 fixtures，回 { rc, failedNames }。libSource 是這次要用的 validator 全文。 */
+function runFixtures(libSource) {
+  fs.writeFileSync(TMP_LIB, libSource, "utf8");
   let out = "", rc = 0;
   try {
-    out = execFileSync(process.execPath, [FIXTURES], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+    out = execFileSync(process.execPath, [TMP_FIXTURES], { encoding: "utf8", cwd: tmp, stdio: ["ignore", "pipe", "pipe"] });
   } catch (e) {
     out = (e.stdout || "") + (e.stderr || "");
     rc = e.status === undefined ? -1 : e.status;
@@ -157,8 +157,12 @@ function diffSets(actual, expected) {
 }
 
 try {
+  fs.mkdirSync(path.dirname(TMP_LIB), { recursive: true });
+  fs.mkdirSync(path.dirname(TMP_FIXTURES), { recursive: true });
+  fs.copyFileSync(path.join(REPO, FIXTURES_REL), TMP_FIXTURES);
+
   console.log("§0 基準（未變異）必須全綠");
-  const base = runFixtures(null);
+  const base = runFixtures(original);
   check("基準 rc=0", base.rc === 0, "        rc=" + base.rc);
   check("基準無具名失敗", base.failedNames.length === 0, "        " + base.failedNames.join("、"));
 
@@ -172,6 +176,8 @@ try {
 
     const mutated = original.split(mut.from).join(mut.to);
     const r = runFixtures(mutated);
+    // 就地比對：若變異寫回 repo，這時 repo 的判準檔正是變異版，事後還原也蓋不掉這一條。
+    check(mut.id + " repo 判準檔未被變異", fs.readFileSync(LIB, "utf8") === original);
     const { missing, extra } = diffSets(r.failedNames, mut.expect);
     const okSet = missing.length === 0 && extra.length === 0;
     const detail =
@@ -183,14 +189,14 @@ try {
     check(mut.id + " 具名失敗集合相符", okSet, detail);
     check(mut.id + " rc=1", r.rc === 1, "        rc=" + r.rc);
   }
-} finally {
-  fs.writeFileSync(LIB, original, "utf8");
-}
 
-// 還原自檢：跑完必須回到基準全綠，否則後面所有測試都建立在被污染的檔案上。
-const after = runFixtures(null);
-check("還原後仍全綠", after.rc === 0 && after.failedNames.length === 0,
-  "        rc=" + after.rc + " " + after.failedNames.join("、"));
+  // 收尾自檢：副本換回原版要全綠，否則上面的變異結果可能不是變異造成的。
+  const after = runFixtures(original);
+  check("副本還原後仍全綠", after.rc === 0 && after.failedNames.length === 0,
+    "        rc=" + after.rc + " " + after.failedNames.join("、"));
+} finally {
+  fs.rmSync(tmp, { recursive: true, force: true });
+}
 
 console.log("");
 console.log("CONSULT-ANSWER-TEETH " + pass + "/" + (pass + fail));
