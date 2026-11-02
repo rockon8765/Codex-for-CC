@@ -73,8 +73,13 @@ for (const tc of cases) {
     if (tc.mcpPolicy !== undefined && tc.mcpPolicy !== null) {
       testOpts.mcpPolicy = replacePlaceholders(tc.mcpPolicy, replacements);
     }
+    const startedAt = Date.now();
     const res = decide(input, testOpts);
+    const elapsedMs = Date.now() - startedAt;
     const got = res && res.allow ? "allow" : "deny";
+    if (tc.expectMaxMs !== undefined && elapsedMs > tc.expectMaxMs) {
+      failures.push({ name: tc.name, expect: "<=" + tc.expectMaxMs + "ms", got: elapsedMs + "ms", reason: "decide() 太慢" });
+    }
     if (got !== tc.expect) {
       failures.push({
         name: tc.name,
@@ -126,7 +131,7 @@ for (const tc of cases) {
   }
 }
 
-const passed = cases.length - failures.length;
+const passed = cases.length - new Set(failures.map((f) => f.name)).size;
 console.log(`PASS ${passed}/${cases.length}`);
 
 if (failures.length) {

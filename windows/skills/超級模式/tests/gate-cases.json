@@ -563,5 +563,7 @@
   {"name":"ADS1 Write 路徑段尾有點 denies（可疑路徑）","flagContent":"","tokenAgeMs":null,"input":{"tool_name":"Write","tool_input":{"file_path":"__BASE__\\settings.json."}},"expect":"deny","expectReasonIncludes":"可疑路徑"},
   {"name":"ADS2 Write 路徑段尾有空白 denies（可疑路徑）","flagContent":"","tokenAgeMs":null,"input":{"tool_name":"Write","tool_input":{"file_path":"__BASE__\\settings.json "}},"expect":"deny","expectReasonIncludes":"可疑路徑"},
   {"name":"ADS3 Write 路徑帶 ADS 串流名 denies（可疑路徑）","flagContent":"","tokenAgeMs":null,"input":{"tool_name":"Write","tool_input":{"file_path":"__BASE__\\settings.json::$DATA"}},"expect":"deny","expectReasonIncludes":"可疑路徑"},
-  {"name":"ADS4 scoped 旗標開頭有 BOM 仍認得 scope：scope 外寫入 allows","flagContent":"\ufeffC:\\scopeA","tokenAgeMs":null,"input":{"tool_name":"Write","tool_input":{"file_path":"C:\\proj\\src\\app.js"},"cwd":"C:\\proj"},"expect":"allow"}
+  {"name":"ADS4 scoped 旗標開頭有 BOM 仍認得 scope：scope 外寫入 allows","flagContent":"\ufeffC:\\scopeA","tokenAgeMs":null,"input":{"tool_name":"Write","tool_input":{"file_path":"C:\\proj\\src\\app.js"},"cwd":"C:\\proj"},"expect":"allow"},
+  {"name":"RX1 重複 -C 的非唯讀 git 不會指數回溯 denies","flagContent":"","tokenAgeMs":null,"input":{"tool_name":"PowerShell","tool_input":{"command":"git -C a -C a -C a -C a -C a -C a -C a -C a -C a -C a -C a -C a -C a -C a -C a -C a -C a -C a -C a -C a -C a -C a -C a -C a -C a -C a -C a -C a gc"},"cwd":"C:\\proj"},"expect":"deny","expectMaxMs":2000},
+  {"name":"RX2 對照：-c 設定值仍算唯讀 allows","flagContent":"","tokenAgeMs":null,"input":{"tool_name":"PowerShell","tool_input":{"command":"git -c core.pager=cat -C a log"},"cwd":"C:\\proj"},"expect":"allow"}
 ]

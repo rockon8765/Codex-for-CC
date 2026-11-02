@@ -96,9 +96,9 @@ const CONSUMING = [
   /\bgh\s+pr\s+(create|merge)\b/i,
 ];
 
-// 唯讀白名單（逐管線段比對，錨定段首）
+// 唯讀白名單（逐管線段比對，錨定段首）。git 規則帶 /i，-C 也涵蓋 -c；兩個都列會指數回溯
 const READONLY_SEG = [
-  /^git\s+((-C\s+\S+|--no-pager|--git-dir=\S+|-c\s+\S+)\s+)*(status|log|diff|show|rev-parse|blame|shortlog|describe|grep|ls-files|ls-remote|ls-tree|cat-file|config\s+(--get|--list|-l)\b|stash\s+list|worktree\s+list|reflog|branch(\s+(-a|--all|-l|--list|-v|-vv|--show-current|-r))*\s*$|tag(\s+(-l|--list))?\s*$|remote(\s+(-v|--verbose))?\s*$)/i,
+  /^git\s+((-C\s+\S+|--no-pager|--git-dir=\S+)\s+)*(status|log|diff|show|rev-parse|blame|shortlog|describe|grep|ls-files|ls-remote|ls-tree|cat-file|config\s+(--get|--list|-l)\b|stash\s+list|worktree\s+list|reflog|branch(\s+(-a|--all|-l|--list|-v|-vv|--show-current|-r))*\s*$|tag(\s+(-l|--list))?\s*$|remote(\s+(-v|--verbose))?\s*$)/i,
   /^(ls|ll|dir|cat|type|head|tail|wc|sort|uniq|cut|tr|nl|stat|du|df|tree|pwd|cd|pushd|popd|echo|printf|date|whoami|hostname|uname|env|printenv|which|where(\.exe)?|findstr|grep|egrep|fgrep|rg|jq|diff|comm|file|less|more|sleep|true)\b/i,
   /^find\b(?!.*(-delete|-exec|-execdir|-ok|-okdir|-fprintf?|-fls|-fprint0))/i,
   /^(node|python3?|ruby|php|perl)\s+(-v|--version)\s*$/i,
