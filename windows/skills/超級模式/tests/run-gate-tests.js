@@ -2,6 +2,7 @@
 // 超級模式 consult-gate 回歸測試臺：讀 gate-cases.json，逐案呼叫 decide(input, fakeBaseDir)。
 // 佔位符：__TMP__ → os.tmpdir()（真實系統暫存，不可自造——scratchpad 豁免判定依賴它）、
 //         __BASE__ → 每案獨立的假 ~/.claude（mkdtemp，案後即刪）。
+//         __HOME__ → os.homedir()（比 ~ 拼法要用真實家目錄，hook 讀的就是它）。
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
@@ -25,7 +26,7 @@ const { decide } = require(hookPath);
 
 function replacePlaceholders(value, replacements) {
   if (typeof value === "string") {
-    return value.replace(/__TMP__/g, replacements.tmp).replace(/__BASE__/g, replacements.base);
+    return value.replace(/__TMP__/g, replacements.tmp).replace(/__BASE__/g, replacements.base).replace(/__HOME__/g, replacements.home);
   }
   if (Array.isArray(value)) return value.map((v) => replacePlaceholders(v, replacements));
   if (value && typeof value === "object") {
@@ -40,7 +41,7 @@ const failures = [];
 
 for (const tc of cases) {
   const fakeBaseDir = fs.mkdtempSync(path.join(os.tmpdir(), "gate-"));
-  const replacements = { tmp: os.tmpdir(), base: fakeBaseDir };
+  const replacements = { tmp: os.tmpdir(), base: fakeBaseDir, home: os.homedir() };
 
   try {
     if (tc.flagContent !== null && tc.flagContent !== undefined) {
@@ -63,6 +64,8 @@ for (const tc of cases) {
     }
 
     const input = replacePlaceholders(tc.input, replacements);
+    // 長指令案例：command 後接 unit 重複 times 次，JSON 不必放幾百 KB 字面值
+    if (tc.commandRepeat) input.tool_input.command += tc.commandRepeat.unit.repeat(tc.commandRepeat.times);
     // 一律傳物件：projectDir 每案明確給(預設空字串)，不讓 hook 讀到跑測試那個 session 的
     // CLAUDE_PROJECT_DIR；MCP policy 同樣走第二參數注入。
     const testOpts = {
@@ -72,8 +75,13 @@ for (const tc of cases) {
     if (tc.mcpPolicy !== undefined && tc.mcpPolicy !== null) {
       testOpts.mcpPolicy = replacePlaceholders(tc.mcpPolicy, replacements);
     }
+    const startedAt = Date.now();
     const res = decide(input, testOpts);
+    const elapsedMs = Date.now() - startedAt;
     const got = res && res.allow ? "allow" : "deny";
+    if (tc.expectMaxMs !== undefined && elapsedMs > tc.expectMaxMs) {
+      failures.push({ name: tc.name, expect: "<=" + tc.expectMaxMs + "ms", got: elapsedMs + "ms", reason: "decide() 太慢" });
+    }
     if (got !== tc.expect) {
       failures.push({
         name: tc.name,
@@ -125,7 +133,7 @@ for (const tc of cases) {
   }
 }
 
-const passed = cases.length - failures.length;
+const passed = cases.length - new Set(failures.map((f) => f.name)).size;
 console.log(`PASS ${passed}/${cases.length}`);
 
 if (failures.length) {

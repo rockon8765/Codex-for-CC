@@ -107,9 +107,9 @@ const CONSUMING = [
   /\bgh\s+pr\s+(create|merge)\b/i,
 ];
 
-// 唯讀白名單（逐管線段比對，錨定段首）
+// 唯讀白名單（逐管線段比對，錨定段首）。git 規則帶 /i，-C 也涵蓋 -c；兩個都列會指數回溯
 const READONLY_SEG = [
-  /^git\s+((-C\s+\S+|--no-pager|--git-dir=\S+|-c\s+\S+)\s+)*(status|log|diff|show|rev-parse|blame|shortlog|describe|grep|ls-files|ls-remote|ls-tree|cat-file|config\s+(--get|--list|-l)\b|stash\s+list|worktree\s+list|reflog|branch(\s+(-a|--all|-l|--list|-v|-vv|--show-current|-r))*\s*$|tag(\s+(-l|--list))?\s*$|remote(\s+(-v|--verbose))?\s*$)/i,
+  /^git\s+((-C\s+\S+|--no-pager|--git-dir=\S+)\s+)*(status|log|diff|show|rev-parse|blame|shortlog|describe|grep|ls-files|ls-remote|ls-tree|cat-file|config\s+(--get|--list|-l)\b|stash\s+list|worktree\s+list|reflog|branch(\s+(-a|--all|-l|--list|-v|-vv|--show-current|-r))*\s*$|tag(\s+(-l|--list))?\s*$|remote(\s+(-v|--verbose))?\s*$)/i,
   /^(ls|ll|dir|cat|type|head|tail|wc|sort|uniq|cut|tr|nl|stat|du|df|tree|pwd|cd|pushd|popd|echo|printf|date|whoami|hostname|uname|env|printenv|which|where(\.exe)?|findstr|grep|egrep|fgrep|rg|jq|diff|comm|file|less|more|sleep|true)\b/i,
   /^find\b(?!.*(-delete|-exec|-execdir|-ok|-okdir|-fprintf?|-fls|-fprint0))/i,
   /^(node|python3?|ruby|php|perl)\s+(-v|--version)\s*$/i,
@@ -594,8 +594,9 @@ function isSessionOutsideScope(cwd, projectDir, scope, claude) {
 }
 
 // scope 外 session 的 shell/Monitor 字面防呆(啟發式，不是邊界；變數、相對路徑、跳脫空白、路徑中段的大括號都會漏)：
-//  scope：指令提到 scope 路徑(原樣或 canonical，/tmp、/var、/etc 底下另比 /private 拼法；不分大小寫，
-//  兩側要接路徑邊界，A-other 不算；路徑帶 * ? [ 時比對展開後會不會命中 scope)。
+//  scope：指令提到 scope 路徑(原樣或 canonical，/tmp、/var、/etc 底下另比 /private 拼法，家目錄底下
+//  另比連續字面的 ~/... 拼法，裸 ~、引號拼接、HOME 的 symlink 別名都比不到；不分大小寫，兩側要接
+//  路徑邊界，A-other 不算；路徑帶 * ? [ 時比對展開後會不會命中 scope)。
 //  gateState：提到 gate 自己的狀態檔(.super-mode-*、.codex-check-*)，或「家目錄的」.claude 本身、
 //  其 hooks、settings*、超級模式 skill。家目錄要寫成 ~、$HOME、${HOME} 或絕對路徑；
 //  相對的 .claude/...(專案自己的 settings.json、hooks)不算，免得又卡住無關專案。
@@ -629,24 +630,37 @@ function mentionsGuardedPath(cmd, scope, claude) {
 }
 
 // norm 會把開頭的 /private/{tmp,var,etc} 摺掉，但指令可能照實體路徑寫，所以兩種拼法都要比。
-// 指令字串不摺：它是整段文字，路徑中段的 private/tmp 只是普通目錄。
+// 指令字串不摺：它是整段文字，路徑中段的 private/tmp 只是普通目錄。家目錄底下另比 ~ 拼法。
 function pathSpellings(p) {
   const n = norm(p);
-  return /^\/(tmp|var|etc)(\/|$)/.test(n) ? [n, "/private" + n] : [n];
+  const spellings = /^\/(tmp|var|etc)(\/|$)/.test(n) ? [n, "/private" + n] : [n];
+  const home = norm(os.homedir());
+  return isUnder(n, home) ? spellings.concat("~" + n.slice(home.length)) : spellings;
 }
 
 // 路徑的左邊界：開頭或分隔字元，中間可隔黏著的短旗標(-C/path)。用列舉不用「非路徑名字元」：
 // 多認的多半是文字樣式或訊息(sed 的 ^<scope>)，誤判會要憑證，commit 還會消耗共用的 scope 憑證。
 // `{` 是 {<scope>,/x}，`:` 是 PATH=/x:<scope>、file:<scope>；scp host:<scope>、-v /x:<scope> 因此也算(已知誤擋)。
-const PATH_LEFT_BOUNDARY = /(^|[\s"'`=(;|&,<>{:])(-[a-z]+)?$/;
+const PATH_LEFT_SEPARATOR = /[\s"'`=(;|&,<>{:]/;
+
+// 用索引往左看，不對 hay.slice(0, i) 跑 regex：近似命中多的長指令才不會變平方成本。
+function isPathLeftBoundary(hay, i) {
+  const isEdge = (k) => k === 0 || PATH_LEFT_SEPARATOR.test(hay[k - 1]);
+  if (isEdge(i)) return true;
+  let j = i;
+  while (j > 0 && hay[j - 1] >= "a" && hay[j - 1] <= "z") j--;
+  return j < i && j > 0 && hay[j - 1] === "-" && isEdge(j - 1);
+}
 
 // 兩側都要是路徑邊界。右邊是結尾、子路徑或分隔字元(scopeA-other 不算；`:` 算，例如
 // docker -v <scope>:/app；`{}` 算，例如 {/x,<scope>}/m、<scope>{,.old})。
+// scope 就是家目錄時 needle 是裸 ~：它常是運算子或文字，右邊要接 / 才算。
 function containsBoundedPath(hay, needle) {
   let i = hay.indexOf(needle);
   while (i !== -1) {
     const after = hay.charAt(i + needle.length);
-    if (PATH_LEFT_BOUNDARY.test(hay.slice(0, i)) && (!after || /[\/\s"'`;|&)<>,:{}]/.test(after))) return true;
+    const rightOk = needle === "~" ? after === "/" : !after || /[\/\s"'`;|&)<>,:{}]/.test(after);
+    if (rightOk && isPathLeftBoundary(hay, i)) return true;
     i = hay.indexOf(needle, i + 1);
   }
   return false;
@@ -655,8 +669,8 @@ function containsBoundedPath(hay, needle) {
 // 帶 * ? [ 的路徑逐段比對：要寫到 scope 那一層或更深才算，只寫到上層和字面比對一樣不算。
 function containsGlobPath(hay, target) {
   const want = target.split("/");
-  for (const m of hay.matchAll(/\/[^\s"'`;|&<>(){},:=]*/g)) {
-    if (!/[*?[]/.test(m[0]) || !PATH_LEFT_BOUNDARY.test(hay.slice(0, m.index))) continue;
+  for (const m of hay.matchAll(/~?\/[^\s"'`;|&<>(){},:=]*/g)) {
+    if (!/[*?[]/.test(m[0]) || !isPathLeftBoundary(hay, m.index)) continue;
     const segs = m[0].split("/");
     if (segs.length >= want.length && want.every((w, i) => globSegmentMatches(segs[i], w))) return true;
   }
@@ -787,29 +801,33 @@ function isReadOnlyCommand(cmd) {
   // 命令/程序替換 = 可跑任意程式 → 一律不算唯讀（$(...)、反引號、<(...)、>(...)）
   if (/\$\(|`|<\(|>\(/.test(cmd)) return false;
   // 先剝掉無害的重導向，再檢查殘留的 > (寫檔) 就不算唯讀
-  const c = cmd
+  const c = stripHarmlessRedirects(cmd);
+  if (/>/.test(c)) return false;
+  return commandSegments(c).every((t) => !t || READONLY_SEG.some((re) => re.test(t)));
+  // ⚠ 注意：isReadOnlyCommand("") === true（空字串沒有任何 segment 可否決）。
+  //   任何「可能沒有 command 欄位」的工具都不可以直接把空字串餵進來判定，否則等於 fail-open。
+}
+
+function stripHarmlessRedirects(cmd) {
+  return cmd
     .replace(/2>&1/g, " ")
     .replace(/[\d*]?>+\s*\$null/gi, " ")
     .replace(/[\d*]?>+\s*nul\b/gi, " ")
     .replace(/[\d*]?>+\s*\/dev\/null/gi, " ");
-  if (/>/.test(c)) return false;
-  // 分隔：&& || ; | 換行，以及單一 & (背景作業)。2>&1 已在上面剝除，此處 & 只會是背景/串接。
-  const segs = c.replace(/&&|\|\|/g, ";").split(/[;|&\r\n]+/);
-  return segs.every((s) => {
-    const t = s.trim().replace(/^[&('"\s]+/, "");
-    if (!t) return true;
-    return READONLY_SEG.some((re) => re.test(t));
-  });
-  // ⚠ 注意：isReadOnlyCommand("") === true（空字串沒有任何 segment 可否決）。
-  //   任何「可能沒有 command 欄位」的工具都不可以直接把空字串餵進來判定，否則等於 fail-open。
+}
+
+// 切成指令段：&& || ; | 換行，以及單一 & (背景作業)，再去掉段首的空白、( 與引號。c 要先剝過重導向，
+// 2>&1 的 & 才不會被當分隔。唯讀判定與 runner 判定都走這兩步，「哪裡是指令開頭」才不會各有一套。
+function commandSegments(c) {
+  return c.replace(/&&|\|\|/g, ";").split(/[;|&\r\n]+/).map((s) => s.trim().replace(/^[&('"\s]+/, ""));
 }
 
 // 唯讀 runner(pytest/npm/node…)若指向暫存或 ~/.claude 路徑，仍要憑證：堵「先把 conftest.py /
 // package.json 寫進豁免區，再用唯讀 runner 執行它」的繞過。Bash 與 Monitor 共用同一份判準，
 // 避免兩套規則漂移。
 function isRunnerTouchingSensitive(cmd, claudeDir) {
-  const RUNNER_RE = /(^|[;&|]\s*)\S*(pytest|npm|pnpm|yarn|cargo|go|dotnet|eslint|ruff|prettier|tsc|node|python3?)(\.exe)?\b/i;
-  if (!RUNNER_RE.test(cmd)) return false;
+  const RUNNER_RE = /^\S*(pytest|npm|pnpm|yarn|cargo|go|dotnet|eslint|ruff|prettier|tsc|node|python3?)(\.exe)?\b/i;
+  if (!commandSegments(stripHarmlessRedirects(cmd)).some((t) => RUNNER_RE.test(t))) return false;
   const low = String(cmd).toLowerCase().replace(/\\/g, "/").replace(/\/private\/(tmp|var|etc)\//g, "/$1/");
   const HITS = [norm(os.tmpdir()), norm(claudeDir), "/tmp", "~/.claude"];
   return HITS.some((h) => low.includes(h));
