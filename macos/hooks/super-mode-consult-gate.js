@@ -613,7 +613,8 @@ function mentionsGuardedPath(cmd, scope, claude) {
     const homeWords = "(~|\\$home|\\$\\{home\\})[\"']?/\\.claude";
     const absolutes = [claude, canonicalize(claude).path].filter(Boolean)
       .map((c) => norm(c).replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
-    const homes = ["(^|[\\s\"'=(;|&,<>{])" + homeWords].concat(absolutes);
+    // `:` 是 --output:$HOME/...、/LOG:$HOME/...；scp host:~/.claude/settings.json、PATH 列因此也算(已知誤擋)
+    const homes = ["(^|[\\s\"'=(;|&,<>{:])" + homeWords].concat(absolutes);
     // 狀態檔名要出現在路徑裡(前面接分隔符)才算；commit 訊息或 sed 樣式裡提到檔名不算
     const mentionsGate = (t) => /\/\.(super-mode-|codex-check-)/.test(t) ||
       homes.some((h) => new RegExp("(" + h + ")" + sub).test(t));
@@ -808,12 +809,22 @@ function isReadOnlyCommand(cmd) {
   //   任何「可能沒有 command 欄位」的工具都不可以直接把空字串餵進來判定，否則等於 fail-open。
 }
 
-function stripHarmlessRedirects(cmd) {
-  return cmd
+// 引號外比完整目標：後面要接斷字字元，>nul.txt、>nul'.txt'、>/dev/nullx 都是別的檔。2>&1、$null 另接
+// PowerShell 腳本區塊的 }(bash 的 >$null} 會寫出 `}`，已知漏判)。引號裡的 > 不是重導向，維持舊的文字比對，
+// grep "2>/dev/nullx" f 才不會變誤擋。引號比對不看跳脫：bash 與 PowerShell 的規則不同，判錯時等同舊版。
+const QUOTED_OR_DISCARD = /'[^']*'|"[^"]*"|[\d*]?>+\s*(?:nul|\/dev\/null)(?=[\s;|&<>()]|$)|(?:2>&1|[\d*]?>+\s*\$null)(?=[\s;|&<>()}]|$)/gi;
+
+// 分四輪才等同舊版：grep ">nul2>&1" f 要先拿掉 2>&1，>nul 才露出來
+function stripQuotedDiscardText(quoted) {
+  return quoted
     .replace(/2>&1/g, " ")
     .replace(/[\d*]?>+\s*\$null/gi, " ")
     .replace(/[\d*]?>+\s*nul\b/gi, " ")
     .replace(/[\d*]?>+\s*\/dev\/null/gi, " ");
+}
+
+function stripHarmlessRedirects(cmd) {
+  return cmd.replace(QUOTED_OR_DISCARD, (m) => (/^['"]/.test(m) ? stripQuotedDiscardText(m) : " "));
 }
 
 // 切成指令段：&& || ; | 換行，以及單一 & (背景作業)，再去掉段首的空白、( 與引號。c 要先剝過重導向，
