@@ -595,7 +595,8 @@ function isSessionOutsideScope(cwd, projectDir, scope, claude) {
 
 // scope 外 session 的 shell/Monitor 字面防呆(啟發式，不是邊界；變數、相對路徑、跳脫空白、路徑中段的大括號都會漏)：
 //  scope：指令提到 scope 路徑(原樣或 canonical，/tmp、/var、/etc 底下另比 /private 拼法，家目錄底下
-//  另比 ~ 拼法；不分大小寫，兩側要接路徑邊界，A-other 不算；路徑帶 * ? [ 時比對展開後會不會命中 scope)。
+//  另比連續字面的 ~/... 拼法，裸 ~、引號拼接、HOME 的 symlink 別名都比不到；不分大小寫，兩側要接
+//  路徑邊界，A-other 不算；路徑帶 * ? [ 時比對展開後會不會命中 scope)。
 //  gateState：提到 gate 自己的狀態檔(.super-mode-*、.codex-check-*)，或「家目錄的」.claude 本身、
 //  其 hooks、settings*、超級模式 skill。家目錄要寫成 ~、$HOME、${HOME} 或絕對路徑；
 //  相對的 .claude/...(專案自己的 settings.json、hooks)不算，免得又卡住無關專案。
@@ -640,15 +641,26 @@ function pathSpellings(p) {
 // 路徑的左邊界：開頭或分隔字元，中間可隔黏著的短旗標(-C/path)。用列舉不用「非路徑名字元」：
 // 多認的多半是文字樣式或訊息(sed 的 ^<scope>)，誤判會要憑證，commit 還會消耗共用的 scope 憑證。
 // `{` 是 {<scope>,/x}，`:` 是 PATH=/x:<scope>、file:<scope>；scp host:<scope>、-v /x:<scope> 因此也算(已知誤擋)。
-const PATH_LEFT_BOUNDARY = /(^|[\s"'`=(;|&,<>{:])(-[a-z]+)?$/;
+const PATH_LEFT_SEPARATOR = /[\s"'`=(;|&,<>{:]/;
+
+// 用索引往左看，不對 hay.slice(0, i) 跑 regex：近似命中多的長指令才不會變平方成本。
+function isPathLeftBoundary(hay, i) {
+  const isEdge = (k) => k === 0 || PATH_LEFT_SEPARATOR.test(hay[k - 1]);
+  if (isEdge(i)) return true;
+  let j = i;
+  while (j > 0 && hay[j - 1] >= "a" && hay[j - 1] <= "z") j--;
+  return j < i && j > 0 && hay[j - 1] === "-" && isEdge(j - 1);
+}
 
 // 兩側都要是路徑邊界。右邊是結尾、子路徑或分隔字元(scopeA-other 不算；`:` 算，例如
 // docker -v <scope>:/app；`{}` 算，例如 {/x,<scope>}/m、<scope>{,.old})。
+// scope 就是家目錄時 needle 是裸 ~：它常是運算子或文字，右邊要接 / 才算。
 function containsBoundedPath(hay, needle) {
   let i = hay.indexOf(needle);
   while (i !== -1) {
     const after = hay.charAt(i + needle.length);
-    if (PATH_LEFT_BOUNDARY.test(hay.slice(0, i)) && (!after || /[\/\s"'`;|&)<>,:{}]/.test(after))) return true;
+    const rightOk = needle === "~" ? after === "/" : !after || /[\/\s"'`;|&)<>,:{}]/.test(after);
+    if (rightOk && isPathLeftBoundary(hay, i)) return true;
     i = hay.indexOf(needle, i + 1);
   }
   return false;
@@ -658,7 +670,7 @@ function containsBoundedPath(hay, needle) {
 function containsGlobPath(hay, target) {
   const want = target.split("/");
   for (const m of hay.matchAll(/~?\/[^\s"'`;|&<>(){},:=]*/g)) {
-    if (!/[*?[]/.test(m[0]) || !PATH_LEFT_BOUNDARY.test(hay.slice(0, m.index))) continue;
+    if (!/[*?[]/.test(m[0]) || !isPathLeftBoundary(hay, m.index)) continue;
     const segs = m[0].split("/");
     if (segs.length >= want.length && want.every((w, i) => globSegmentMatches(segs[i], w))) return true;
   }

@@ -566,8 +566,9 @@ function isSessionOutsideScope(cwd, projectDir, scope, claude) {
 }
 
 // scope 外 session 的 shell/Monitor 字面防呆(啟發式，不是邊界；變數、相對路徑、Git Bash 的 /c/... 形式、路徑中段的大括號都會漏)：
-//  scope：指令提到 scope 路徑(原樣或 canonical，家目錄底下另比 ~ 拼法；斜線不拘、不分大小寫，兩側要接
-//  路徑邊界，A-other 不算；路徑帶 * ? [ 時比對展開後會不會命中 scope)。
+//  scope：指令提到 scope 路徑(原樣或 canonical，家目錄底下另比連續字面的 ~\... 拼法，裸 ~、引號拼接、
+//  HOME 的別名都比不到；斜線不拘、不分大小寫，兩側要接路徑邊界，A-other 不算；路徑帶 * ? [ 時比對
+//  展開後會不會命中 scope)。
 //  gateState：提到 gate 自己的狀態檔(.super-mode-*、.codex-check-*)，或「家目錄的」.claude 本身、
 //  其 hooks、settings*、超級模式 skill。家目錄要寫成 ~、$HOME、$env:USERPROFILE、%USERPROFILE% 或絕對路徑；
 //  相對的 .claude\...(專案自己的 settings.json、hooks)不算，免得又卡住無關專案。
@@ -612,22 +613,31 @@ function pathSpellings(p) {
 // 路徑的左邊界：開頭或分隔字元，中間可隔黏著的短旗標(-CC:\path)或 PowerShell 的 -Path:C:\path。
 // 用列舉不用「非路徑名字元」：多認的多半是文字樣式或訊息，誤判會要憑證，commit 還會消耗共用的 scope 憑證。
 // `{` 是 {<scope>,C:\x}。xc:\scopeA 這類前面還黏著字的不算。
-const PATH_LEFT_BOUNDARY = /(^|[\s"'`=(;|&,<>{])(-[a-z]+:?)?$/;
+const PATH_LEFT_SEPARATOR = /[\s"'`=(;|&,<>{]/;
 
 // 單獨的 `:` 只在目標是磁碟機路徑時才算：/LOG:<scope>、--output:<scope>，以及摺疊後變成 file:\<scope>
 // 的 file:///C:/x。UNC 目標不算：D:\host\share\scope 不是 UNC scope \\host\share\scope。
 // scp host:<scope>、-v C:\x:<scope> 因此也算(已知誤擋，與 macOS 版相同)。
-function isPathLeftBoundary(before, target) {
-  return PATH_LEFT_BOUNDARY.test(before) || (/^[a-z]:/.test(target) && /:\\?$/.test(before));
+// 用索引往左看，不對 hay.slice(0, i) 跑 regex：近似命中多的長指令才不會變平方成本。
+function isPathLeftBoundary(hay, i, target) {
+  const isEdge = (k) => k === 0 || PATH_LEFT_SEPARATOR.test(hay[k - 1]);
+  if (isEdge(i)) return true;
+  if (/^[a-z]:/.test(target) && (hay[i - 1] === ":" || (hay[i - 1] === "\\" && hay[i - 2] === ":"))) return true;
+  const end = hay[i - 1] === ":" ? i - 1 : i;
+  let j = end;
+  while (j > 0 && hay[j - 1] >= "a" && hay[j - 1] <= "z") j--;
+  return j < end && j > 0 && hay[j - 1] === "-" && isEdge(j - 1);
 }
 
 // 兩側都要是路徑邊界。右邊是結尾、子路徑或分隔字元(scopeA-other 不算；`:` 算，例如
 // docker -v <scope>:/app；`{}` 算，例如 {C:\x,<scope>}\m、<scope>{,.old})。
+// scope 就是家目錄時 needle 是裸 ~：它常是運算子或文字，右邊要接 \ 才算。
 function containsBoundedPath(hay, needle) {
   let i = hay.indexOf(needle);
   while (i !== -1) {
     const after = hay.charAt(i + needle.length);
-    if (isPathLeftBoundary(hay.slice(0, i), needle) && (!after || /[\\\s"'`;|&)<>,:{}]/.test(after))) return true;
+    const rightOk = needle === "~" ? after === "\\" : !after || /[\\\s"'`;|&)<>,:{}]/.test(after);
+    if (rightOk && isPathLeftBoundary(hay, i, needle)) return true;
     i = hay.indexOf(needle, i + 1);
   }
   return false;
@@ -637,7 +647,7 @@ function containsBoundedPath(hay, needle) {
 function containsGlobPath(hay, target) {
   const want = target.split("\\");
   for (const m of hay.matchAll(/[a-z]:\\[^\s"'`;|&<>(){},:=]*|~?\\[^\s"'`;|&<>(){},:=]*/g)) {
-    if (!/[*?[]/.test(m[0]) || !isPathLeftBoundary(hay.slice(0, m.index), target)) continue;
+    if (!/[*?[]/.test(m[0]) || !isPathLeftBoundary(hay, m.index, target)) continue;
     const segs = m[0].split("\\");
     if (segs.length >= want.length && want.every((w, i) => globSegmentMatches(segs[i], w))) return true;
   }

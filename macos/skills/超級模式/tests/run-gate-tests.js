@@ -64,6 +64,8 @@ for (const tc of cases) {
     }
 
     const input = replacePlaceholders(tc.input, replacements);
+    // 長指令案例：command 後接 unit 重複 times 次，JSON 不必放幾百 KB 字面值
+    if (tc.commandRepeat) input.tool_input.command += tc.commandRepeat.unit.repeat(tc.commandRepeat.times);
     // 一律傳物件：projectDir 每案明確給(預設空字串)，不讓 hook 讀到跑測試那個 session 的
     // CLAUDE_PROJECT_DIR；MCP policy 同樣走第二參數注入。
     const testOpts = {
