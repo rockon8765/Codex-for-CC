@@ -270,10 +270,10 @@ function decide(input, testOpts) {
       gated = true;
       consuming = CONSUMING.some((re) => re.test(cmd));
       category = consuming ? "Monitor(收尾動作，會消耗憑證)" : "Monitor(破壞性指令)";
-    } else if (!isReadOnlyCommand(cmd)) {
+    } else if (!isReadOnlyCommand(cmd, tool)) {
       gated = true; // default-deny，與 Bash 分支同一條線
       category = "Monitor(非唯讀指令)";
-    } else if (isRunnerTouchingSensitive(cmd, claude)) {
+    } else if (isRunnerTouchingSensitive(cmd, claude, tool)) {
       gated = true;
       category = "Monitor(runner 涉及暫存/設定路徑)";
     } else {
@@ -294,7 +294,7 @@ function decide(input, testOpts) {
     // 落回下方 default-deny/破壞性判定(需憑證)。可疑 cwd(含 ..)不吃此捷徑。
     // 唯讀 runner 碰到暫存/~/.claude 路徑也不吃：落回下方 runner 檢查，與 Monitor 同一判準。
     // (operand/git -C 綁定屬 P0.4，此處不解析 operand。)
-    if (!isDangerousPath(cwd) && scope && !isUnder(cwd, scope) && isReadOnlyCommand(cmd) && !isRunnerTouchingSensitive(cmd, claude)) return { allow: true };
+    if (!isDangerousPath(cwd) && scope && !isUnder(cwd, scope) && isReadOnlyCommand(cmd, tool) && !isRunnerTouchingSensitive(cmd, claude, tool)) return { allow: true };
     actionPath = cwd;
 
     // 唯讀諮詢/查版/開關腳本：錨定開頭 + 參數尾巴無串接/替換/破壞性字樣才放行
@@ -310,11 +310,11 @@ function decide(input, testOpts) {
       gated = true;
       consuming = CONSUMING.some((re) => re.test(cmd));
       category = consuming ? "收尾動作(會消耗憑證)" : "破壞性指令";
-    } else if (isReadOnlyCommand(cmd)) {
+    } else if (isReadOnlyCommand(cmd, tool)) {
       // runner 否決：測試/lint runner 一旦指向暫存或 ~/.claude 路徑，可執行先前寫入
       // 豁免區的 conftest.py/package.json 等 → 任意程式碼執行繞過。故一律要憑證。
       // "/tmp" 子字串會誤含 /Users/x/proj/tmp/ —— 故意的保守誤擋（只多要一次憑證），勿優化掉。
-      if (isRunnerTouchingSensitive(cmd, claude)) {
+      if (isRunnerTouchingSensitive(cmd, claude, tool)) {
         gated = true; category = "runner 涉及暫存/設定路徑";
       } else {
         return { allow: true };
@@ -613,8 +613,9 @@ function mentionsGuardedPath(cmd, scope, claude) {
     const homeWords = "(~|\\$home|\\$\\{home\\})[\"']?/\\.claude";
     const absolutes = [claude, canonicalize(claude).path].filter(Boolean)
       .map((c) => norm(c).replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
-    // `:` 是 --output:$HOME/...、/LOG:$HOME/...；scp host:~/.claude/settings.json、PATH 列因此也算(已知誤擋)
-    const homes = ["(^|[\\s\"'=(;|&,<>{:])" + homeWords].concat(absolutes);
+    // `:` 是 --output:$HOME/...、/LOG:$HOME/...；scp host:~/.claude/settings.json、PATH 列因此也算(已知誤擋)。
+    // 黏著短旗標只認 $HOME：-o$HOME 由 shell 展開，-o~ 不展開，指不指向家目錄看工具。
+    const homes = ["(^|[\\s\"'`=(;|&,<>{:])(-[a-z]+(?=\\$))?" + homeWords].concat(absolutes);
     // 狀態檔名要出現在路徑裡(前面接分隔符)才算；commit 訊息或 sed 樣式裡提到檔名不算
     const mentionsGate = (t) => /\/\.(super-mode-|codex-check-)/.test(t) ||
       homes.some((h) => new RegExp("(" + h + ")" + sub).test(t));
@@ -798,33 +799,39 @@ function isExemptPath(fp, claude) {
   return p.startsWith(c + "/") || tmpRoots.some((r) => p.startsWith(r + "/"));
 }
 
-function isReadOnlyCommand(cmd) {
+function isReadOnlyCommand(cmd, tool) {
   // 命令/程序替換 = 可跑任意程式 → 一律不算唯讀（$(...)、反引號、<(...)、>(...)）
   if (/\$\(|`|<\(|>\(/.test(cmd)) return false;
   // 先剝掉無害的重導向，再檢查殘留的 > (寫檔) 就不算唯讀
-  const c = stripHarmlessRedirects(cmd);
+  const c = stripHarmlessRedirects(cmd, tool);
   if (/>/.test(c)) return false;
   return commandSegments(c).every((t) => !t || READONLY_SEG.some((re) => re.test(t)));
   // ⚠ 注意：isReadOnlyCommand("") === true（空字串沒有任何 segment 可否決）。
   //   任何「可能沒有 command 欄位」的工具都不可以直接把空字串餵進來判定，否則等於 fail-open。
 }
 
-// 引號外比完整目標：後面要接斷字字元，>nul.txt、>nul'.txt'、>/dev/nullx 都是別的檔。2>&1、$null 另接
-// PowerShell 腳本區塊的 }(bash 的 >$null} 會寫出 `}`，已知漏判)。引號裡的 > 不是重導向，維持舊的文字比對，
-// grep "2>/dev/nullx" f 才不會變誤擋。引號比對不看跳脫：bash 與 PowerShell 的規則不同，判錯時等同舊版。
-const QUOTED_OR_DISCARD = /'[^']*'|"[^"]*"|[\d*]?>+\s*(?:nul|\/dev\/null)(?=[\s;|&<>()]|$)|(?:2>&1|[\d*]?>+\s*\$null)(?=[\s;|&<>()}]|$)/gi;
+// 引號外比完整目標：後面要接斷字字元，>/dev/nullx、>/dev/null'x'、>$nullx 都是別的檔。macOS 沒有 NUL 裝置，
+// >nul 在 bash、zsh 都會寫出 nul 檔，不算丟棄。2>&1、$null 另接 PowerShell 腳本區塊的 }。引號裡的 > 不是
+// 重導向，維持舊的文字比對(含 nul)，grep "2>nul" f 才不會變誤擋。引號比對不看跳脫：bash 與 PowerShell 的
+// 規則不同，判錯時等同舊版。(?<!>) 讓比對只從一串 > 的開頭起算，連續 > 才不會變平方成本。
+const QUOTED_OR_DISCARD = /'[^']*'|"[^"]*"|[\d*]?(?<!>)>+\s*\/dev\/null(?=[\s;|&<>()]|$)|(?:2>&1|[\d*]?(?<!>)>+\s*\$null)(?=[\s;|&<>()}]|$)/gi;
 
 // 分四輪才等同舊版：grep ">nul2>&1" f 要先拿掉 2>&1，>nul 才露出來
 function stripQuotedDiscardText(quoted) {
   return quoted
     .replace(/2>&1/g, " ")
-    .replace(/[\d*]?>+\s*\$null/gi, " ")
-    .replace(/[\d*]?>+\s*nul\b/gi, " ")
-    .replace(/[\d*]?>+\s*\/dev\/null/gi, " ");
+    .replace(/[\d*]?(?<!>)>+\s*\$null/gi, " ")
+    .replace(/[\d*]?(?<!>)>+\s*nul\b/gi, " ")
+    .replace(/[\d*]?(?<!>)>+\s*\/dev\/null/gi, " ");
 }
 
-function stripHarmlessRedirects(cmd) {
-  return cmd.replace(QUOTED_OR_DISCARD, (m) => (/^['"]/.test(m) ? stripQuotedDiscardText(m) : " "));
+// >$null}、2>&1} 的 } 只有 PowerShell 是腳本區塊結尾。Bash 與 Monitor(走 bash)沒有這種語法，bash 會寫出 } 檔。
+// 看工具不數大括號：{、} 可能在註解或引數裡，文字本身分不出來。
+function stripHarmlessRedirects(cmd, tool) {
+  return cmd.replace(QUOTED_OR_DISCARD, (m, at) => {
+    if (/^['"]/.test(m)) return stripQuotedDiscardText(m);
+    return cmd[at + m.length] === "}" && tool !== "PowerShell" ? m : " ";
+  });
 }
 
 // 切成指令段：&& || ; | 換行，以及單一 & (背景作業)，再去掉段首的空白、( 與引號。c 要先剝過重導向，
@@ -836,9 +843,9 @@ function commandSegments(c) {
 // 唯讀 runner(pytest/npm/node…)若指向暫存或 ~/.claude 路徑，仍要憑證：堵「先把 conftest.py /
 // package.json 寫進豁免區，再用唯讀 runner 執行它」的繞過。Bash 與 Monitor 共用同一份判準，
 // 避免兩套規則漂移。
-function isRunnerTouchingSensitive(cmd, claudeDir) {
+function isRunnerTouchingSensitive(cmd, claudeDir, tool) {
   const RUNNER_RE = /^\S*(pytest|npm|pnpm|yarn|cargo|go|dotnet|eslint|ruff|prettier|tsc|node|python3?)(\.exe)?\b/i;
-  if (!commandSegments(stripHarmlessRedirects(cmd)).some((t) => RUNNER_RE.test(t))) return false;
+  if (!commandSegments(stripHarmlessRedirects(cmd, tool)).some((t) => RUNNER_RE.test(t))) return false;
   const low = String(cmd).toLowerCase().replace(/\\/g, "/").replace(/\/private\/(tmp|var|etc)\//g, "/$1/");
   const HITS = [norm(os.tmpdir()), norm(claudeDir), "/tmp", "~/.claude"];
   return HITS.some((h) => low.includes(h));
