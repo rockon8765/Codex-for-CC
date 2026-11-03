@@ -262,10 +262,10 @@ function decide(input, testOpts) {
       gated = true;
       consuming = CONSUMING.some((re) => re.test(cmd));
       category = consuming ? "Monitor(收尾動作，會消耗憑證)" : "Monitor(破壞性指令)";
-    } else if (!isReadOnlyCommand(cmd)) {
+    } else if (!isReadOnlyCommand(cmd, tool)) {
       gated = true; // default-deny，與 Bash 分支同一條線
       category = "Monitor(非唯讀指令)";
-    } else if (isRunnerTouchingSensitive(cmd, claude)) {
+    } else if (isRunnerTouchingSensitive(cmd, claude, tool)) {
       gated = true;
       category = "Monitor(runner 涉及暫存/設定路徑)";
     } else {
@@ -286,7 +286,7 @@ function decide(input, testOpts) {
     // 落回下方 default-deny/破壞性判定(需憑證)。可疑 cwd(含 ..)不吃此捷徑。
     // 唯讀 runner 碰到暫存/~/.claude 路徑也不吃：落回下方 runner 檢查，與 Monitor 同一判準。
     // (operand/git -C 綁定屬 P0.4，此處不解析 operand。)
-    if (!isDangerousPath(cwd) && scope && !isUnder(cwd, scope) && isReadOnlyCommand(cmd) && !isRunnerTouchingSensitive(cmd, claude)) return { allow: true };
+    if (!isDangerousPath(cwd) && scope && !isUnder(cwd, scope) && isReadOnlyCommand(cmd, tool) && !isRunnerTouchingSensitive(cmd, claude, tool)) return { allow: true };
     actionPath = cwd;
 
     // 唯讀諮詢/查版/開關腳本：錨定開頭 + 參數尾巴無串接/替換/破壞性字樣才放行
@@ -302,8 +302,8 @@ function decide(input, testOpts) {
       gated = true;
       consuming = CONSUMING.some((re) => re.test(cmd));
       category = consuming ? "收尾動作(會消耗憑證)" : "破壞性指令";
-    } else if (isReadOnlyCommand(cmd)) {
-      if (isRunnerTouchingSensitive(cmd, claude)) {
+    } else if (isReadOnlyCommand(cmd, tool)) {
+      if (isRunnerTouchingSensitive(cmd, claude, tool)) {
         gated = true; category = "runner 涉及暫存/設定路徑";
       } else {
         return { allow: true };
@@ -588,7 +588,7 @@ function mentionsGuardedPath(cmd, scope, claude) {
     const absolutes = [claude, canonicalize(claude).path].filter(Boolean)
       .map((c) => collapse(norm(c)).replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
     // `:` 是 --output:$HOME\...、/LOG:$env:USERPROFILE\...；scp host:~/.claude/settings.json、PATH 列因此也算(已知誤擋)
-    const homes = ["(^|[\\s\"'=(;|&,<>{:])(-[a-z]+:?)?" + homeWords].concat(absolutes);
+    const homes = ["(^|[\\s\"'`=(;|&,<>{:])(-[a-z]+:?)?" + homeWords].concat(absolutes);
     // 狀態檔名要出現在路徑裡(前面接分隔符)才算；commit 訊息或 sed 樣式裡提到檔名不算
     const mentionsGate = (t) => /\\\.(super-mode-|codex-check-)/.test(t) ||
       homes.some((h) => new RegExp("(" + h + ")" + sub).test(t));
@@ -617,17 +617,22 @@ function pathSpellings(p) {
 const PATH_LEFT_SEPARATOR = /[\s"'`=(;|&,<>{]/;
 
 // 單獨的 `:` 只在目標是磁碟機路徑時才算：/LOG:<scope>、--output:<scope>，以及摺疊後變成 file:\<scope>
-// 的 file:///C:/x。UNC 目標不算：D:\host\share\scope 不是 UNC scope \\host\share\scope。
-// scp host:<scope>、-v C:\x:<scope> 因此也算(已知誤擋，與 macOS 版相同)。
+// 的 file:///C:/x。scp host:<scope>、-v C:\x:<scope> 因此也算(已知誤擋，與 macOS 版相同)。
+// UNC、~ 目標前的 `:` 要是旗標結尾(-Path:、--output:、/LOG:，hay 的 / 已換成 \)：D:\host\share\scope 不是
+// UNC scope \\host\share\scope。
 // 用索引往左看，不對 hay.slice(0, i) 跑 regex：近似命中多的長指令才不會變平方成本。
 function isPathLeftBoundary(hay, i, target) {
   const isEdge = (k) => k === 0 || PATH_LEFT_SEPARATOR.test(hay[k - 1]);
   if (isEdge(i)) return true;
   if (/^[a-z]:/.test(target) && (hay[i - 1] === ":" || (hay[i - 1] === "\\" && hay[i - 2] === ":"))) return true;
-  const end = hay[i - 1] === ":" ? i - 1 : i;
-  let j = end;
+  if (hay[i - 1] === ":") {
+    let k = i - 1;
+    while (k > 0 && (hay[k - 1] === "-" || (hay[k - 1] >= "a" && hay[k - 1] <= "z"))) k--;
+    return hay[k] === "-" ? /[a-z]/.test(hay.slice(k, i - 1)) && isEdge(k) : k < i - 1 && hay[k - 1] === "\\" && isEdge(k - 1);
+  }
+  let j = i;
   while (j > 0 && hay[j - 1] >= "a" && hay[j - 1] <= "z") j--;
-  return j < end && j > 0 && hay[j - 1] === "-" && isEdge(j - 1);
+  return j < i && j > 0 && hay[j - 1] === "-" && isEdge(j - 1);
 }
 
 // 兩側都要是路徑邊界。右邊是結尾、子路徑或分隔字元(scopeA-other 不算；`:` 算，例如
@@ -821,11 +826,11 @@ function isExemptPath(fp, claude) {
   return p.startsWith(c + "\\") || underTmp;
 }
 
-function isReadOnlyCommand(cmd) {
+function isReadOnlyCommand(cmd, tool) {
   // 命令/程序替換 = 可跑任意程式 → 一律不算唯讀（$(...)、反引號、<(...)、>(...)）
   if (/\$\(|`|<\(|>\(/.test(cmd)) return false;
   // 先剝掉無害的重導向，再檢查殘留的 > (寫檔) 就不算唯讀
-  const c = stripHarmlessRedirects(cmd);
+  const c = stripHarmlessRedirects(cmd, tool);
   if (/>/.test(c)) return false;
   return commandSegments(c).every((t) => !t || READONLY_SEG.some((re) => re.test(t)));
   // ⚠ 注意：isReadOnlyCommand("") === true（空字串沒有任何 segment 可否決）。
@@ -833,21 +838,27 @@ function isReadOnlyCommand(cmd) {
 }
 
 // 引號外比完整目標：後面要接斷字字元，>nul.txt、>nul'.txt'、>/dev/nullx 都是別的檔。2>&1、$null 另接
-// PowerShell 腳本區塊的 }(bash 的 >$null} 會寫出 `}`，已知漏判)。引號裡的 > 不是重導向，維持舊的文字比對，
-// grep "2>/dev/nullx" f 才不會變誤擋。引號比對不看跳脫：bash 與 PowerShell 的規則不同，判錯時等同舊版。
-const QUOTED_OR_DISCARD = /'[^']*'|"[^"]*"|[\d*]?>+\s*(?:nul|\/dev\/null)(?=[\s;|&<>()]|$)|(?:2>&1|[\d*]?>+\s*\$null)(?=[\s;|&<>()}]|$)/gi;
+// PowerShell 腳本區塊的 }。引號裡的 > 不是重導向，維持舊的文字比對，grep "2>/dev/nullx" f 才不會變誤擋。
+// 引號比對不看跳脫：bash 與 PowerShell 的規則不同，判錯時等同舊版。
+// (?<!>) 讓比對只從一串 > 的開頭起算，連續 > 才不會變平方成本。
+const QUOTED_OR_DISCARD = /'[^']*'|"[^"]*"|[\d*]?(?<!>)>+\s*(?:nul|\/dev\/null)(?=[\s;|&<>()]|$)|(?:2>&1|[\d*]?(?<!>)>+\s*\$null)(?=[\s;|&<>()}]|$)/gi;
 
 // 分四輪才等同舊版：grep ">nul2>&1" f 要先拿掉 2>&1，>nul 才露出來
 function stripQuotedDiscardText(quoted) {
   return quoted
     .replace(/2>&1/g, " ")
-    .replace(/[\d*]?>+\s*\$null/gi, " ")
-    .replace(/[\d*]?>+\s*nul\b/gi, " ")
-    .replace(/[\d*]?>+\s*\/dev\/null/gi, " ");
+    .replace(/[\d*]?(?<!>)>+\s*\$null/gi, " ")
+    .replace(/[\d*]?(?<!>)>+\s*nul\b/gi, " ")
+    .replace(/[\d*]?(?<!>)>+\s*\/dev\/null/gi, " ");
 }
 
-function stripHarmlessRedirects(cmd) {
-  return cmd.replace(QUOTED_OR_DISCARD, (m) => (/^['"]/.test(m) ? stripQuotedDiscardText(m) : " "));
+// >$null}、2>&1} 的 } 只有 PowerShell 是腳本區塊結尾。Bash 與 Monitor(走 Git Bash)沒有這種語法，bash 會寫出 } 檔。
+// 看工具不數大括號：{、} 可能在註解或引數裡，文字本身分不出來。
+function stripHarmlessRedirects(cmd, tool) {
+  return cmd.replace(QUOTED_OR_DISCARD, (m, at) => {
+    if (/^['"]/.test(m)) return stripQuotedDiscardText(m);
+    return cmd[at + m.length] === "}" && tool !== "PowerShell" ? m : " ";
+  });
 }
 
 // 切成指令段：&& || ; | 換行，以及單一 & (背景作業)，再去掉段首的空白、( 與引號。c 要先剝過重導向，
@@ -859,9 +870,9 @@ function commandSegments(c) {
 // 唯讀 runner(pytest/npm/node…)若指向暫存或 ~/.claude 路徑，仍要憑證：堵「先把 conftest.py /
 // package.json 寫進豁免區，再用唯讀 runner 執行它」的繞過。Bash/PowerShell 與 Monitor 共用同一
 // 份判準，避免兩套規則漂移。
-function isRunnerTouchingSensitive(cmd, claudeDir) {
+function isRunnerTouchingSensitive(cmd, claudeDir, tool) {
   const RUNNER_RE = /^\S*(pytest|npm|pnpm|yarn|cargo|go|dotnet|eslint|ruff|prettier|tsc|node|python3?)(\.exe)?\b/i;
-  if (!commandSegments(stripHarmlessRedirects(cmd)).some((t) => RUNNER_RE.test(t))) return false;
+  if (!commandSegments(stripHarmlessRedirects(cmd, tool)).some((t) => RUNNER_RE.test(t))) return false;
   const low = String(cmd).replace(/\//g, "\\").toLowerCase();
   return low.includes(norm(os.tmpdir())) || low.includes(norm(claudeDir));
 }
