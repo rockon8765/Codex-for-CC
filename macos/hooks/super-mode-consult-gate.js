@@ -436,7 +436,9 @@ function decide(input, testOpts) {
       "①用 Write 工具把諮詢簡報寫進 scratchpad(豁免路徑，別用 shell 寫)。" + VERDICT_HINT + " " +
       "②用 Bash 工具(timeout 設 360000ms)跑 " +
       "~/.claude/skills/超級模式/scripts/codex-consult.sh -d <repo> -f <brief>(一律 -f) " +
-      "③成功後重試此動作。若超級模式其實已結束，跑 scripts/super-mode.sh off 解除。" +
+      // 不能只寫「成功後重試」：BLOCK 也是合格回覆、也會鑄證（憑證是諮詢收據，hook 不讀裁決）。
+      "③先讀諮詢回覆首行的裁決：ALLOW 才重試此動作；BLOCK 就停手、向使用者回報，不要重試(BLOCK 也會鑄造憑證——憑證是諮詢收據，不是動作授權)。" +
+      "若超級模式其實已結束，跑 scripts/super-mode.sh off 解除。" +
       "（連續諮詢失敗 ≥2 次、或看到 CONSULT_UNAVAILABLE_QUOTA，請直接向使用者回報，勿再重試。）",
   };
   } catch (e) {

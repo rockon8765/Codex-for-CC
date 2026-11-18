@@ -97,7 +97,7 @@ SKILL.md 的 §2 / §3 / §3.5 / §5 的詳細範本與程序。用到才讀。
 > 上列改寫自 plugin 的條文都**已修改**（中譯、濃縮、改寫），不是上游原文；授權全文見 repo 根目錄 [`LICENSE`](https://github.com/rockon8765/Codex-for-CC/blob/main/LICENSE)，上游歸屬見 [`NOTICE`](https://github.com/rockon8765/Codex-for-CC/blob/main/NOTICE)，逐檔修改說明見 [`THIRD_PARTY_NOTICES.md`](https://github.com/rockon8765/Codex-for-CC/blob/main/THIRD_PARTY_NOTICES.md)。兩份 OpenAI 指南頁面未見開放授權聲明，相關字句與概念不在本 repo 授權範圍內，來源列在 `THIRD_PARTY_NOTICES.md` 的非開源引文段。
 
 派工方式（擇一）：
-1. **Codex CLI 可用** → 先確認有 20 分鐘內諮詢憑證（exec 受 gate 攔，沒憑證會被擋）。用 Write 工具把簡報寫進 scratchpad（gate 豁免路徑），用 Bash 工具跑 `scripts/codex-exec.sh -d <repo> -f <brief> -q`，**一律 `run_in_background: true`**（重任務常超過前景時限）。逐字稿存 `~/.claude/super-mode-logs/codex_exec_<ts>.txt`，最終回覆落地 `codex_exec_<ts>_last.txt`（`--output-last-message`，`-o` 可改位置；`-s <schema.json>` 可讓最終回覆符合固定 JSON schema、好機器驗收）。**收工後 Claude 只讀 `_last.txt` + `git diff` 審查**；逐字稿只在退回重做 / 除錯時抽段讀。
+1. **Codex CLI 可用** → 先確認有 20 分鐘內諮詢憑證（exec 受 gate 攔，沒憑證會被擋）。用 Write 工具把簡報寫進 scratchpad（gate 豁免路徑），用 Bash 工具跑 `scripts/codex-exec.sh -d <repo> -f <brief> -q`，**一律 `run_in_background: true`**（重任務常超過前景時限）。逐字稿存 `~/.claude/super-mode-logs/codex_exec_<ts>.txt`，最終回覆落地 `codex_exec_<ts>_last.txt`（`--output-last-message`，`-o` 可另存一份；`-s <schema.json>` 可讓最終回覆符合固定 JSON schema、好機器驗收）。**收工後 Claude 只讀 `_last.txt` + `git diff` 審查**；逐字稿只在退回重做 / 除錯時抽段讀。
 2. **無 CLI** → 把簡報輸出給使用者，貼到 Codex 執行。
 
 ### 派工前置 — 確認 Codex 版本與能力面

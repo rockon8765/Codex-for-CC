@@ -6,6 +6,7 @@
                         -Scope 必須是存在的磁碟機目錄，其他值一律拒收、不啟用。
     -Off                退出：清掉旗標與諮詢憑證，順手清舊逐字稿（範圍見 .NOTES）。收尾時**必跑**。
     (無參數)            查目前狀態。
+    其他組合（-On -Off 同傳、-Scope 沒搭配 -On、多餘引數）一律 exit 2，而且不動旗標與憑證。
 .NOTES
   旗標：~/.claude/.super-mode-active（第一行 = Scope 路徑或空；mtime = 啟用時間）。
   憑證：~/.claude/.super-mode-consult-ok（由 codex-consult.ps1 寫）。
@@ -18,6 +19,24 @@ param([switch]$On, [switch]$Off, [string]$Scope)
 $claude = Join-Path $env:USERPROFILE ".claude"
 $flag   = Join-Path $claude ".super-mode-active"
 $token  = Join-Path $claude ".super-mode-consult-ok"
+
+# 參數錯誤：一律在改動任何狀態之前拒絕（2026-11-18；macOS super-mode.sh 同一組檢查的平台翻譯）。
+# ⚠️ 旗標與憑證是全機單一檔，打錯的指令若照做會波及其他 session：`-On -Off` 同傳曾經走 -On
+#    （沒帶 -Scope 還會變成全域強制）、`-Off -Scope <dir>` 曾經忽略 -Scope 照常關掉全機模式。
+# 本腳本沒有 [CmdletBinding()]：綁不上的多餘引數落在 $args；單一多餘引數會依位置綁到 -Scope，
+# 沒帶 -On 時由第三條攔下，帶了 -On 就走下面 -Scope 的既有驗證。
+# ⚠️ 用 [Console]::Error 不用 Write-Error：呼叫端的 preference 若是 Stop，Write-Error 會變終止性例外，退出碼就不是 2。
+$usageError = $null
+if ($args.Count -gt 0) { $usageError = '不認得的參數: ' + ($args -join ' ') }
+elseif ($On -and $Off) { $usageError = '-On 與 -Off 不能同時給' }
+elseif ($PSBoundParameters.ContainsKey('Scope') -and -not $On) {
+  $usageError = '-Scope 只能搭配 -On（-Off 一律清掉全機的旗標與憑證，沒有 scope；查狀態不帶參數）'
+}
+if ($usageError) {
+  [Console]::Error.WriteLine('super-mode.ps1: ' + $usageError)
+  [Console]::Error.WriteLine('usage: super-mode.ps1 [-On [-Scope <dir>]] | [-Off] | (no args = status)')
+  exit 2
+}
 
 if ($On) {
   $content = ""

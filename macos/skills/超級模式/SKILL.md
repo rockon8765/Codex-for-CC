@@ -7,7 +7,7 @@ description: 重型工程協作工作流的「明確開關」——spec-first �
 
 重型工程協作：Claude 規劃指揮 (orchestrator)、Codex CLI 執行 (worker)，全程以 md 規格當合約。
 
-> ⚠️ **consult-gate 的定位**：它是「諮詢紀律提醒」——幫你（合作的 Claude）動手前先諮詢、少漏流程，**不是安全邊界**。它 fail-open、可被 `super-mode.sh off` 關掉（2026-09-23 事實訂正：原誤用 Windows 關閉旗標；POSIX 腳本會將它當成查詢狀態，不會關閉）、也不攔 test runner／某些 shell·MCP 的子程序副作用。要圍堵蓄意繞過或被 prompt-injection 挾持的 agent，得靠 OS sandbox + Claude permission，不是靠這道 gate。（2026-10-17 事實訂正：Claude Code 2.1.287 起 Claude Mods 預設開啟。使用者自裝、處理 `tool.check` 的 mod 可以把這道 gate（非 managed settings 的 PreToolUse hook）的拒絕改判為核准；`tool.call` 中介的 mod 若不呼叫 `next`，gate 根本不會被叫起。只有裝在 managed settings 的 hook 是最終決定。）
+> ⚠️ **consult-gate 的定位**：它是「諮詢紀律提醒」——幫你（合作的 Claude）動手前先諮詢、少漏流程，**不是安全邊界**。它 fail-open、可被 `super-mode.sh off` 關掉（2026-09-23 事實訂正：原誤用 Windows 關閉旗標；POSIX 腳本不認得它，不會關閉——2026-11-18 起以 exit 2 拒絕，先前是當成查詢狀態）、也不攔 test runner／某些 shell·MCP 的子程序副作用。要圍堵蓄意繞過或被 prompt-injection 挾持的 agent，得靠 OS sandbox + Claude permission，不是靠這道 gate。（2026-10-17 事實訂正：Claude Code 2.1.287 起 Claude Mods 預設開啟。使用者自裝、處理 `tool.check` 的 mod 可以把這道 gate（非 managed settings 的 PreToolUse hook）的拒絕改判為核准；`tool.call` 中介的 mod 若不呼叫 `next`，gate 根本不會被叫起。只有裝在 managed settings 的 hook 是最終決定。）
 
 **通過 §0 閘門後宣告一句：**
 > 「已進入超級模式 — 本次採 spec-first → 指揮 Codex → 里程碑回寫 md。」

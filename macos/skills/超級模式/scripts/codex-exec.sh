@@ -6,7 +6,9 @@
 #   codex-exec.sh -d <dir> -p "<brief>"   (DEPRECATED stage 1: warns, still runs;
 #                                          -p together with -f is now a hard error)
 #   -q  quiet: stdout 只印一行摘要（配 run_in_background 派工建議一律帶）
-#   -o  最終回覆落地路徑(--output-last-message)；預設 ~/.claude/super-mode-logs/codex_exec_<ts>_last.txt
+#   -o  最終回覆另存一份到這個路徑。codex 一律先寫本次專屬的
+#       ~/.claude/super-mode-logs/codex_exec_<ts>_last.txt（--output-last-message），確認有內容才複製過去。
+#   codex 回 0 但沒有本次最終回覆 → exit 46 + EXEC_LAST_MESSAGE_MISSING；複製到 -o 失敗 → exit 46 + EXEC_OUTFILE_FAILED。
 #   -s  JSON schema 檔路徑(--output-schema, opt-in)：讓最終回覆符合固定結構、好機器驗收
 # 派工一律 run_in_background:true（重任務常超過前景時限）。gate 不無條件放行本腳本(I4)。
 set -euo pipefail
@@ -33,6 +35,14 @@ elif [ -n "$prompt" ]; then
   echo "[DEPRECATED] -p/--prompt(inline) 將於未來版本改為錯誤。inline 簡報含 ; | & 等標點會被 consult-gate 的指令解析誤判成串接指令而擋下。請改用 -f <brief-file>：簡報寫進 scratchpad(gate 豁免路徑)再傳路徑。" >&2
 else echo "need -f <brief-file> (preferred) or -p (deprecated)" >&2; exit 2; fi
 [ -n "${p//[[:space:]]/}" ] || { echo "brief is empty" >&2; exit 2; }
+
+# -o：目標在呼叫 codex **之前**就驗（2026-11-18）。等派工跑完才發現寫不進去，worker 已經改完檔了。
+# 相對路徑以呼叫端的 cwd 解析（交付由本腳本做，不再交給 codex 配合 -C 解讀）。
+if [ -n "$outfile" ]; then
+  [ ! -d "$outfile" ] || { echo "-o 必須是檔案路徑，這是目錄: ${outfile}" >&2; exit 2; }
+  out_dir="$(dirname "$outfile")"
+  [ -d "$out_dir" ] || { echo "-o 的目錄不存在: ${out_dir}" >&2; exit 2; }
+fi
 
 # -s：轉絕對路徑(-C 會換工作根) + 啟動 codex 前先驗 JSON 可解析(fail-fast)
 schema_args=()
@@ -93,7 +103,13 @@ transcript_note() {
     printf ' 逐字稿不完整（%s）。' "$transcript_error"
   fi
 }
-out="${outfile:-$logdir/codex_exec_${stamp}_last.txt}"
+# 本次專屬的最終回覆檔：codex 一律寫這裡（檔名帶本次 stamp，不可能是舊檔），確認有內容後才交付到 -o。
+# ⚠️ 不讓 codex 直接寫 -o（2026-11-18）：-o 指到既有檔而 codex 這次沒寫時，舊內容會被當成本次結果。
+last_run="$logdir/codex_exec_${stamp}_last.txt"
+out="${outfile:-$last_run}"
+has_text() {  # has_text <file>：檔案存在且含非空白字元
+  [ -f "$1" ] && grep -q '[^[:space:]]' "$1" 2>/dev/null
+}
 # ⚠️ mktemp 失敗屬「逐字稿/輸入不可用」，走 46；原本在 set -e 之下是靜默 rc 1。
 mk_or_46() {  # mk_or_46 <label> <template>
   _t="$(mktemp "$2" 2>/dev/null)" || {
@@ -119,7 +135,7 @@ if [ "$quiet" = "1" ]; then
   codex exec --sandbox workspace-write --disable remote_plugin --skip-git-repo-check \
     -c memories.use_memories=false -c memories.generate_memories=false \
     ${root_args[@]+"${root_args[@]}"} -C "$dir" \
-    ${schema_args[@]+"${schema_args[@]}"} --output-last-message "$out" \
+    ${schema_args[@]+"${schema_args[@]}"} --output-last-message "$last_run" \
     < "$brief_tmp" 2> "$err_tmp" | tee -a "$log" > /dev/null
   # ⚠️ quiet 分支原本是 `>> "$log"` 直送：log 開檔/寫入失敗時，失敗會**冒充成 codex 的
   #    退出碼**（甚至 codex 根本沒被啟動），而且不保證 drain —— 與非 quiet 分支不等價。
@@ -133,7 +149,7 @@ else
   codex exec --sandbox workspace-write --disable remote_plugin --skip-git-repo-check \
     -c memories.use_memories=false -c memories.generate_memories=false \
     ${root_args[@]+"${root_args[@]}"} -C "$dir" \
-    ${schema_args[@]+"${schema_args[@]}"} --output-last-message "$out" \
+    ${schema_args[@]+"${schema_args[@]}"} --output-last-message "$last_run" \
     < "$brief_tmp" 2> "$err_tmp" | tee -a "$log"
   # ⚠️ 同一語句整包複製 PIPESTATUS —— 賦值本身會重設它（見 codex-consult.sh 同段註解）。
   pipe_rc=("${PIPESTATUS[@]}")
@@ -165,14 +181,47 @@ fi
 #    （2026-08-19 Codex 第七輪抓到。）
 rm -f "$brief_tmp" "$err_tmp" || true
 
+# 本次最終回覆：有內容才算數；有 -o 就交付過去。
+# ⚠️ 這一段在擷取 code 之後、裁決之前：一律用 `if` 包，不得有可以中止的裸指令（理由見上方 rm 的註解）。
+last_ok=0
+if has_text "$last_run"; then last_ok=1; fi
+deliver_err=""
+if [ "$last_ok" -eq 1 ] && [ -n "$outfile" ]; then
+  if deliver_err="$(cp -f -- "$last_run" "$outfile" 2>&1)"; then
+    deliver_err=""
+  elif [ -z "$deliver_err" ]; then
+    deliver_err="cp 失敗（無訊息）"
+  fi
+fi
+# 錯誤訊息裡的「本次最終回覆在哪」：只指向確實是本次產物的檔，免得主線去讀不存在的檔或 -o 的舊檔。
+if [ "$last_ok" -ne 1 ]; then
+  last_note="（本次沒有產生）"
+elif [ -n "$deliver_err" ]; then
+  last_note="${last_run}（寫不進 -o 目標 ${outfile}）"
+else
+  last_note="$out"
+fi
+
 if [ "$code" -eq 0 ]; then
   # codex 成功但逐字稿寫壞 → 不得回報成功：派工的逐字稿是後續驗收的唯一依據。
   if [ -n "$transcript_error" ]; then
-    echo "EXEC_TRANSCRIPT_FAILED: codex 成功 (exit 0)，但逐字稿寫入失敗 -- $transcript_error transcript(可能不完整): $log ; last message: $out" >&2
+    echo "EXEC_TRANSCRIPT_FAILED: codex 成功 (exit 0)，但逐字稿寫入失敗 -- $transcript_error transcript(可能不完整): $log ; last message: ${last_note}" >&2
+    exit 46
+  fi
+  # codex 成功但沒有本次的最終回覆 → 不得回報成功：主線收工後只讀它與 git diff，缺件等於沒有驗收材料。
+  if [ "$last_ok" -ne 1 ]; then
+    stale_note=""
+    if [ -n "$outfile" ]; then stale_note=" -o 目標 ${outfile} 沒有更新；裡面若有內容，是先前留下的。"; fi
+    echo "EXEC_LAST_MESSAGE_MISSING: codex 成功 (exit 0)，但沒有產生本次的最終回覆（${last_run} 不存在或只有空白）。worker 可能已經改檔：先核對 git status／git diff 與逐字稿，不要直接重派。${stale_note} transcript: ${log}" >&2
+    exit 46
+  fi
+  if [ -n "$deliver_err" ]; then
+    echo "EXEC_OUTFILE_FAILED: codex 成功 (exit 0)，本次最終回覆在 ${last_run}，但寫不進 -o 目標 ${outfile} -- ${deliver_err} 。${outfile} 若有內容，是先前留下的。transcript: ${log}" >&2
     exit 46
   fi
   echo "exec OK -- transcript: $log ; last message: ${out}${root_note}"
 else
-  echo "codex-exec: codex exited [$code]. transcript: $log$(transcript_note)" >&2
+  # 非零：原樣傳回退出碼，並附上本次有沒有最終回覆。
+  echo "codex-exec: codex exited [$code]. transcript: $log$(transcript_note) ; last message: ${last_note}" >&2
 fi
 exit "$code"

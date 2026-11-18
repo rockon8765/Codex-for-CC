@@ -21,6 +21,8 @@
 #     呼叫端設 $PSNativeCommandArgumentPassing='Standard'（pwsh 7.3+；cmd.exe 只在預設的 Windows 模式走 Legacy）。
 #   - A–G 的情境路徑含空白與 CJK；H 案（2026-10-31）另驗含 & 的目錄：-Dir／-SchemaFile／$PWD.ProviderPath 都逐字到達
 #     argv、cmd 沒有斷句，cwd、-C 與憑證的 repo 三者一致。目錄名刻意含 `&echo INJECTED`：& 若被當成運算子，argv 會被截斷。
+#   - K 節（2026-11-18，只有 exec）：與指示根無關，因為共用同一套 stub 與隔離而放在這裡。守 codex-exec.ps1 對
+#     「本次最終回覆」的驗證（沒產生 ⇒ 46、-OutFile 舊檔不冒充本次結果），對應 macOS 的 exec-last-message.tests.sh。
 #
 # ⚠️ 本檔只驗 wrapper 的 argv 與摘要，**不證明** codex 真的載入了 AGENTS.md。
 #    那要用非 ephemeral 的真 codex 探測，看 ~/.codex/sessions 的 rollout 初始 user 訊息。
@@ -115,6 +117,14 @@ fs.appendFileSync(process.env.FAKE_TRACE, 'RAN\n');
 fs.writeFileSync(process.env.FAKE_ARGV, JSON.stringify(process.argv.slice(2)), 'utf8');
 try { fs.writeFileSync(process.env.FAKE_STDIN, fs.readFileSync(0)); } catch (e) { /* stdin 已關閉也無妨 */ }
 process.stdout.write(process.env.FAKE_ANSWER || 'stub answer: ready\n');
+// exec 要求本次最終回覆有內容（2026-11-18）：收到 --output-last-message 就照 FAKE_LAST 處理（預設寫一行）。
+const lmIdx = process.argv.indexOf('--output-last-message');
+if (lmIdx !== -1 && process.argv[lmIdx + 1]) {
+  const lastMode = process.env.FAKE_LAST || 'write';
+  if (lastMode === 'write') fs.writeFileSync(process.argv[lmIdx + 1], 'FRESH\n', 'utf8');
+  else if (lastMode === 'blank') fs.writeFileSync(process.argv[lmIdx + 1], '  \r\n\r\n', 'utf8');
+}
+process.exitCode = Number(process.env.FAKE_EXIT || 0);
 '@
 $fakeCodex = Join-Path $stubDir "fake-codex.cmd"
 @'
@@ -130,6 +140,7 @@ $wrapperSrc = @'
 if ($env:PRM_CD) { Set-Location -LiteralPath $env:PRM_CD }
 $ht = @{ Dir = $(if ($env:PRM_USE_PWD) { $PWD.ProviderPath } else { $env:PRM_DIR }); PromptFile = $env:PRM_BRIEF }
 if ($env:PRM_SCHEMA) { $ht['SchemaFile'] = $env:PRM_SCHEMA }
+if ($env:PRM_OUTFILE) { $ht['OutFile'] = $env:PRM_OUTFILE }
 if ($env:PRM_MODE -eq 'exec') { $ht['Quiet'] = $true } elseif (-not $env:PRM_CRED) { $ht['NoCredential'] = $true }
 & $env:PRM_TARGET @ht
 exit $LASTEXITCODE
@@ -186,7 +197,8 @@ function Start-Child([string]$argString, [string]$cwd) {
 
 # Invoke-Sut exec|consult <dir> [cwd]：回傳 rc、stdout、stderr、stub 執行次數、codex 實收的 argv。
 # -BriefArg 換 -PromptFile 的值；-Cd 讓 wrapper 先 Set-Location（$PWD 與行程 cwd 分歧）。-Schema 帶 -SchemaFile；-UsePwd 以 $PWD.ProviderPath 當 -Dir；-Credential 讓 consult 走鑄證模式；-Answer 換 stub 的回覆。
-function Invoke-Sut([string]$Mode, [string]$Dir, [string]$Cwd = '', [string]$Schema = '', [switch]$UsePwd, [switch]$Credential, [string]$Answer = '', [string]$BriefArg = '', [string]$Cd = '') {
+# K 節用：-OutFile 帶 -OutFile；-Last 決定 stub 怎麼處理最終回覆檔（''＝寫一行、'blank'＝只寫空白、'none'＝不寫）；-FakeExit 是 stub 的退出碼。
+function Invoke-Sut([string]$Mode, [string]$Dir, [string]$Cwd = '', [string]$Schema = '', [switch]$UsePwd, [switch]$Credential, [string]$Answer = '', [string]$BriefArg = '', [string]$Cd = '', [string]$OutFile = '', [string]$Last = '', [int]$FakeExit = 0) {
   if (-not $Cwd) { $Cwd = $root }
   Remove-Item -LiteralPath $argvFile, $trace, $stdinFile -Force -ErrorAction SilentlyContinue
   $env:PRM_MODE = $Mode
@@ -198,6 +210,9 @@ function Invoke-Sut([string]$Mode, [string]$Dir, [string]$Cwd = '', [string]$Sch
   $env:PRM_USE_PWD = $(if ($UsePwd) { '1' } else { '' })
   $env:PRM_CRED = $(if ($Credential) { '1' } else { '' })
   $env:FAKE_ANSWER = $Answer
+  $env:PRM_OUTFILE = $OutFile
+  $env:FAKE_LAST = $Last
+  $env:FAKE_EXIT = $(if ($FakeExit -ne 0) { "$FakeExit" } else { '' })
   $r = Start-Child ('-NoProfile -File "' + $wrapper + '"') $Cwd
   $ran = @((Read-Text $trace) -split "`r?`n" | Where-Object { $_ -eq 'RAN' }).Count
   $argv = @()
@@ -216,6 +231,16 @@ function Get-PairCount([string[]]$argv, [string]$a, [string]$b) {
   return $n
 }
 function Get-ElemCount([string[]]$argv, [string]$v) { return @($argv | Where-Object { $_ -ceq $v }).Count }
+# argv 中緊跟在 name 後面的那個元素（沒有就回空字串）
+function Get-ArgAfter([string[]]$argv, [string]$name) {
+  for ($i = 0; $i -lt ($argv.Count - 1); $i++) { if ($argv[$i] -ceq $name) { return $argv[$i + 1] } }
+  return ''
+}
+# 讀檔並去頭尾空白；路徑是空字串時回空字串（Test-Path -LiteralPath '' 會丟例外）
+function Read-Trim([string]$path) {
+  if (-not $path) { return '' }
+  return (Read-Text $path).Trim()
+}
 
 # 加入前的 codex argv（逐元素），withMarker 時在 memories 兩個 -c 之後、-C 之前插入兩個元素。
 # exec 的 --output-last-message 值是隨機逐字稿檔名 → 以 <OUTFILE> 佔位、改用 regex 比。
@@ -393,9 +418,91 @@ try {
   $credRepo = $(if ($credText) { (ConvertFrom-Json -InputObject $credText).repo } else { '' })
   Check "consult H9 credential.repo＝cwd" ($credRepo -ceq $AMP) ("repo=" + $credRepo + " " + $ctx)
 
+  # ═══ K：exec 對「本次最終回覆」的驗證（2026-11-18；macOS exec-last-message.tests.sh 的平台翻譯）═══
+  # 放在本檔是因為共用同一套 stub 與隔離，規則本身與指示根無關：
+  #   - codex 回 0 但沒有本次最終回覆（沒寫檔或只有空白）⇒ 46＋EXEC_LAST_MESSAGE_MISSING，不印 exec OK。
+  #   - -OutFile 指到既有檔時，舊內容不得被當成本次結果：codex 一律寫本次專屬檔，有內容才複製過去。
+  #   - -OutFile 的目錄不存在或它本身是目錄 ⇒ 呼叫 codex 之前就停；複製失敗 ⇒ 46＋EXEC_OUTFILE_FAILED。
+  $dK = Join-Path $root "plain\sub"
+  $kOutDir = Join-Path $root "k-out"
+  New-Item -ItemType Directory -Path $kOutDir -Force | Out-Null
+  $kTarget = Join-Path $kOutDir "last.txt"
+
+  Write-Output "§exec K 有產生最終回覆 ⇒ 成功，摘要指到本次專屬檔"
+  $r = Invoke-Sut exec $dK
+  $runLast = Get-ArgAfter $r.Argv '--output-last-message'
+  $ctx = "rc=" + $r.Code + " runLast=" + $runLast + " out=" + $r.Out + " err=" + $r.Err
+  Check "exec K1 rc=0" ($r.Code -eq 0) $ctx
+  Check "exec K2 印 exec OK" (Test-Has $r.Out "exec OK -- transcript: ") $ctx
+  Check "exec K3 本次專屬檔有內容" ((Read-Trim $runLast) -ceq 'FRESH') $ctx
+  Check "exec K4 摘要指到本次專屬檔" (($runLast -ne '') -and (Test-Has $r.Out ("last message: " + $runLast + " ;"))) $ctx
+
+  Write-Output "§exec K codex 回 0 但沒寫最終回覆／只有空白 ⇒ 46，不得回報成功"
+  $r = Invoke-Sut exec $dK -Last 'none'
+  $ctx = "rc=" + $r.Code + " out=" + $r.Out + " err=" + $r.Err
+  Check "exec K5 沒寫 rc=46" ($r.Code -eq 46) $ctx
+  Check "exec K6 哨兵在 stderr" (Test-Has $r.Err "EXEC_LAST_MESSAGE_MISSING") $ctx
+  Check "exec K7 不得印 exec OK" (-not (Test-Has $r.Out "exec OK")) $ctx
+  Check "exec K8 stub 恰跑一次" ($r.Ran -eq 1) ("Ran=" + $r.Ran + " " + $ctx)
+  $r = Invoke-Sut exec $dK -Last 'blank'
+  $ctx = "rc=" + $r.Code + " out=" + $r.Out + " err=" + $r.Err
+  Check "exec K9 只有空白 rc=46" ($r.Code -eq 46) $ctx
+  Check "exec K10 哨兵在 stderr" (Test-Has $r.Err "EXEC_LAST_MESSAGE_MISSING") $ctx
+
+  Write-Output "§exec K -OutFile 指到舊檔 ⇒ 舊內容不得冒充本次結果"
+  Write-Utf8 $kTarget "STALE"
+  $r = Invoke-Sut exec $dK -Last 'none' -OutFile $kTarget
+  $ctx = "rc=" + $r.Code + " out=" + $r.Out + " err=" + $r.Err
+  Check "exec K11 本次沒產生 rc=46" ($r.Code -eq 46) $ctx
+  Check "exec K12 哨兵在 stderr" (Test-Has $r.Err "EXEC_LAST_MESSAGE_MISSING") $ctx
+  Check "exec K13 舊檔原封不動" ((Read-Trim $kTarget) -ceq 'STALE') $ctx
+  Check "exec K14 訊息點名 -OutFile 目標" (Test-Has $r.Err $kTarget) $ctx
+  Write-Utf8 $kTarget "STALE"
+  $r = Invoke-Sut exec $dK -OutFile $kTarget
+  $runLast = Get-ArgAfter $r.Argv '--output-last-message'
+  $ctx = "rc=" + $r.Code + " runLast=" + $runLast + " out=" + $r.Out + " err=" + $r.Err
+  Check "exec K15 本次有產生 rc=0" ($r.Code -eq 0) $ctx
+  Check "exec K16 目標換成本次內容" ((Read-Trim $kTarget) -ceq 'FRESH') $ctx
+  Check "exec K17 摘要指到 -OutFile 目標" (Test-Has $r.Out ("last message: " + $kTarget + " ;")) $ctx
+  Check "exec K18 codex 寫的是本次專屬檔，不是 -OutFile" (($runLast -match $OUTFILE_RE) -and -not ($runLast -ceq $kTarget)) $ctx
+
+  Write-Output "§exec K -OutFile 的目錄不存在／是目錄 ⇒ 呼叫 codex 之前就停"
+  $r = Invoke-Sut exec $dK -OutFile (Join-Path $root "k-no-such-dir\last.txt")
+  $ctx = "rc=" + $r.Code + " out=" + $r.Out + " err=" + $r.Err
+  Check "exec K19 目錄不存在 rc≠0" (($r.Code -ne 0) -and ($r.Code -ne -999)) $ctx
+  Check "exec K20 不呼叫 codex" ($r.Ran -eq 0) ("Ran=" + $r.Ran + " " + $ctx)
+  $r = Invoke-Sut exec $dK -OutFile $kOutDir
+  $ctx = "rc=" + $r.Code + " out=" + $r.Out + " err=" + $r.Err
+  Check "exec K21 -OutFile 是目錄 rc≠0" (($r.Code -ne 0) -and ($r.Code -ne -999)) $ctx
+  Check "exec K22 不呼叫 codex" ($r.Ran -eq 0) ("Ran=" + $r.Ran + " " + $ctx)
+
+  Write-Output "§exec K 複製到 -OutFile 失敗（目標唯讀）⇒ 46，訊息指出本次專屬檔"
+  Write-Utf8 $kTarget "STALE"
+  (Get-Item -LiteralPath $kTarget).IsReadOnly = $true
+  try { $r = Invoke-Sut exec $dK -OutFile $kTarget }
+  finally { (Get-Item -LiteralPath $kTarget).IsReadOnly = $false }
+  $runLast = Get-ArgAfter $r.Argv '--output-last-message'
+  $ctx = "rc=" + $r.Code + " runLast=" + $runLast + " out=" + $r.Out + " err=" + $r.Err
+  Check "exec K23 rc=46" ($r.Code -eq 46) $ctx
+  Check "exec K24 哨兵在 stderr" (Test-Has $r.Err "EXEC_OUTFILE_FAILED") $ctx
+  Check "exec K25 -OutFile 舊檔原封不動" ((Read-Trim $kTarget) -ceq 'STALE') $ctx
+  Check "exec K26 訊息指出本次專屬檔" (($runLast -ne '') -and (Test-Has $r.Err $runLast)) $ctx
+
+  Write-Output "§exec K codex 非零 ⇒ 原樣傳回退出碼，並說明有沒有最終回覆"
+  $r = Invoke-Sut exec $dK -FakeExit 7
+  $runLast = Get-ArgAfter $r.Argv '--output-last-message'
+  $ctx = "rc=" + $r.Code + " runLast=" + $runLast + " out=" + $r.Out + " err=" + $r.Err
+  Check "exec K27 rc=7" ($r.Code -eq 7) $ctx
+  Check "exec K28 指出本次最終回覆" (($runLast -ne '') -and (Test-Has $r.Err ("last message: " + $runLast))) $ctx
+  $r = Invoke-Sut exec $dK -FakeExit 7 -Last 'none'
+  $ctx = "rc=" + $r.Code + " out=" + $r.Out + " err=" + $r.Err
+  Check "exec K29 rc=7" ($r.Code -eq 7) $ctx
+  Check "exec K30 說明本次沒有產生" (Test-Has $r.Err "last message: （本次沒有產生）") $ctx
+  Check "exec K31 非零時不報缺件哨兵" (-not (Test-Has $r.Err "EXEC_LAST_MESSAGE_MISSING")) $ctx
+
   # 案數守衛：只證明「沒少跑案」，不證明案子有牙齒（牙齒見檔頭 -ExecSut／-ConsultSut 用法）。
-  # §0 3 + 每個 mode (A 9 + B 7 + C 4 + D 3 + E 5 + F 6 + G 4 + H 8 + I 4 + J 5 = 55) × 2 + consult 鑄證 2；全綠時摘要為 pass=116（含本守衛）
-  $expected = 115
+  # §0 3 + 每個 mode (A 9 + B 7 + C 4 + D 3 + E 5 + F 6 + G 4 + H 8 + I 4 + J 5 = 55) × 2 + consult 鑄證 2 + exec K 31；全綠時摘要為 pass=147（含本守衛）
+  $expected = 146
   $ran = $script:pass + $script:fail
   Check "案數守衛：實跑 $expected 案" ($ran -eq $expected) ("實跑=" + $ran + " 期望=" + $expected)
 }
@@ -408,7 +515,8 @@ catch {
 }
 finally {
   foreach ($v in @('SUPER_MODE_CODEX_CMD', 'SUPER_MODE_CODEX_CMD_EXEC', 'PRM_NODE', 'PRM_DUMP_JS', 'PRM_MODE',
-      'PRM_TARGET', 'PRM_DIR', 'PRM_BRIEF', 'PRM_CD', 'PRM_SCHEMA', 'PRM_USE_PWD', 'PRM_CRED', 'FAKE_ARGV', 'FAKE_TRACE', 'FAKE_ANSWER', 'FAKE_STDIN')) {
+      'PRM_TARGET', 'PRM_DIR', 'PRM_BRIEF', 'PRM_CD', 'PRM_SCHEMA', 'PRM_USE_PWD', 'PRM_CRED', 'FAKE_ARGV', 'FAKE_TRACE', 'FAKE_ANSWER', 'FAKE_STDIN',
+      'PRM_OUTFILE', 'FAKE_LAST', 'FAKE_EXIT')) {
     Remove-Item -LiteralPath ("Env:" + $v) -ErrorAction SilentlyContinue
   }
   Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue
