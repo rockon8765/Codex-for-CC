@@ -49,6 +49,8 @@
 
 - **實際派工的 `codex-exec` 只有 macOS 固定帶 `--disable remote_plugin`**（Windows 沒有；`codex-check` 兩邊都只印提示、不帶旗標）。這個旗標只關**遠端外掛目錄**（上游 openai/codex #28443），關不掉已裝外掛與帳號 connector，不算硬化；在註冊面真正有效的是 `--disable apps --disable plugins`（[驗收紀錄](docs/ACCEPTANCE-capability-boundary-2026-09-14.md)），但要不要採用仍未決。要改請兩平台一起改。
 - **`super-mode off` 的逐字稿清理**：只刪 `~/.claude/super-mode-logs/` **頂層**、檔名符合 consult／exec 逐字稿格式（`codex_consult_<時間戳>.txt`／`codex_exec_<時間戳>.txt`／`codex_exec_<時間戳>_last.txt`）、且超過 14 天的檔；不進子目錄、不碰其他檔名，刪除或列舉失敗會在 stderr 印 `OFF_CLEANUP_ERROR`，但 off 照常完成。兩平台之間仍有五個沿用舊行為的差異，都不會刪到白名單以外的檔：logdir 本身是 symlink／junction（Windows 會清到目標目錄的頂層）、隱藏檔、列舉後才消失的檔、頂層的 file symlink、列舉錯誤的輸出格式，見 backlog [`OFF-CLEANUP-RECURSIVE`](docs/backlog.md#OFF-CLEANUP-RECURSIVE)。
+- **`super-mode` 的參數檢查只有 macOS 有**（2026-11-18）：`super-mode.sh` 遇到未知子命令、多餘參數或 `--scope=<dir>` 這類拼法，一律 exit 2，而且不動旗標與憑證。Windows 的 `super-mode.ps1` 還沒有對應檢查：`-On -Off` 同傳會走 `-On`，`-Off -Scope <dir>` 會忽略 `-Scope`、照常關掉全機模式。
+- **`codex-exec` 對「本次最終回覆」的驗證只有 macOS 有**（2026-11-18）：codex 回 0 但沒有本次的 `_last.txt`（或只有空白）時，`codex-exec.sh` 回 46＋`EXEC_LAST_MESSAGE_MISSING`、不印 `exec OK`；`-o` 改成先寫本次專屬檔、確認有內容再複製過去（複製失敗回 46＋`EXEC_OUTFILE_FAILED`），舊檔不會被當成本次結果。Windows 的 `codex-exec.ps1` 仍只看 codex 的退出碼，`-OutFile` 也仍由 codex 直接寫。
 - 其餘功能兩平台一致；差在**驗證覆蓋**（見上表）與平台語義（見下方「已知的坑」）。
 
 **Linux（凍結快照 `80c60a8`）與上面的差異**

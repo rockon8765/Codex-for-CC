@@ -166,6 +166,8 @@ bash "macos/skills/超級模式/tests/exit-code-contract.smoke.sh"     # consult
 bash "macos/skills/超級模式/tests/fault-injection.smoke.sh"        # cat/rm/mktemp 故障注入 ＋ 三個 mutant（上一支沒刺激到的三條路）
 bash "macos/skills/超級模式/tests/off-cleanup.tests.sh"            # super-mode off 只清頂層白名單逐字稿；暫存 HOME，不碰真的 ~/.claude
 bash "macos/skills/超級模式/tests/project-root-marker.tests.sh"    # .codex-project-root ⇒ 單次 project_root_markers 覆寫、-C 不變；stub codex，暫存 HOME
+bash "macos/skills/超級模式/tests/super-mode-args.tests.sh"        # super-mode.sh 參數不合法 ⇒ exit 2、不動旗標與憑證；暫存 HOME
+bash "macos/skills/超級模式/tests/exec-last-message.tests.sh"      # codex-exec 回 0 但沒有本次最終回覆 ⇒ 46；-o 舊檔不冒充本次結果；stub codex，暫存 HOME
 node "tests/no-multibyte-varref.test.js"                           # 禁止 `$var` 緊接多位元組字元（部分 locale 下 bash 會併進變數名）
 ```
 Windows:

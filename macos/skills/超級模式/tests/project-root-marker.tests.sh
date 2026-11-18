@@ -62,10 +62,16 @@ done
 mkdir -p "$root/stub" "$root/home/.claude"
 printf '測試用簡報\n' > "$root/brief.md"
 # stub codex：argv 一行一個寫進 FAKE_ARGV，stdout 給一段非空答案（consult -n 只要求非空）。
+# exec 另外要求本次最終回覆有內容（2026-11-18）→ 有 --output-last-message 就寫一行進去。
 cat > "$root/stub/codex" <<'STUB'
 #!/usr/bin/env bash
 : > "$FAKE_ARGV"
-for a in "$@"; do printf '%s\n' "$a" >> "$FAKE_ARGV"; done
+prev=""
+for a in "$@"; do
+  printf '%s\n' "$a" >> "$FAKE_ARGV"
+  if [ "$prev" = "--output-last-message" ]; then echo "stub last message" > "$a"; fi
+  prev="$a"
+done
 cat > /dev/null
 echo "stub answer: 就緒"
 exit 0

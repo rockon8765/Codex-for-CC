@@ -4,7 +4,9 @@
 #                          --scope：gate 只在該專案底下強制（建議都帶，免擋其他 session）。
 #   off                 -> 清旗標 + 諮詢憑證；順手清 super-mode-logs 頂層 >14 天的 consult／exec
 #                          逐字稿（範圍見 cleanup_transcripts）。收尾時必跑。
-#   (無參數)            -> 印目前狀態。
+#   (無參數) / status   -> 印目前狀態。
+#   其他寫法（未知子命令、多餘參數、`--scope=<dir>`、`off --scope <dir>`…）一律 exit 2，
+#   而且在改動旗標或憑證之前就拒絕（2026-11-18；舊行為是當成查狀態，或靜默變成全域）。
 # 防殘留：hook 會把超過 8 小時的旗標視為 stale 自動解除；但正常收尾仍請跑 off。
 set -euo pipefail
 CLAUDE="$HOME/.claude"
@@ -60,14 +62,32 @@ cleanup_transcripts() {
   return 0
 }
 
+# 參數錯誤：一律在改動任何狀態之前拒絕。
+# ⚠️ 旗標與憑證是全機單一檔，打錯的指令若照做（或靜默改做別的事）會波及其他 session：
+#    `off --scope <dir>` 曾經照常關掉全機模式、`on --scope=<dir>` 曾經靜默變成全域強制。
+usage_exit() {  # usage_exit <原因>
+  echo "super-mode.sh: ${1}" >&2
+  echo "usage: super-mode.sh [status] | on [--scope|-s <dir>] | off" >&2
+  exit 2
+}
+
 case "${1:-status}" in
   on)
     scope=""
-    if [ "${2:-}" = "--scope" ] || [ "${2:-}" = "-s" ]; then
-      scope_in="${3:?need dir after --scope}"
-      scope="$(cd "$scope_in" 2>/dev/null && pwd)" \
-        || { echo "Scope 路徑不存在: ${scope_in}（未啟用，避免誤靜默降級為全域強制）" >&2; exit 1; }
-    fi
+    case "$#" in
+      1) ;;
+      3)
+        if [ "$2" != "--scope" ] && [ "$2" != "-s" ]; then
+          usage_exit "on 之後只接受 --scope <dir>（或 -s <dir>），看到: ${2}"
+        fi
+        # 空字串也要擋：`cd ""` 在 bash 會成功並留在目前目錄，scope 會靜默變成 cwd。
+        [ -n "$3" ] || usage_exit "--scope 後面的目錄是空字串"
+        scope_in="$3"
+        scope="$(cd "$scope_in" 2>/dev/null && pwd)" \
+          || { echo "Scope 路徑不存在: ${scope_in}（未啟用，避免誤靜默降級為全域強制）" >&2; exit 1; }
+        ;;
+      *) usage_exit "on 的參數個數不對（只接受 on，或 on --scope <dir>）" ;;
+    esac
     printf '%s\n' "$scope" > "$flag"
     if [ -n "$scope" ]; then
       echo "super mode: ON  (scope=$scope)"
@@ -76,11 +96,13 @@ case "${1:-status}" in
     fi
     ;;
   off)
+    [ "$#" -eq 1 ] || usage_exit "off 不接受其他參數（off 一律清掉全機的旗標與憑證，沒有 --scope）"
     rm -f "$flag" "$token"
     cleanup_transcripts
     echo "super mode: OFF"
     ;;
-  status|*)
+  status)
+    [ "$#" -le 1 ] || usage_exit "status 不接受其他參數"
     if [ -f "$flag" ]; then
       age_h=$(( ( $(date +%s) - $(stat -f %m "$flag") ) / 3600 ))   # BSD stat（macOS）
       first="$(head -n1 "$flag" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
@@ -94,4 +116,5 @@ case "${1:-status}" in
       echo "super mode: OFF"
     fi
     ;;
+  *) usage_exit "未知的子命令: ${1}" ;;
 esac
