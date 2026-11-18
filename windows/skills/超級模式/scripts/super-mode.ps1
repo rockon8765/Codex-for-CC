@@ -5,8 +5,13 @@
                         避免擋到其他 session）；WSL/UNC 專案省略 -Scope 用全域強制。
                         -Scope 必須是存在的磁碟機目錄，其他值一律拒收、不啟用。
     -Off                退出：清掉旗標與諮詢憑證，順手清舊逐字稿（範圍見 .NOTES）。收尾時**必跑**。
+    -Cleanup [-DryRun]  只清舊逐字稿（範圍與 -Off 相同），**不碰旗標與憑證**，不影響其他 session。
+                        -DryRun 只印符合條件的檔數與位元組數、不刪。日常只用討論模式
+                        （codex-consult.ps1 -NoCredential）、從不開關超級模式時，靠它執行保留期限。
     (無參數)            查目前狀態。
-    其他組合（-On -Off 同傳、-Scope 沒搭配 -On、多餘引數）一律 exit 2，而且不動旗標與憑證。
+    其他組合（-On／-Off／-Cleanup 同傳、-Scope 沒搭配 -On、-DryRun 沒搭配 -Cleanup、多餘引數）
+    一律 exit 2，而且不動旗標、憑證與逐字稿。（PowerShell 在參數綁定階段就拒絕的寫法——例如
+    同一個開關給兩次——輪不到本腳本檢查，退出碼由 PowerShell 決定，不是 2；同樣不動任何狀態。）
 .NOTES
   旗標：~/.claude/.super-mode-active（第一行 = Scope 路徑或空；mtime = 啟用時間）。
   憑證：~/.claude/.super-mode-consult-ok（由 codex-consult.ps1 寫）。
@@ -14,8 +19,11 @@
   逐字稿清理（-Off）：只刪 ~/.claude/super-mode-logs **頂層**、檔名符合 codex-consult／codex-exec
   產生格式、且 LastWriteTime 超過 14 天的檔；不進子目錄、不碰其他檔名。刪除／列舉失敗逐項寫
   stderr（前綴 OFF_CLEANUP_ERROR），但 -Off 照常完成（旗標與憑證已先清掉、仍印 OFF、exit 0）。
+  逐字稿清理（-Cleanup，2026-11-18）：同一組條件；刪除／列舉失敗的前綴是 CLEANUP_ERROR，而且 exit 1。
+  stdout 一行摘要：`transcript cleanup: deleted=<n> bytes=<b> failed=<n>`，-DryRun 時是
+  `transcript cleanup (dry-run): matched=<n> bytes=<b> ...`。
 #>
-param([switch]$On, [switch]$Off, [string]$Scope)
+param([switch]$On, [switch]$Off, [switch]$Cleanup, [switch]$DryRun, [string]$Scope)
 $claude = Join-Path $env:USERPROFILE ".claude"
 $flag   = Join-Path $claude ".super-mode-active"
 $token  = Join-Path $claude ".super-mode-consult-ok"
@@ -29,12 +37,17 @@ $token  = Join-Path $claude ".super-mode-consult-ok"
 $usageError = $null
 if ($args.Count -gt 0) { $usageError = '不認得的參數: ' + ($args -join ' ') }
 elseif ($On -and $Off) { $usageError = '-On 與 -Off 不能同時給' }
+elseif ($Cleanup -and ($On -or $Off)) { $usageError = '-Cleanup 不能與 -On／-Off 同時給（-Cleanup 只清逐字稿，不動旗標與憑證）' }
+elseif ($PSBoundParameters.ContainsKey('DryRun') -and -not $Cleanup) {
+  # 看「有沒有帶 -DryRun」，不看值（同下面的 -Scope）：`-Off -DryRun:$false` 不得照做 -Off。
+  $usageError = '-DryRun 只能搭配 -Cleanup'
+}
 elseif ($PSBoundParameters.ContainsKey('Scope') -and -not $On) {
   $usageError = '-Scope 只能搭配 -On（-Off 一律清掉全機的旗標與憑證，沒有 scope；查狀態不帶參數）'
 }
 if ($usageError) {
   [Console]::Error.WriteLine('super-mode.ps1: ' + $usageError)
-  [Console]::Error.WriteLine('usage: super-mode.ps1 [-On [-Scope <dir>]] | [-Off] | (no args = status)')
+  [Console]::Error.WriteLine('usage: super-mode.ps1 [-On [-Scope <dir>]] | [-Off] | [-Cleanup [-DryRun]] | (no args = status)')
   exit 2
 }
 
@@ -61,10 +74,20 @@ if ($On) {
   if ($content) { Write-Output "super mode: ON  (scope=$content)" }
   else          { Write-Output "super mode: ON  (scope=GLOBAL — 會影響同機所有並行 session；有 Windows 路徑根就建議帶 -Scope)" }
 }
-elseif ($Off) {
-  if (Test-Path $flag)  { Remove-Item -LiteralPath $flag  -Force }
-  if (Test-Path $token) { Remove-Item -LiteralPath $token -Force }
-  # 順手清理超過 14 天的舊逐字稿（日誌保留政策）。backlog：OFF-CLEANUP-RECURSIVE。
+elseif ($Off -or $Cleanup) {
+  # -Off 與 -Cleanup 共用下面的逐字稿清理；只有 -Off 會動旗標與憑證。
+  if ($Off) {
+    if (Test-Path $flag)  { Remove-Item -LiteralPath $flag  -Force }
+    if (Test-Path $token) { Remove-Item -LiteralPath $token -Force }
+  }
+  # stderr 前綴照模式分開：-Off 的清理失敗不影響結果（照常 OFF、exit 0），-Cleanup 的失敗會 exit 1。
+  $errTag = if ($Off) { 'OFF_CLEANUP_ERROR' } else { 'CLEANUP_ERROR' }
+  $matched = 0
+  $deleted = 0
+  $deleteFailed = 0
+  [long]$bytes = 0
+  $cleanupErrors = 0
+  # 清理超過 14 天的舊逐字稿（日誌保留政策）。backlog：OFF-CLEANUP-RECURSIVE。
   # ⚠️ 範圍刻意收窄：只看 super-mode-logs **頂層**（Get-ChildItem 不帶 -Recurse），且檔名必須
   #    符合下面的白名單。子目錄（驗收證據常放那裡）與其他檔名一律不碰。
   # 白名單＝codex-consult／codex-exec 實際產生的檔名（macOS 版用同一條）：
@@ -81,7 +104,6 @@ elseif ($Off) {
   if (Test-Path -LiteralPath $logDir -PathType Container) {
     $transcriptRe = '^codex_(consult_[0-9]{8}_[0-9]{6}(_([0-9a-f]{6}|[0-9]+))?|exec_[0-9]{8}_[0-9]{6}(_[0-9a-f]{6})?(_last)?)\.txt$'
     $cutoff = (Get-Date).AddDays(-14)
-    $cleanupErrors = 0
     $candidates = @()
     $listErr = $null
     try {
@@ -91,25 +113,58 @@ elseif ($Off) {
     }
     catch {
       $cleanupErrors++
-      [Console]::Error.WriteLine("OFF_CLEANUP_ERROR: 無法列舉 $logDir -- $($_.Exception.Message)")
+      [Console]::Error.WriteLine("${errTag}: 無法列舉 $logDir -- $($_.Exception.Message)")
     }
     foreach ($le in @($listErr)) {
       if ($null -eq $le) { continue }
       $cleanupErrors++
-      [Console]::Error.WriteLine("OFF_CLEANUP_ERROR: 列舉 $logDir 時出錯 -- $($le.Exception.Message)")
+      [Console]::Error.WriteLine("${errTag}: 列舉 $logDir 時出錯 -- $($le.Exception.Message)")
     }
+    $matched = $candidates.Count
     foreach ($old in $candidates) {
-      try { Remove-Item -LiteralPath $old.FullName -Force -ErrorAction Stop }
+      # 大小只供回報：取不到就算 0，不當成清理失敗。
+      [long]$size = 0
+      try { $size = [long]$old.Length } catch { $size = 0 }
+      if ($DryRun) { $bytes += $size; continue }
+      try {
+        Remove-Item -LiteralPath $old.FullName -Force -ErrorAction Stop
+        $deleted++
+        $bytes += $size
+      }
       catch {
         $cleanupErrors++
-        [Console]::Error.WriteLine("OFF_CLEANUP_ERROR: 無法刪除 $($old.FullName) -- $($_.Exception.Message)")
+        $deleteFailed++
+        [Console]::Error.WriteLine("${errTag}: 無法刪除 $($old.FullName) -- $($_.Exception.Message)")
       }
     }
-    if ($cleanupErrors -gt 0) {
+    if ($Off -and $cleanupErrors -gt 0) {
       [Console]::Error.WriteLine("OFF_CLEANUP_ERROR: 逐字稿清理有 $cleanupErrors 個錯誤、未完整；旗標與憑證已清除，super mode 仍為 OFF。")
     }
   }
-  Write-Output "super mode: OFF"
+  if ($Off) {
+    Write-Output "super mode: OFF"
+  }
+  else {
+    if ($DryRun) {
+      Write-Output "transcript cleanup (dry-run): matched=$matched bytes=$bytes -- 未刪除任何檔（範圍：$logDir 頂層、檔名符合逐字稿格式、超過 14 天）"
+    }
+    else {
+      Write-Output "transcript cleanup: deleted=$deleted bytes=$bytes failed=$deleteFailed"
+    }
+    if ($cleanupErrors -gt 0) {
+      # 與 -Off 不同：部分失敗要讓呼叫端看得到，回非零。
+      if ($DryRun) {
+        [Console]::Error.WriteLine("CLEANUP_ERROR: 列舉未完整，上面的檔數與位元組數不可信；沒有刪除任何檔，旗標與憑證未變動。")
+      }
+      else {
+        [Console]::Error.WriteLine("CLEANUP_ERROR: 逐字稿清理有 $cleanupErrors 個錯誤、未完整；旗標與憑證未變動。")
+      }
+      exit 1
+    }
+    # 成功也要明確 exit 0：-Cleanup 用退出碼表示結果，而同一個行程裡用 & 呼叫時，
+    # 沒有 exit 的腳本會讓呼叫端讀到上一個指令留下的 $LASTEXITCODE（例如前一次清理失敗的 1）。
+    exit 0
+  }
 }
 else {
   if (Test-Path $flag) {

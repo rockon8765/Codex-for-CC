@@ -5,6 +5,8 @@
 #   - 不符檔名的舊檔、子目錄裡的舊檔（即使檔名符合）、近期逐字稿一律保留。
 #   - 刪除失敗要在 stderr 回報（OFF_CLEANUP_ERROR），但 -Off 照常完成：
 #     旗標與憑證清掉、印 super mode: OFF、exit 0。
+#   - -Cleanup（§7–§14，2026-11-18）：同一組條件，但只清逐字稿——旗標與憑證不動；-DryRun 只報
+#     檔數與位元組數；刪除／列舉失敗回 exit 1，stderr 前綴是 CLEANUP_ERROR；參數組合不合法回 exit 2。
 #
 # 用法：pwsh -NoProfile -File off-cleanup.tests.ps1 [-Shell pwsh|powershell] [-Sut <super-mode.ps1>]
 #   -Shell = 受測 child 的 host（預設與 runner 相同）。-Sut 只給牙齒檢查用（對舊版／mutant 跑，
@@ -84,6 +86,46 @@ exit 0
 '@
 [System.IO.File]::WriteAllText($wrapperEnum, $wrapperEnumSrc, (New-Object System.Text.UTF8Encoding $true))
 
+# -Cleanup 用的兩個 wrapper（§10／§11／§12）：同 stop／enum，但要把受測腳本的退出碼傳出來
+# （-Cleanup 清理失敗是 exit 1；-Off 的 wrapper 固定 exit 0，不能共用）。受測腳本沒呼叫 exit 時
+# $LASTEXITCODE 是 $null，視為 0。OC_DRY=1 ⇒ 加 -DryRun。OC_PRESET=1 ⇒ 先把 $LASTEXITCODE 設成 7，
+# 模擬呼叫端上一個指令失敗（§15：-Cleanup 成功時要自己 exit 0，不能讓呼叫端讀到殘留值）。
+$cleanupCallSrc = @'
+if ($env:OC_PRESET -eq '1') { $global:LASTEXITCODE = 7 }
+if ($env:OC_DRY -eq '1') { & $env:OC_TARGET -Cleanup -DryRun } else { & $env:OC_TARGET -Cleanup }
+$rc = 0
+if ($null -ne $LASTEXITCODE) { $rc = $LASTEXITCODE }
+exit $rc
+'@
+# §16：-Off -DryRun:$false。5.1 的 -File 不接受 `-Switch:$false` 這種寫法，只能在行程內用 & 呼叫。
+$wrapperOffDry = Join-Path $root "wrapper-off-dryfalse.ps1"
+$wrapperOffDrySrc = @'
+& $env:OC_TARGET -Off -DryRun:$false
+$rc = 0
+if ($null -ne $LASTEXITCODE) { $rc = $LASTEXITCODE }
+exit $rc
+'@
+[System.IO.File]::WriteAllText($wrapperOffDry, $wrapperOffDrySrc, (New-Object System.Text.UTF8Encoding $true))
+$wrapperCleanup = Join-Path $root "wrapper-cleanup-stop.ps1"
+$wrapperCleanupSrc = @'
+$ErrorActionPreference = 'Stop'
+$WarningPreference = 'Stop'
+
+'@ + $cleanupCallSrc
+[System.IO.File]::WriteAllText($wrapperCleanup, $wrapperCleanupSrc, (New-Object System.Text.UTF8Encoding $true))
+$wrapperCleanupEnum = Join-Path $root "wrapper-cleanup-enum.ps1"
+$wrapperCleanupEnumSrc = @'
+$ErrorActionPreference = 'Stop'
+$WarningPreference = 'Stop'
+function Get-ChildItem {
+  [CmdletBinding()]
+  param([string]$LiteralPath, [switch]$File)
+  Write-Error "INJECTED enumeration failure for $LiteralPath"
+}
+
+'@ + $cleanupCallSrc
+[System.IO.File]::WriteAllText($wrapperCleanupEnum, $wrapperCleanupEnumSrc, (New-Object System.Text.UTF8Encoding $true))
+
 $probe = Join-Path $root "probe.ps1"
 [System.IO.File]::WriteAllText($probe, '$PSVersionTable.PSVersion.ToString(); $env:USERPROFILE',
   (New-Object System.Text.UTF8Encoding $true))
@@ -122,6 +164,27 @@ function Invoke-Off([string]$fakeHome, [string]$Mode = 'file') {
   return (Start-Child $fakeHome ('-NoProfile -File "' + $Sut + '" -Off'))
 }
 
+# -Cleanup [-DryRun]。Mode 同 Invoke-Off：file＝獨立行程；stop／enum＝wrapper 內同行程 &。
+function Invoke-Cleanup([string]$fakeHome, [switch]$DryRun, [string]$Mode = 'file', [switch]$PresetExit) {
+  if ($Mode -eq 'stop' -or $Mode -eq 'enum') {
+    $w = if ($Mode -eq 'enum') { $wrapperCleanupEnum } else { $wrapperCleanup }
+    $env:OC_TARGET = $Sut
+    $env:OC_DRY = $(if ($DryRun) { '1' } else { '0' })
+    $env:OC_PRESET = $(if ($PresetExit) { '1' } else { '0' })
+    try { return (Start-Child $fakeHome ('-NoProfile -File "' + $w + '"')) }
+    finally {
+      Remove-Item -LiteralPath Env:OC_TARGET -ErrorAction SilentlyContinue
+      Remove-Item -LiteralPath Env:OC_DRY -ErrorAction SilentlyContinue
+      Remove-Item -LiteralPath Env:OC_PRESET -ErrorAction SilentlyContinue
+    }
+  }
+  return (Start-Child $fakeHome ('-NoProfile -File "' + $Sut + '" -Cleanup' + $(if ($DryRun) { ' -DryRun' } else { '' })))
+}
+# 參數檢查用：引數字串原樣接在 -File <sut> 後面。
+function Invoke-Raw([string]$fakeHome, [string]$sutArgs) {
+  return (Start-Child $fakeHome ('-NoProfile -File "' + $Sut + '" ' + $sutArgs))
+}
+
 function New-Home([string]$name) {
   $h = Join-Path $root $name
   $c = Join-Path $h ".claude"
@@ -142,6 +205,13 @@ function Test-OffBasics([string]$tag, $r, [string]$h) {
   Check "$tag stdout 印 super mode: OFF" ($r.Out -match '(?m)^super mode: OFF\r?$') ("out=" + $r.Out)
   Check "$tag 旗標已清" (-not (Test-Path -LiteralPath (Join-Path $h ".claude\.super-mode-active"))) "旗標還在"
   Check "$tag 憑證已清" (-not (Test-Path -LiteralPath (Join-Path $h ".claude\.super-mode-consult-ok"))) "憑證還在"
+}
+# -Cleanup 不得動旗標與憑證，也不是 -Off。New-Home 寫的旗標是空檔、憑證內容是 token。
+function Test-StateKept([string]$tag, $r, [string]$h) {
+  $f = Join-Path $h ".claude\.super-mode-active"
+  Check "$tag 旗標仍在且內容不變" ((Test-Path -LiteralPath $f) -and ((Read-Text $f) -ceq "")) ("flag=" + (Read-Text $f))
+  Check "$tag 憑證仍在且內容不變" ((Read-Text (Join-Path $h ".claude\.super-mode-consult-ok")) -ceq "token") "憑證被動了"
+  Check "$tag stdout 不得印 super mode: OFF" ($r.Out -notmatch 'super mode: OFF') ("out=" + $r.Out)
 }
 
 $OLD = (Get-Date).AddDays(-30)
@@ -291,9 +361,156 @@ try {
   Check "6 stderr 帶出注入的列舉錯誤" ($r.Err -match 'INJECTED enumeration failure') ("err=" + $r.Err)
   Check "6 列舉失敗時不得誤刪" (Test-Path -LiteralPath (Join-Path $l6 $enumOld)) "列舉失敗卻刪了檔（注入沒生效，或受測腳本繞過了 Get-ChildItem）"
 
+  # ═══ §7–§14 -Cleanup（2026-11-18）═════════════════════════════════════════
+  # 與 -Off 同一組條件（頂層 × 白名單 × 14 天），但只清逐字稿：旗標與憑證不動，部分失敗回 exit 1。
+  # ⚠️ stdout／stderr 的斷言只比 ASCII 片段：5.1 child 的重導向輸出走 console code page，中文不可靠。
+  Write-Output "§7 -Cleanup -DryRun：只報檔數與位元組數，不刪"
+  $h7 = New-Home "cleanup"
+  $l7 = Get-LogDir $h7
+  # 3 個該清的（1＋1＋1000＝1002 bytes）＋ 4 個該留的
+  $cleanDel = @(
+    'codex_consult_20200101_000000_abcdef.txt',
+    'codex_exec_20200101_000000_abcdef_last.txt',
+    'codex_exec_20200101_000001_abcdef.txt'
+  )
+  $cleanKeep = @(
+    'notes.txt',                                           # 檔名不符
+    'codex_exec_20200101_000000_cafe.txt',                 # 後綴長度不符
+    'evidence\codex_consult_20200101_000000_abcdef.txt',   # 子目錄
+    'codex_exec_20200101_000005_abcdef.txt'                # 未滿 14 天
+  )
+  New-LogFile (Join-Path $l7 $cleanDel[0]) $OLD
+  New-LogFile (Join-Path $l7 $cleanDel[1]) $D16
+  Write-Utf8 (Join-Path $l7 $cleanDel[2]) ("y" * 1000)
+  [System.IO.File]::SetLastWriteTime((Join-Path $l7 $cleanDel[2]), $OLD)
+  New-LogFile (Join-Path $l7 $cleanKeep[0]) $OLD
+  New-LogFile (Join-Path $l7 $cleanKeep[1]) $OLD
+  New-LogFile (Join-Path $l7 $cleanKeep[2]) $OLD
+  New-LogFile (Join-Path $l7 $cleanKeep[3]) $D13
+
+  $r = Invoke-Cleanup $h7 -DryRun
+  Check "7 exit 0" ($r.Code -eq 0) ("exit=" + $r.Code + " err=" + $r.Err)
+  Check "7 stdout 報 matched=3 bytes=1002" ($r.Out -match 'matched=3 bytes=1002 ') ("out=" + $r.Out)
+  Check "7 stdout 標明 dry-run" ($r.Out -match '\(dry-run\)') ("out=" + $r.Out)
+  Check "7 stderr 不得有 CLEANUP_ERROR" (-not ($r.Err -match 'CLEANUP_ERROR')) ("err=" + $r.Err)
+  foreach ($n in ($cleanDel + $cleanKeep)) {
+    Check "7 預覽不刪：$n" (Test-Path -LiteralPath (Join-Path $l7 $n)) "-DryRun 卻刪了檔"
+  }
+  Test-StateKept "7" $r $h7
+
+  Write-Output "§8 -Cleanup：真的刪，範圍與 -Off 相同"
+  $r = Invoke-Cleanup $h7
+  Check "8 exit 0" ($r.Code -eq 0) ("exit=" + $r.Code + " err=" + $r.Err)
+  Check "8 stdout 報 deleted=3 bytes=1002 failed=0" ($r.Out -match 'deleted=3 bytes=1002 failed=0') ("out=" + $r.Out)
+  Check "8 stderr 不得有 CLEANUP_ERROR" (-not ($r.Err -match 'CLEANUP_ERROR')) ("err=" + $r.Err)
+  foreach ($n in $cleanDel) {
+    Check "8 刪：$n" (-not (Test-Path -LiteralPath (Join-Path $l7 $n))) "超過 14 天的逐字稿沒被刪"
+  }
+  foreach ($n in $cleanKeep) {
+    Check "8 留：$n" (Test-Path -LiteralPath (Join-Path $l7 $n)) "不該清的檔被刪了"
+  }
+  Test-StateKept "8" $r $h7
+
+  # §9／§10 刪除失敗：-Cleanup 要回非零（-Off 的 §2／§3 是 exit 0）
+  foreach ($mode in @('file', 'stop')) {
+    $sec = if ($mode -eq 'file') { "9" } else { "10" }
+    Write-Output ("§$sec -Cleanup 遇到鎖住的逐字稿（" + $(if ($mode -eq 'file') { "-File" } else { "呼叫端 EAP／Warning=Stop、同行程 &" }) + "）")
+    $h = New-Home ("cleanup-locked-" + $mode)
+    $l = Get-LogDir $h
+    $lockedName = 'codex_consult_20200101_000000_aaaaaa.txt'
+    $otherName = 'codex_exec_20200101_000000_bbbbbb.txt'
+    New-LogFile (Join-Path $l $lockedName) $OLD
+    New-LogFile (Join-Path $l $otherName) $OLD
+    $fs = [System.IO.File]::Open((Join-Path $l $lockedName), [System.IO.FileMode]::Open,
+      [System.IO.FileAccess]::Read, [System.IO.FileShare]::None)
+    try { $r = Invoke-Cleanup $h -Mode $mode }
+    finally { $fs.Dispose() }
+    Check "$sec exit 1（部分失敗要回非零）" ($r.Code -eq 1) ("exit=" + $r.Code + " err=" + $r.Err)
+    Check "$sec 鎖住的檔仍在（刪除確實失敗過）" (Test-Path -LiteralPath (Join-Path $l $lockedName)) "鎖沒有生效，本案沒刺激到失敗路徑"
+    Check "$sec 其他舊逐字稿照清（不因單一失敗放棄）" (-not (Test-Path -LiteralPath (Join-Path $l $otherName))) "其餘檔沒被清"
+    Check "$sec stderr 有 CLEANUP_ERROR（行首）" ($r.Err -match '(?m)^CLEANUP_ERROR: ') ("err=" + $r.Err)
+    Check "$sec stderr 指名失敗的檔" ($r.Err -match [regex]::Escape($lockedName)) ("err=" + $r.Err)
+    Check "$sec stderr 不得用 -Off 的前綴（那一行宣稱旗標與憑證已清除）" (-not ($r.Err -match 'OFF_CLEANUP_ERROR')) ("err=" + $r.Err)
+    Check "$sec stdout 報 deleted=1 bytes=1 failed=1" ($r.Out -match 'deleted=1 bytes=1 failed=1') ("out=" + $r.Out)
+    Test-StateKept $sec $r $h
+  }
+
+  Write-Output "§11 -Cleanup 列舉失敗（Get-ChildItem 被遮蔽）→ exit 1"
+  $h11 = New-Home "cleanup-enumfail"
+  $l11 = Get-LogDir $h11
+  $enumOld11 = 'codex_consult_20200101_000000_dddddd.txt'
+  New-LogFile (Join-Path $l11 $enumOld11) $OLD
+  $r = Invoke-Cleanup $h11 -Mode 'enum'
+  Check "11 exit 1" ($r.Code -eq 1) ("exit=" + $r.Code + " err=" + $r.Err)
+  Check "11 stderr 有 CLEANUP_ERROR（行首）" ($r.Err -match '(?m)^CLEANUP_ERROR: ') ("err=" + $r.Err)
+  Check "11 stderr 帶出注入的列舉錯誤" ($r.Err -match 'INJECTED enumeration failure') ("err=" + $r.Err)
+  Check "11 stderr 不得用 -Off 的前綴" (-not ($r.Err -match 'OFF_CLEANUP_ERROR')) ("err=" + $r.Err)
+  Check "11 列舉失敗時不得誤刪" (Test-Path -LiteralPath (Join-Path $l11 $enumOld11)) "列舉失敗卻刪了檔"
+  Test-StateKept "11" $r $h11
+
+  Write-Output "§12 -Cleanup -DryRun 列舉失敗 → exit 1（數字不可信）"
+  $r = Invoke-Cleanup $h11 -DryRun -Mode 'enum'
+  Check "12 exit 1" ($r.Code -eq 1) ("exit=" + $r.Code + " err=" + $r.Err)
+  Check "12 stderr 有 CLEANUP_ERROR（行首）" ($r.Err -match '(?m)^CLEANUP_ERROR: ') ("err=" + $r.Err)
+  Check "12 檔案仍在" (Test-Path -LiteralPath (Join-Path $l11 $enumOld11)) "-DryRun 卻刪了檔"
+
+  Write-Output "§13 -Cleanup：沒有 super-mode-logs"
+  $h13 = New-Home "cleanup-nolog"
+  Remove-Item -LiteralPath (Get-LogDir $h13) -Recurse -Force
+  $r = Invoke-Cleanup $h13
+  Check "13 exit 0" ($r.Code -eq 0) ("exit=" + $r.Code + " err=" + $r.Err)
+  Check "13 stdout 報 deleted=0 bytes=0 failed=0" ($r.Out -match 'deleted=0 bytes=0 failed=0') ("out=" + $r.Out)
+  Check "13 stderr 不得有 CLEANUP_ERROR" (-not ($r.Err -match 'CLEANUP_ERROR')) ("err=" + $r.Err)
+  Test-StateKept "13" $r $h13
+
+  Write-Output "§14 -Cleanup 的參數組合不合法 ⇒ exit 2、不刪逐字稿、不動旗標與憑證"
+  $argSpecs = @(
+    '-Cleanup -Off',                    # 不得照做 -Off
+    '-Cleanup -On',                     # 不得照做 -On
+    '-DryRun',                          # -DryRun 沒搭配 -Cleanup
+    '-Off -DryRun',                     # 不得照做 -Off
+    '-Cleanup stray',                   # 單一多餘引數依位置綁到 -Scope
+    '-Cleanup -DryRun stray1 stray2'    # 第二個多餘引數落在 $args
+  )
+  $i = 0
+  foreach ($spec in $argSpecs) {
+    $i++
+    $h = New-Home ("cleanup-args-" + $i)
+    $oldLog = Join-Path (Get-LogDir $h) 'codex_consult_20200101_000000_eeeeee.txt'
+    New-LogFile $oldLog $OLD
+    $r = Invoke-Raw $h $spec
+    $ctx = "exit=" + $r.Code + " out=" + $r.Out + " err=" + $r.Err
+    Check "14.$i exit 2 [$spec]" ($r.Code -eq 2) $ctx
+    Check "14.$i 舊逐字稿仍在 [$spec]" (Test-Path -LiteralPath $oldLog) $ctx
+    Check "14.$i stdout 不得印清理結果 [$spec]" ($r.Out -notmatch 'transcript cleanup') $ctx
+    Test-StateKept "14.$i [$spec]" $r $h
+  }
+  Check "14 usage 列出 -Cleanup [-DryRun]" ($r.Err -match '\[-Cleanup \[-DryRun\]\]') ("err=" + $r.Err)
+
+  Write-Output '§15 -Cleanup 成功時明確 exit 0（同行程 & 呼叫，呼叫端原本的 $LASTEXITCODE 是 7）'
+  $h15 = New-Home "cleanup-preset"
+  New-LogFile (Join-Path (Get-LogDir $h15) 'codex_exec_20200101_000000_ffffff.txt') $OLD
+  $r = Invoke-Cleanup $h15 -Mode 'stop' -PresetExit
+  Check "15 exit 0（不得沿用呼叫端殘留的 7）" ($r.Code -eq 0) ("exit=" + $r.Code + " out=" + $r.Out + " err=" + $r.Err)
+  Check "15 stdout 報 deleted=1 bytes=1 failed=0" ($r.Out -match 'deleted=1 bytes=1 failed=0') ("out=" + $r.Out)
+
+  Write-Output '§16 -Off -DryRun:$false ⇒ exit 2，不得照做 -Off（看有沒有帶 -DryRun，不看值）'
+  $h16 = New-Home "off-dryfalse"
+  $oldLog16 = Join-Path (Get-LogDir $h16) 'codex_consult_20200101_000000_eeeeee.txt'
+  New-LogFile $oldLog16 $OLD
+  $env:OC_TARGET = $Sut
+  try { $r = Start-Child $h16 ('-NoProfile -File "' + $wrapperOffDry + '"') }
+  finally { Remove-Item -LiteralPath Env:OC_TARGET -ErrorAction SilentlyContinue }
+  $ctx = "exit=" + $r.Code + " out=" + $r.Out + " err=" + $r.Err
+  Check "16 exit 2" ($r.Code -eq 2) $ctx
+  Check "16 舊逐字稿仍在" (Test-Path -LiteralPath $oldLog16) $ctx
+  Test-StateKept "16" $r $h16
+
   # 案數守衛：只證明「沒少跑案」，不證明案子有牙齒（牙齒見檔頭 -Sut 用法）。
   # §0 3 + §1 (4+1+7+17+3+2+3=37) + §2 (4+4=8) + §3 (4+4=8) + §4 (4+1=5) + §5 (4+1=5) + §6 (4+3=7)
-  $expected = 73
+  # + §7 (4+7+3=14) + §8 (3+3+4+3=13) + §9 (7+3=10) + §10 (7+3=10) + §11 (5+3=8) + §12 3
+  # + §13 (3+3=6) + §14 (6×6+1=37) + §15 2 + §16 (2+3=5)
+  $expected = 181
   $ran = $script:pass + $script:fail
   Check "案數守衛：實跑 $expected 案" ($ran -eq $expected) ("實跑=" + $ran + " 期望=" + $expected)
 }

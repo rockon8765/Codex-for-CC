@@ -48,7 +48,7 @@
 **Windows 與 macOS**
 
 - **實際派工的 `codex-exec` 只有 macOS 固定帶 `--disable remote_plugin`**（Windows 沒有；`codex-check` 兩邊都只印提示、不帶旗標）。這個旗標只關**遠端外掛目錄**（上游 openai/codex #28443），關不掉已裝外掛與帳號 connector，不算硬化；在註冊面真正有效的是 `--disable apps --disable plugins`（[驗收紀錄](docs/ACCEPTANCE-capability-boundary-2026-09-14.md)），但要不要採用仍未決。要改請兩平台一起改。
-- **`super-mode off` 的逐字稿清理**：只刪 `~/.claude/super-mode-logs/` **頂層**、檔名符合 consult／exec 逐字稿格式（`codex_consult_<時間戳>.txt`／`codex_exec_<時間戳>.txt`／`codex_exec_<時間戳>_last.txt`）、且超過 14 天的檔；不進子目錄、不碰其他檔名，刪除或列舉失敗會在 stderr 印 `OFF_CLEANUP_ERROR`，但 off 照常完成。兩平台之間仍有五個沿用舊行為的差異，都不會刪到白名單以外的檔：logdir 本身是 symlink／junction（Windows 會清到目標目錄的頂層）、隱藏檔、列舉後才消失的檔、頂層的 file symlink、列舉錯誤的輸出格式，見 backlog [`OFF-CLEANUP-RECURSIVE`](docs/backlog.md#OFF-CLEANUP-RECURSIVE)。
+- **`super-mode off` 與 `cleanup`（Windows：`-Off` 與 `-Cleanup`）的逐字稿清理**：兩者範圍相同——只刪 `~/.claude/super-mode-logs/` **頂層**、檔名符合 consult／exec 逐字稿格式（`codex_consult_<時間戳>.txt`／`codex_exec_<時間戳>.txt`／`codex_exec_<時間戳>_last.txt`）、且超過 14 天的檔；不進子目錄、不碰其他檔名。差別在其餘行為：`off` 會清旗標與憑證，刪除或列舉失敗在 stderr 印 `OFF_CLEANUP_ERROR`，但 off 照常完成；`cleanup` 不碰旗標與憑證，失敗印 `CLEANUP_ERROR` 並 exit 1，加 `--dry-run`（Windows：`-DryRun`）只報符合條件的檔數與位元組數。「超過 14 天」的門檻兩平台差不到一天：macOS 的 `find -mtime +14` 對天數捨去取整，實際滿 15×24 小時才刪；Windows 比的是最後修改時間早於 14×24 小時前。下面第三項差異會影響 `cleanup` 的退出碼：列舉後才消失的檔，Windows 算成刪除失敗（exit 1），macOS 不算（exit 0）。兩平台之間仍有五個沿用舊行為的差異，都不會刪到白名單以外的檔：logdir 本身是 symlink／junction（Windows 會清到目標目錄的頂層）、隱藏檔、列舉後才消失的檔、頂層的 file symlink、列舉錯誤的輸出格式，見 backlog [`OFF-CLEANUP-RECURSIVE`](docs/backlog.md#OFF-CLEANUP-RECURSIVE)。
 - 其餘功能兩平台一致；差在**驗證覆蓋**（見上表）與平台語義（見下方「已知的坑」）。
 
 **Linux（凍結快照 `80c60a8`）與上面的差異**
@@ -116,7 +116,7 @@ UltraCode 換「品質」（多花 Claude）、超級模式換「省 Claude 額�
 4. **派工** — 寫一份自足的任務簡報，在背景跑 `codex-exec.sh -q`；由 Codex 寫程式。
 5. **審查** — Claude 審 `_last.txt` + `git diff`；不合格就退回重派。
 6. **里程碑回寫** — 勾掉 spec md 的項目，然後 commit（commit 會把憑證降到剩 3 分鐘，逼下一個里程碑重新諮詢）。
-7. **關閉** — `super-mode.sh off`：清掉旗標與憑證，並清理舊逐字稿（範圍見「[功能差距](#功能差距各平台實作狀態)」）。⚠️ **跑 off 前先把要留的逐字稿／驗收證據移出 `super-mode-logs/` 頂層。** 清理只在 `off` 時觸發，日常「討論夥伴」諮詢從不觸發，所以 `~/.claude/super-mode-logs/` 會一直累積。
+7. **關閉** — `super-mode.sh off`：清掉旗標與憑證，並清理舊逐字稿（範圍見「[功能差距](#功能差距各平台實作狀態)」）。⚠️ **跑 off 前先把要留的逐字稿／驗收證據移出 `super-mode-logs/` 頂層。** 沒有東西會自動清理：日常「討論夥伴」諮詢從不開關超級模式，`~/.claude/super-mode-logs/` 會一直累積，要另外跑 `super-mode.sh cleanup`（Windows：`super-mode.ps1 -Cleanup`）——範圍與 `off` 相同、不碰旗標與憑證，加 `--dry-run`（Windows：`-DryRun`）只預覽。不要為了清檔去跑 `off`，它會清掉全機共用的旗標與憑證。
 
 hook 也會自癒：超過 8 小時的旗標會被視為殘留並自動移除。時間從開啟那次起算、不看活動，工作中的 session 也會被解除，而且沒有提示；續作前先查狀態，做法見 SKILL §0。
 
