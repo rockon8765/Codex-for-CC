@@ -225,6 +225,164 @@ ERR="$(cat "$root/err.txt")"
 check "11a 家目錄含空白時仍能鑄造" "$([ "$RC" -eq 0 ] && echo 0 || echo 1)" "rc=$RC err=$ERR"
 check "11b 憑證寫在含空白的路徑下" "$([ -f "$space_token" ] && echo 0 || echo 1)" "憑證沒寫出來"
 
+# ── §12–§15（2026-11-18）：鑄證由 python3 改成 node ──────────────────────────
+# tok_q <憑證檔> <JS 運算式>：以 t＝解析後的憑證求值並印出；解析失敗就非 0。
+tok_q() {
+  node -e 'const t = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")); process.stdout.write(String(eval(process.argv[2])));' "$1" "$2"
+}
+# 期望的 brief_sha256：與產品同一個定義（簡報內容去掉尾端換行，UTF-8 位元組），但用另一支工具算。
+sha_of_brief() {
+  if command -v shasum >/dev/null 2>&1; then printf '%s' "$(cat "$1")" | shasum -a 256 | cut -d' ' -f1
+  else printf '%s' "$(cat "$1")" | sha256sum | cut -d' ' -f1; fi
+}
+
+echo ""
+echo "§12 憑證欄位與值的來源不變"
+rm -f "$token"
+ans_file="$(mktemp "$root/ans-XXXXXX")"; printf 'ALLOW: 可以\n%s\n' "$long" > "$ans_file"
+t_before="$(date +%s)"
+OUT="$(HOME="$fake_home" PATH="$stub_dir:$PATH" STDOUT_FILE="$ans_file" EXIT_CODE=0 \
+      CLAUDE_SESSION_ID="sess-12-abc" bash "$sut" -d "$repo" -f "$brief" 2> "$root/err.txt")"
+RC=$?
+ERR="$(cat "$root/err.txt")"
+t_after="$(date +%s)"
+check "12a exit 0" "$([ "$RC" -eq 0 ] && echo 0 || echo 1)" "rc=$RC err=$ERR"
+check "12b 欄位恰為 epoch／ts／repo／brief_sha256／session" \
+  "$([ "$(tok_q "$token" 'Object.keys(t).sort().join(",")' 2>/dev/null)" = "brief_sha256,epoch,repo,session,ts" ] && echo 0 || echo 1)" \
+  "內容=$(cat "$token" 2>/dev/null)"
+check "12c repo＝-d 的目錄" "$([ "$(tok_q "$token" 't.repo' 2>/dev/null)" = "$repo" ] && echo 0 || echo 1)" "內容=$(cat "$token" 2>/dev/null)"
+check "12d session＝CLAUDE_SESSION_ID" "$([ "$(tok_q "$token" 't.session' 2>/dev/null)" = "sess-12-abc" ] && echo 0 || echo 1)" "內容=$(cat "$token" 2>/dev/null)"
+check "12e brief_sha256＝簡報內容的 sha256" \
+  "$([ "$(tok_q "$token" 't.brief_sha256' 2>/dev/null)" = "$(sha_of_brief "$brief")" ] && echo 0 || echo 1)" \
+  "憑證=$(tok_q "$token" 't.brief_sha256' 2>/dev/null) 期望=$(sha_of_brief "$brief")"
+ep="$(tok_q "$token" 'Number.isInteger(t.epoch) ? t.epoch : "not-int"' 2>/dev/null)"
+# ⚠️ 判斷寫成函式、不把 case 塞進 $( )：bash 3.2 會把 case 樣式的 `)` 當成命令替換的結尾。
+epoch_in_range() { # epoch_in_range <值> <下界> <上界>
+  case "$1" in ''|*[!0-9]*) return 1 ;; esac
+  [ "$1" -ge "$2" ] && [ "$1" -le "$3" ]
+}
+check "12f epoch 是本次執行期間的整數秒" \
+  "$(epoch_in_range "$ep" "$t_before" "$t_after" && echo 0 || echo 1)" \
+  "epoch=$ep 區間=${t_before}..${t_after}"
+check "12g ts 形如 YYYY-MM-DDTHH:MM:SS±ZZZZ" \
+  "$([ "$(tok_q "$token" '/^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}[+-][0-9]{4}$/.test(t.ts)' 2>/dev/null)" = "true" ] && echo 0 || echo 1)" \
+  "ts=$(tok_q "$token" 't.ts' 2>/dev/null)"
+rm -f "$token"
+OUT="$(env -u CLAUDE_SESSION_ID HOME="$fake_home" PATH="$stub_dir:$PATH" STDOUT_FILE="$ans_file" EXIT_CODE=0 \
+      bash "$sut" -d "$repo" -f "$brief" 2> "$root/err.txt")"
+RC=$?
+check "12h 沒有 CLAUDE_SESSION_ID → session＝unknown" \
+  "$([ "$RC" -eq 0 ] && [ "$(tok_q "$token" 't.session' 2>/dev/null)" = "unknown" ] && echo 0 || echo 1)" "rc=$RC 內容=$(cat "$token" 2>/dev/null)"
+
+echo ""
+echo "§13 鑄證不得依賴 python3（舊版缺 python3 時，要等諮詢跑完才 exit 44）"
+nopy="$root/nopy"; mkdir -p "$nopy"
+cat > "$nopy/python3" <<'NOPY'
+#!/usr/bin/env bash
+echo "PYTHON-CALLED" >> "$PY_TRACE"
+exit 127
+NOPY
+chmod +x "$nopy/python3"
+: > "$root/py-trace"
+rm -f "$token"
+OUT="$(HOME="$fake_home" PATH="$nopy:$stub_dir:$PATH" PY_TRACE="$root/py-trace" STDOUT_FILE="$ans_file" EXIT_CODE=0 \
+      bash "$sut" -d "$repo" -f "$brief" 2> "$root/err.txt")"
+RC=$?
+ERR="$(cat "$root/err.txt")"
+check "13a python3 不可用時仍 exit 0" "$([ "$RC" -eq 0 ] && echo 0 || echo 1)" "rc=$RC err=$ERR"
+check "13b 憑證有鑄造" "$([ -f "$token" ] && echo 0 || echo 1)" "憑證沒寫出來"
+check "13c python3 從未被呼叫" "$([ ! -s "$root/py-trace" ] && echo 0 || echo 1)" "trace=$(cat "$root/py-trace")"
+
+echo ""
+echo "§14 簡報超過 ARG_MAX（1 MiB）仍能鑄證（舊版把整份簡報放進環境變數）"
+big_brief="$root/big-brief.md"
+# ⚠️ 用 printf 的寬度指定造 padding，不用 head -c /dev/zero | tr '\0'（BSD／GNU 的 tr 對 NUL 處理不同）。
+{ printf '大簡報\n'; printf '%*s' 1363149 '' | tr ' ' 'x'; printf '\n'; } > "$big_brief"
+big_size="$(wc -c < "$big_brief" | tr -d ' ')"
+check "14a 簡報確實超過 1 MiB（否則本節沒有刺激到上限）" "$([ "${big_size:-0}" -gt 1048576 ] && echo 0 || echo 1)" "size=$big_size"
+rm -f "$token"
+OUT="$(HOME="$fake_home" PATH="$stub_dir:$PATH" STDOUT_FILE="$ans_file" EXIT_CODE=0 \
+      bash "$sut" -d "$repo" -f "$big_brief" 2> "$root/err.txt")"
+RC=$?
+ERR="$(cat "$root/err.txt")"
+check "14b 大簡報 → exit 0" "$([ "$RC" -eq 0 ] && echo 0 || echo 1)" "rc=$RC err=$ERR"
+check "14c 憑證有鑄造" "$([ -f "$token" ] && echo 0 || echo 1)" "憑證沒寫出來"
+check "14d brief_sha256＝大簡報的 sha256" \
+  "$([ "$(tok_q "$token" 't.brief_sha256' 2>/dev/null)" = "$(sha_of_brief "$big_brief")" ] && echo 0 || echo 1)" \
+  "憑證=$(tok_q "$token" 't.brief_sha256' 2>/dev/null)"
+
+echo ""
+echo "§15 憑證寫入失敗 → 44，既有憑證不動、不留暫存檔"
+if [ "$(id -u)" = "0" ]; then
+  echo "  SKIP  §15：以 root 執行，chmod 擋不住寫入。請用一般使用者跑。"
+else
+  printf '{"repo":"OLD","ts":"old"}' > "$token"
+  old_sum="$(cksum < "$token")"
+  old_mt="$(mtime_of "$token")" || { echo "取不到 mtime，中止" >&2; exit 2; }
+  sleep 1.1
+  chmod a-w "$fake_home/.claude"
+  run_consult "ALLOW: 可以做
+$long" 0
+  chmod u+w "$fake_home/.claude"
+  check "15a 寫入失敗 → exit 44" "$([ "$RC" -eq 44 ] && echo 0 || echo 1)" "rc=$RC err=$ERR"
+  check "15b stderr 有 CONSULT_TOKEN_WRITE_FAILED" "$(printf '%s' "$ERR" | grep -q 'CONSULT_TOKEN_WRITE_FAILED' && echo 0 || echo 1)" "err=$ERR"
+  check "15c stderr 帶出逐字稿路徑" "$(printf '%s' "$ERR" | grep -q 'transcript: .*super-mode-logs/codex_consult_' && echo 0 || echo 1)" "err=$ERR"
+  check "15d 既有憑證內容未變" "$([ "$(cksum < "$token")" = "$old_sum" ] && echo 0 || echo 1)" "憑證內容被動過"
+  new_mt="$(mtime_of "$token")" || { echo "取不到 mtime，中止" >&2; exit 2; }
+  check "15e 既有憑證 mtime 未變" "$([ "$new_mt" = "$old_mt" ] && echo 0 || echo 1)" "mtime $old_mt -> $new_mt"
+  check "15f 沒有殘留 .tmp-* 垃圾" \
+    "$([ -z "$(find "$fake_home/.claude" -maxdepth 1 -name '.super-mode-consult-ok.tmp-*' 2>/dev/null)" ] && echo 0 || echo 1)" \
+    "殘留: $(find "$fake_home/.claude" -maxdepth 1 -name '.super-mode-consult-ok.tmp-*' 2>/dev/null)"
+fi
+
+echo ""
+echo "§16 只有空白的簡報 → exit 2（2026-11-18：空簡報檢查改寫成線性的 case，語義不得變）"
+blank_brief="$root/blank.md"; printf ' \n\t\n\n' > "$blank_brief"
+rm -f "$token"
+OUT="$(HOME="$fake_home" PATH="$stub_dir:$PATH" STDOUT_FILE="$ans_file" EXIT_CODE=0 \
+      bash "$sut" -d "$repo" -f "$blank_brief" 2> "$root/err.txt")"
+RC=$?
+ERR="$(cat "$root/err.txt")"
+check "16a 空白簡報 → exit 2" "$([ "$RC" -eq 2 ] && echo 0 || echo 1)" "rc=$RC err=$ERR"
+check "16b 訊息為 prompt is empty" "$(printf '%s' "$ERR" | grep -q 'prompt is empty' && echo 0 || echo 1)" "err=$ERR"
+check "16c 不鑄造" "$([ ! -f "$token" ] && echo 0 || echo 1)" "空簡報卻鑄了憑證"
+
+echo ""
+echo "§17 brief_sha256 算不出來 → 呼叫 codex 之前就 46（不燒掉一次諮詢）"
+# node 包裝：只讓「算雜湊」那一次失敗（看 -e 腳本裡的 createHash），其餘委派真 node。
+real_node="$(command -v node)"
+wrap_node="$root/wrap-node"
+cat > "$wrap_node" <<WRAP
+#!/usr/bin/env bash
+for a in "\$@"; do case "\$a" in *createHash*) exit 1 ;; esac; done
+exec "$real_node" "\$@"
+WRAP
+chmod +x "$wrap_node"
+trace_stub="$root/stub-trace"; mkdir -p "$trace_stub"
+cat > "$trace_stub/codex" <<'STUB'
+#!/usr/bin/env bash
+echo RAN >> "$CODEX_TRACE"
+cat "$STDOUT_FILE"
+STUB
+chmod +x "$trace_stub/codex"
+: > "$root/codex-trace"
+rm -f "$token"
+OUT="$(HOME="$fake_home" PATH="$trace_stub:$PATH" CODEX_TRACE="$root/codex-trace" STDOUT_FILE="$ans_file" \
+      SUPER_MODE_NODE="$wrap_node" bash "$sut" -d "$repo" -f "$brief" 2> "$root/err.txt")"
+RC=$?
+ERR="$(cat "$root/err.txt")"
+check "17a 雜湊失敗 → exit 46" "$([ "$RC" -eq 46 ] && echo 0 || echo 1)" "rc=$RC err=$ERR"
+check "17b 哨兵寫明尚未呼叫 codex" \
+  "$(printf '%s' "$ERR" | grep -q 'CONSULT_TRANSCRIPT_UNAVAILABLE.*brief_sha256.*尚未呼叫 codex' && echo 0 || echo 1)" "err=$ERR"
+check "17c codex 沒有被呼叫" "$([ ! -s "$root/codex-trace" ] && echo 0 || echo 1)" "trace=$(cat "$root/codex-trace")"
+check "17d 不鑄造" "$([ ! -f "$token" ] && echo 0 || echo 1)" "雜湊失敗卻鑄了憑證"
+: > "$root/codex-trace"
+OUT="$(HOME="$fake_home" PATH="$trace_stub:$PATH" CODEX_TRACE="$root/codex-trace" STDOUT_FILE="$ans_file" \
+      SUPER_MODE_NODE="$wrap_node" bash "$sut" -d "$repo" -f "$brief" -n 2> "$root/err.txt")"
+RC=$?
+check "17e 討論模式不算雜湊：同一個壞 node 仍 exit 0 且 codex 有跑" \
+  "$([ "$RC" -eq 0 ] && [ -s "$root/codex-trace" ] && echo 0 || echo 1)" "rc=$RC err=$(cat "$root/err.txt")"
+
 echo ""
 echo "CONSULT-CREDENTIAL $pass/$((pass+fail))"
 if [ "$fail" -gt 0 ]; then

@@ -6,6 +6,7 @@
 #     而且在**改動任何狀態之前**就拒絕：旗標與憑證維持原樣。
 #   - `off` 沒有 scope 概念（旗標與憑證是全機單一檔）：`off --scope <dir>` 不得照常關掉全機模式。
 #   - 合法寫法（無參數／status／on／on --scope <dir>／on -s <dir>／off）行為不變。
+#   - `cleanup` 只接受 `cleanup` 與 `cleanup --dry-run`（§6）；合法寫法的行為在 off-cleanup.tests.sh。
 #
 # 用法：bash super-mode-args.tests.sh [<super-mode.sh>]
 #   參數只給牙齒檢查用（對舊版跑，應該要紅）；正式驗收不要帶。
@@ -160,7 +161,27 @@ chk  "5r 旗標已清"                 "$(present "$flag")" "no"
 chk  "5s 憑證已清"                 "$(present "$token")" "no"
 chkm "5t 印 OFF"                   "$OUT" "super mode: OFF" 1
 
-EXPECTED_CHECKS=77   # §1 7×3 + §2 4 + §3 3×4 + §4 5×4 + §5 20；只證明「沒少跑案」
+echo "§6 cleanup 的參數不合法 ⇒ exit 2、不刪逐字稿、不動旗標與憑證"
+old_log="$C/super-mode-logs/codex_consult_20200101_000000_abcdef.txt"
+mkdir -p "$C/super-mode-logs"
+printf 'x\n' > "$old_log"; touch -t 202001010000 "$old_log"
+n=0
+for spec in "cleanup extra" "cleanup --dryrun" "cleanup --dry-run extra" "cleanup --scope $proj" \
+            "cleanup -n" "--dry-run" "off --dry-run"; do
+  n=$((n+1))
+  seed "$other"
+  # shellcheck disable=SC2086
+  set -- $spec
+  run "$@"
+  chk  "6.${n} rc=2 [${spec}]"                 "$RC" "2"
+  chk  "6.${n} 旗標仍在 [${spec}]"              "$(present "$flag")" "yes"
+  chk  "6.${n} 憑證仍在 [${spec}]"              "$(present "$token")" "yes"
+  chk  "6.${n} 舊逐字稿仍在 [${spec}]"          "$(present "$old_log")" "yes"
+  chkm "6.${n} stdout 不得印清理結果 [${spec}]" "$OUT" "transcript cleanup" 0
+done
+chkm "6z usage 列出 cleanup [--dry-run]"       "$ERR" "cleanup [--dry-run]" 1
+
+EXPECTED_CHECKS=113  # §1 7×3 + §2 4 + §3 3×4 + §4 5×4 + §5 20 + §6 7×5+1；只證明「沒少跑案」
 total=$((pass+fail))
 if [ "$total" -ne "$EXPECTED_CHECKS" ]; then
   fail=$((fail+1)); failed="$failed

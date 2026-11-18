@@ -9,6 +9,8 @@
 #   (2) 收尾 `rm` 失敗 —— `325065c` 修的就是這條，但該 commit 自己寫明
 #       「沒有新增對應的動態案……不宣稱已驗」，因為 Cygwin 的 chmod 對目錄無效。
 #   (3) `mktemp` 失敗 —— mk_or_46 的 46 路徑。
+#   (4) codex 跑完之後的 `mktemp` 失敗（2026-11-18，§F4）—— 同一個 mk_or_46，但訊息不得再寫
+#       「尚未呼叫 codex」，要帶出本次逐字稿路徑。
 #
 # 注入手法：**PATH shim**，不是 chmod。理由有三：
 #   a. chmod 在 Cygwin 對目錄無效（開發機實測），shim 三平台都能跑。
@@ -85,15 +87,19 @@ chmod +x "$root/stub/codex"
 
 # ── shim：只對目標檔名失敗，其餘委派真程式；每次觸發都留痕 ─────────────
 # FAULT_TARGET 是 basename 的 glob；FAULT_TRACE 記錄「注入真的發生過」。
+# FAULT_AFTER_CODEX=1：stub codex 跑過（FAKE_TRACE 有 RAN）之後才注入——同一個檔名樣式在
+#   preflight 與答案驗證各出現一次時（consult_v_out_*），用它只打後面那一次。
 make_shim() { # make_shim <name> <real-path> <fault-env-var>
   cat > "$root/stub/$1" <<SHIM
 #!/usr/bin/env bash
 if [ "\${$3:-0}" = "1" ]; then
-  for a in "\$@"; do
-    case "\${a##*/}" in
-      \${FAULT_TARGET:-__nope__}) echo "INJECT-$1 \$a" >> "\${FAULT_TRACE:-/dev/null}"; exit 1 ;;
-    esac
-  done
+  if [ "\${FAULT_AFTER_CODEX:-0}" != "1" ] || grep -q RAN "\${FAKE_TRACE:-/dev/null}" 2>/dev/null; then
+    for a in "\$@"; do
+      case "\${a##*/}" in
+        \${FAULT_TARGET:-__nope__}) echo "INJECT-$1 \$a" >> "\${FAULT_TRACE:-/dev/null}"; exit 1 ;;
+      esac
+    done
+  fi
 fi
 exec "$2" "\$@"
 SHIM
@@ -104,7 +110,7 @@ make_shim rm     "$REAL_RM"     FAULT_RM
 make_shim mktemp "$REAL_MKTEMP" FAULT_MKTEMP
 
 pass=0; fail=0; failed=""
-EXPECTED_CHECKS=18   # 只證明沒少跑案，不證明案子有牙齒
+EXPECTED_CHECKS=29   # 只證明沒少跑案，不證明案子有牙齒（F1 8 + F2 5 + F3 6 + F4 10）
 
 chk() {
   if [ "$2" = "$3" ]; then pass=$((pass+1)); else
@@ -132,6 +138,7 @@ run() { # run <sut-path> <fake_exit> <stdout> <stderr>
   FAULT_TRACE="$root/fault-trace" \
   FAULT_TARGET="${FAULT_TARGET:-__nope__}" \
   FAULT_CAT="${FAULT_CAT:-0}" FAULT_RM="${FAULT_RM:-0}" FAULT_MKTEMP="${FAULT_MKTEMP:-0}" \
+  FAULT_AFTER_CODEX="${FAULT_AFTER_CODEX:-0}" \
   HOME="$root/home" PATH="$root/stub:$PATH" LC_ALL="$RUN_LC" \
     "$SUT_BASH" "$1" -d "$root/repo" -f "$root/brief.md" -n > "$root/o.txt" 2> "$root/e.txt"
   RC=$?
@@ -210,16 +217,35 @@ chk  "F3a 注入確實發生"                        "$([ "$INJ" -ge 1 ] && echo
 chk  "F3b 退出碼 46"                           "$RC"  "46"
 chkm "F3c 哨兵 CONSULT_TRANSCRIPT_UNAVAILABLE" "$ERR" "CONSULT_TRANSCRIPT_UNAVAILABLE" 1
 chk  "F3d codex 未被呼叫"                      "$RAN" "0"
+chkm "F3e 訊息寫明尚未呼叫 codex"              "$ERR" "尚未呼叫 codex" 1
 
 echo "§F3m mutant：mk_or_46 改成不 exit → 必須不再是 46"
-# ⚠️ 錨點要用 mk_or_46 專屬的訊息，不能只用 `exit 46`（全檔 5 處，mutate 會拒絕）。
+# ⚠️ 錨點要用 mk_or_46 專屬的那一行，不能只用 `exit 46`（全檔多處，mutate 會拒絕）。
 mutate "$root/sut/scripts/m3.sh" \
-  'CONSULT_TRANSCRIPT_UNAVAILABLE: 無法建立$1暫存檔（${TMPDIR:-/tmp} 不可寫？）。**尚未呼叫 codex**，未鑄造憑證。" >&2
-    exit 46' \
-  'CONSULT_TRANSCRIPT_UNAVAILABLE: 無法建立$1暫存檔（${TMPDIR:-/tmp} 不可寫？）。**尚未呼叫 codex**，未鑄造憑證。" >&2
-    exit 0'
+  '    exit 46   # mk_or_46' \
+  '    exit 0'
 FAULT_TARGET='codex_err_*' FAULT_MKTEMP=1 run "$root/sut/scripts/m3.sh" 0 "answer" "stderr"
 chk  "F3m-a mutant 下不再是 46"                "$([ "$RC" -eq 46 ] && echo still46 || echo not46)" "not46"
+
+# ─────────────────────────────────────────────────────────────────────────
+echo
+echo "§F4 codex 跑完後 mktemp 失敗（判準暫存檔）→ 46，訊息不得寫「尚未呼叫 codex」"
+# 2026-11-18：mk_or_46 的訊息原本固定寫「尚未呼叫 codex」，但 run_validator 在 codex 跑完後也呼叫它。
+FAULT_TARGET='consult_v_out_*' FAULT_MKTEMP=1 FAULT_AFTER_CODEX=1 run "$SUT" 0 "some answer" "stderr"
+chk  "F4a 注入確實發生"                        "$([ "$INJ" -ge 1 ] && echo yes || echo no)" "yes"
+chk  "F4b codex 有被呼叫（注入在它之後）"      "$RAN" "1"
+chk  "F4c 退出碼 46"                           "$RC"  "46"
+chkm "F4d 哨兵 CONSULT_TRANSCRIPT_UNAVAILABLE" "$ERR" "CONSULT_TRANSCRIPT_UNAVAILABLE" 1
+chkm "F4e 不得寫「尚未呼叫 codex」"            "$ERR" "尚未呼叫 codex" 0
+chkm "F4f 寫明 codex 已執行完畢"               "$ERR" "codex 已執行完畢" 1
+chkm "F4g 帶出本次逐字稿路徑"                  "$ERR" "/.claude/super-mode-logs/codex_consult_" 1
+chkm "F4h 不得宣稱 consult OK"                 "$OUT" "consult OK" 0
+
+echo "§F4m mutant：拿掉「codex 已跑完」的標記 → 訊息必須退回「尚未呼叫 codex」（證明 F4e 有牙齒）"
+mutate "$root/sut/scripts/m4.sh" 'codex_ran=1' 'codex_ran=0'
+FAULT_TARGET='consult_v_out_*' FAULT_MKTEMP=1 FAULT_AFTER_CODEX=1 run "$root/sut/scripts/m4.sh" 0 "some answer" "stderr"
+chk  "F4m-a 注入仍發生"                        "$([ "$INJ" -ge 1 ] && echo yes || echo no)" "yes"
+chkm "F4m-b mutant 下訊息退回「尚未呼叫 codex」" "$ERR" "尚未呼叫 codex" 1
 
 # ─────────────────────────────────────────────────────────────────────────
 ran=$((pass+fail))
