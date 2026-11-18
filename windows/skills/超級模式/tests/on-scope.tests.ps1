@@ -6,6 +6,7 @@
 #   - 帶了 -Scope 但值是空字串、空白、檔案、不存在、UNC、非 FileSystem provider、session 專屬的 PSDrive，
 #     或路徑段以點／空白結尾
 #     ⇒ rc≠0、不留旗標；已有的旗標不被改掉。hook 的 readScope 只認路徑形狀的值，其他值都會靜默變成全域。
+#   - 參數組合不合法（-On -Off 同傳、-Scope 沒搭配 -On、多餘引數）⇒ rc=2，既有的旗標與憑證原封不動（§5，2026-11-18）。
 #
 # ⚠️ 兩個 host 各跑一次：pwsh 寫的旗標沒有 BOM，WinPS 5.1 有。decide() 兩種都要認得。
 # ⚠️ scope 用 %SystemRoot%：要是暫存區以外的路徑，否則會吃到 hook 的暫存豁免；本測試只讀不寫。
@@ -61,6 +62,7 @@ $fakeHome = Join-Path $root "home"
 $claude = Join-Path $fakeHome ".claude"
 New-Item -ItemType Directory -Path $claude -Force | Out-Null
 $flag = Join-Path $claude ".super-mode-active"
+$token = Join-Path $claude ".super-mode-consult-ok"
 $aFile = Join-Path $root "a-file.txt"; Write-Utf8 $aFile "x"
 
 # 參數走環境變數（Start-Process -ArgumentList 傳不了空字串）。⚠️ 必須 UTF-8 **with BOM**：WinPS 5.1 讀無 BOM 的 .ps1 用 ANSI 解碼。
@@ -71,6 +73,11 @@ if ($env:OS_DRIVE_ROOT) { $null = New-PSDrive -Name $env:OS_DRIVE_NAME -PSProvid
 if ($env:OS_MODE -eq 'status') { & $env:OS_TARGET }
 elseif ($env:OS_MODE -eq 'noscope') { & $env:OS_TARGET -On }
 elseif ($env:OS_MODE -eq 'empty') { & $env:OS_TARGET -On -Scope '' }
+elseif ($env:OS_MODE -eq 'both') { & $env:OS_TARGET -On -Off }
+elseif ($env:OS_MODE -eq 'offscope') { & $env:OS_TARGET -Off -Scope $env:OS_SCOPE }
+elseif ($env:OS_MODE -eq 'scopeonly') { & $env:OS_TARGET -Scope $env:OS_SCOPE }
+elseif ($env:OS_MODE -eq 'offextra') { & $env:OS_TARGET -Off stray }
+elseif ($env:OS_MODE -eq 'twoextra') { & $env:OS_TARGET stray1 stray2 }
 else { & $env:OS_TARGET -On -Scope $env:OS_SCOPE }
 exit $LASTEXITCODE
 '@, (New-Object System.Text.UTF8Encoding $true))
@@ -123,6 +130,20 @@ function Test-Rejected([string]$tag, $r) {
   Check "$tag rc=1" ($r.Code -eq 1) $ctx
   Check "$tag 不留旗標" (-not (Test-Path -LiteralPath $flag)) ("flag=" + (Read-Text $flag) + " " + $ctx)
   Check "$tag 不印 ON" ($r.Out -notmatch 'super mode: ON') $ctx
+}
+# 用法錯誤案：恰好 rc=2，而且既有的旗標與憑證原封不動（模擬另一個 session 正在用超級模式）。
+# $scopeDir 在下面的 try 區塊裡設定；本函式只在那之後被呼叫。
+function Test-UsageRejected([string]$tag, [string]$mode, [string]$scope = '') {
+  Clear-Flag
+  $null = Invoke-Sut 'scope' $scopeDir
+  Write-Utf8 $token '{"epoch":1}'
+  $before = Read-Text $flag
+  $r = Invoke-Sut $mode $scope
+  $ctx = "rc=" + $r.Code + " out=" + $r.Out + " err=" + $r.Err
+  Check "$tag rc=2" ($r.Code -eq 2) $ctx
+  Check "$tag 旗標內容不變" (($before -ne "") -and ((Read-Text $flag) -ceq $before)) ("flag=" + (Read-Text $flag) + " before=" + $before + " " + $ctx)
+  Check "$tag 憑證仍在" (Test-Path -LiteralPath $token) $ctx
+  Check "$tag 不印狀態" ($r.Out -notmatch 'super mode:') $ctx
 }
 
 try {
@@ -199,9 +220,16 @@ try {
   Check "4a rc=1" ($r.Code -eq 1) ("rc=" + $r.Code)
   Check "4b 旗標內容不變" ((Read-Text $flag) -ceq $before) ("flag=" + (Read-Text $flag))
 
+  Write-Output "§5 參數組合不合法 ⇒ rc=2、既有的旗標與憑證原封不動"
+  Test-UsageRejected "5a -On -Off 同傳" 'both'
+  Test-UsageRejected "5b -Off 帶 -Scope" 'offscope' $scopeDir
+  Test-UsageRejected "5c 只有 -Scope" 'scopeonly' $scopeDir
+  Test-UsageRejected "5d -Off 加一個多餘引數" 'offextra'
+  Test-UsageRejected "5e 兩個多餘引數" 'twoextra'
+
   # 案數守衛：只證明「沒少跑案」，不證明案子有牙齒（牙齒見檔頭 -Sut 用法）。
-  # §0 2 + §1 6 + §2 3 + §3 (3×11 + 1) + §4 2 = 47；全綠時摘要為 pass=48（含本守衛）
-  $expected = 47
+  # §0 2 + §1 6 + §2 3 + §3 (3×11 + 1) + §4 2 + §5 5×4 = 67；全綠時摘要為 pass=68（含本守衛）
+  $expected = 67
   $ran = $script:pass + $script:fail
   Check "案數守衛：實跑 $expected 案" ($ran -eq $expected) ("實跑=" + $ran + " 期望=" + $expected)
 }

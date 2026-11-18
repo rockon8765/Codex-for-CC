@@ -11,7 +11,9 @@
   會被 consult-gate 的指令解析誤判成串接指令而擋下。同時給 -Prompt 與 -PromptFile 現在
   直接報錯，不再靜默採用 -PromptFile。
 .PARAMETER OutFile
-  Codex 最終回覆落地路徑（--output-last-message）。不給就自動放 ~/.claude/super-mode-logs/。
+  最終回覆另存一份到這個路徑。Codex 一律先寫本次專屬的 ~/.claude/super-mode-logs/codex_exec_<ts>_last.txt
+  （--output-last-message），確認有內容才複製過去。Codex 回 0 但沒有本次最終回覆 → exit 46 +
+  EXEC_LAST_MESSAGE_MISSING；複製到 -OutFile 失敗 → exit 46 + EXEC_OUTFILE_FAILED。
 .EXAMPLE
   .\codex-exec.ps1 -Dir C:\proj -PromptFile <scratchpad>\task.txt
 .NOTES
@@ -111,6 +113,17 @@ if ($SchemaFile) {
   $schemaArg = '--output-schema "{5}" '   # 附加成最高編號 {5}，不動 stdin{3}/stderr{4}
 }
 
+# -OutFile：目標在呼叫 codex **之前**就驗（2026-11-18；macOS codex-exec.sh 的 -o 同段）。等派工跑完才發現
+# 寫不進去，worker 已經改完檔了。先轉成絕對路徑：相對路徑以 PowerShell 目前位置解析（與 -PromptFile 一致），
+# 交付由本腳本做，不再交給 codex 配合 -C 解讀。
+$outTarget = ''
+if ($OutFile) {
+  $outTarget = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($OutFile)
+  if (Test-Path -LiteralPath $outTarget -PathType Container) { throw "-OutFile 必須是檔案路徑，這是目錄: $outTarget" }
+  $outParent = [System.IO.Path]::GetDirectoryName($outTarget)
+  if (-not $outParent -or -not (Test-Path -LiteralPath $outParent -PathType Container)) { throw "-OutFile 的目錄不存在: $outParent" }
+}
+
 $logDir = Join-Path $env:USERPROFILE ".claude\super-mode-logs"
 # ⚠️ 同 codex-consult：建目錄失敗屬逐字稿不可用，走 46 不要讓 EAP=Stop 直接 rc 1。
 if (-not (Test-Path $logDir)) {
@@ -122,7 +135,10 @@ if (-not (Test-Path $logDir)) {
 }
 $stamp = "{0}_{1}" -f (Get-Date -Format "yyyyMMdd_HHmmss"), ([guid]::NewGuid().ToString('N').Substring(0, 6))  # 加去重後綴，防同秒並行派工檔名碰撞
 $log = Join-Path $logDir ("codex_exec_{0}.txt" -f $stamp)
-if (-not $OutFile) { $OutFile = Join-Path $logDir ("codex_exec_{0}_last.txt" -f $stamp) }
+# 本次專屬的最終回覆檔：codex 一律寫這裡（檔名帶本次 stamp，不可能是舊檔），確認有內容後才交付到 -OutFile。
+# ⚠️ 不讓 codex 直接寫 -OutFile（2026-11-18）：它指到既有檔而 codex 這次沒寫時，舊內容會被當成本次結果。
+$lastRun = Join-Path $logDir ("codex_exec_{0}_last.txt" -f $stamp)
+$OutFile = $(if ($outTarget) { $outTarget } else { $lastRun })   # 摘要回報用：有 -OutFile 就是它（絕對路徑），否則是本次專屬檔
 
 # ── 逐字稿前置：在呼叫 codex **之前**就強制把 log 建出來 ──────────────
 # 此刻中止是安全的：還沒有 native 退出碼需要保住。呼叫 codex 之後就不能再這樣做了。
@@ -221,7 +237,7 @@ try {
   # (a)可重現：worker 只依本簡報行事，不受過往記憶漂移影響；(b)斷閉環：不把本專案實作細節寫進
   # 全域 memories，否則下次同專案 consult 讀到→反方獨立性被污染。與 consult 對稱處理。
   # $rootArg（專案指示根，見上方）沒有大括號、不佔 -f 編號；空字串時本行與加入前逐位相同。
-  $inner = ('"{0}" exec --sandbox workspace-write --skip-git-repo-check -c memories.use_memories=false -c memories.generate_memories=false ' + $rootArg + '-C "{1}" ' + $schemaArg + '--output-last-message "{2}" < "{3}" 2> "{4}"') -f $codexCmd, $dirArg, $OutFile, $brief, $errFile, $SchemaFile
+  $inner = ('"{0}" exec --sandbox workspace-write --skip-git-repo-check -c memories.use_memories=false -c memories.generate_memories=false ' + $rootArg + '-C "{1}" ' + $schemaArg + '--output-last-message "{2}" < "{3}" 2> "{4}"') -f $codexCmd, $dirArg, $lastRun, $brief, $errFile, $SchemaFile
 
   # ══ native capture scope ══════════════════════════════════════════════════
   # 唯一任務：把 codex 跑完、把退出碼與兩條 stream 完整帶出來。
@@ -284,15 +300,54 @@ finally {
   Remove-Item -LiteralPath $errFile -Force -ErrorAction SilentlyContinue
 }
 
+# 本次最終回覆：有內容才算數；有 -OutFile 就交付過去。
+# ⚠️ 這一段在擷取 $code 之後、裁決之前：一律 try/catch，不得讓例外把退出碼蓋成 1。
+$lastOk = $false
+try {
+  if (Test-Path -LiteralPath $lastRun -PathType Leaf) {
+    $lastOk = -not [string]::IsNullOrWhiteSpace([System.IO.File]::ReadAllText($lastRun))
+  }
+}
+catch { $lastOk = $false }
+$deliverErr = ''
+if ($lastOk -and $outTarget) {
+  try { [System.IO.File]::Copy($lastRun, $outTarget, $true) }
+  catch {
+    $deliverErr = "$($_.Exception.Message)"
+    if (-not $deliverErr) { $deliverErr = '複製失敗（無訊息）' }
+  }
+}
+# 錯誤訊息裡的「本次最終回覆在哪」：只指向確實是本次產物的檔，免得主線去讀不存在的檔或 -OutFile 的舊檔。
+$lastNote = $OutFile
+if (-not $lastOk) { $lastNote = '（本次沒有產生）' }
+elseif ($deliverErr) { $lastNote = $lastRun + '（寫不進 -OutFile 目標 ' + $outTarget + '）' }
+
 if ($code -eq 0) {
   # codex 成功但逐字稿寫壞 → 不得回報成功。派工的逐字稿是後續驗收的唯一依據。
   if ($transcriptErrors.Count -gt 0) {
     [Console]::Error.WriteLine("EXEC_TRANSCRIPT_FAILED: codex 成功 (exit 0)，但逐字稿寫入失敗 -- " +
-      $transcriptErrors[0] + " 。transcript(可能不完整): $log ; last message: $OutFile")
+      $transcriptErrors[0] + " 。transcript(可能不完整): $log ; last message: " + $lastNote)
+    exit 46
+  }
+  # codex 成功但沒有本次的最終回覆 → 不得回報成功：主線收工後只讀它與 git diff，缺件等於沒有驗收材料。
+  if (-not $lastOk) {
+    $staleNote = ''
+    if ($outTarget) { $staleNote = ' -OutFile 目標 ' + $outTarget + ' 沒有更新；裡面若有內容，是先前留下的。' }
+    [Console]::Error.WriteLine('EXEC_LAST_MESSAGE_MISSING: codex 成功 (exit 0)，但沒有產生本次的最終回覆（' + $lastRun +
+      ' 不存在或只有空白）。worker 可能已經改檔：先核對 git status／git diff 與逐字稿，不要直接重派。' + $staleNote +
+      ' transcript: ' + $log)
+    exit 46
+  }
+  if ($deliverErr) {
+    [Console]::Error.WriteLine('EXEC_OUTFILE_FAILED: codex 成功 (exit 0)，本次最終回覆在 ' + $lastRun +
+      '，但寫不進 -OutFile 目標 ' + $outTarget + ' -- ' + $deliverErr + ' 。' + $outTarget +
+      ' 若有內容，是先前留下的。transcript: ' + $log)
     exit 46
   }
   Write-Output ("exec OK -- transcript: $log ; last message: $OutFile" + $rootNote)
 } else {
-  [Console]::Error.WriteLine("codex-exec: codex exited [$code]. transcript: $log" + (Get-TranscriptNote))
+  # 非零：原樣傳回退出碼，並附上本次有沒有最終回覆。
+  [Console]::Error.WriteLine("codex-exec: codex exited [$code]. transcript: $log" + (Get-TranscriptNote) +
+    " ; last message: " + $lastNote)
 }
 exit $code
