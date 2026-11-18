@@ -6,6 +6,8 @@
 #   - 不符檔名的舊檔、子目錄裡的舊檔（即使檔名符合）、近期逐字稿一律保留。
 #   - 刪除／列舉失敗要在 stderr 回報（OFF_CLEANUP_ERROR），但 off 照常完成：
 #     旗標與憑證清掉、印 super mode: OFF、exit 0。
+#   - cleanup 子命令（§7–§12，2026-11-18）：同一組條件，但只清逐字稿——旗標與憑證不動；
+#     --dry-run 只報檔數與位元組數；刪除／列舉失敗回 exit 1，stderr 前綴是 CLEANUP_ERROR。
 #
 # 用法：bash off-cleanup.tests.sh [<super-mode.sh>]
 #   參數只給牙齒檢查用（對舊版／mutant 跑，應該要紅）；正式驗收不要帶。
@@ -17,7 +19,7 @@
 #    userland（Linux／Git Bash）該節印 SKIP 並從案數扣除；但在 Darwin 上缺 chflags 一律 FAIL。
 #    以 root（euid=0）執行時該節同樣印 SKIP 並扣除：BSD rm 對 root 會先清掉 uchg／uappnd 再刪
 #    （推論，依 FreeBSD／Apple rm.c 的 `!uid` 分支），鎖不會生效，案子會以錯誤的理由變紅。
-#    正式驗收請用一般使用者跑（macOS 上應為 pass=74）。
+#    正式驗收請用一般使用者跑（macOS 上應為 pass=145）。
 # ⚠️ GNU vs BSD：本檔在 GNU userland（Linux／Git Bash）也能跑。find -mtime 的取整：GNU 捨去；
 #    macOS 預設（COMMAND_MODE 未設＝unix2003 模式）也捨去，只有 COMMAND_MODE=legacy 才無條件進位，
 #    man find 寫的「rounded up」是 legacy 行為（讀碼：Apple shell_cmds find/function.c:330、
@@ -37,7 +39,8 @@ command -v "$SUT_BASH" >/dev/null 2>&1 || { echo "SUT_BASH 不可執行: ${SUT_B
 # ⚠️ 真程式路徑必須在改 PATH **之前**解析，否則 shim 會遞迴呼叫自己。
 REAL_RM="$(command -v rm)"
 REAL_FIND="$(command -v find)"
-for p in "$REAL_RM" "$REAL_FIND"; do
+REAL_STAT="$(command -v stat)"
+for p in "$REAL_RM" "$REAL_FIND" "$REAL_STAT"; do
   [ -x "$p" ] || { echo "解析不到真程式路徑: ${p}" >&2; exit 2; }
 done
 
@@ -85,9 +88,24 @@ if [ "\${FAULT_FIND:-0}" = "1" ]; then
   echo "find: injected failure" >&2
   exit 1
 fi
+if [ -n "\${FAULT_VANISH:-}" ]; then
+  # 列舉完成之後、輸出之前把目標刪掉：模擬「列舉後才消失」（例如另一個 session 同時在清）。
+  # 先收進檔案再吐出來，受測腳本讀到記錄時檔案一定已經不在，沒有先後不定的問題。
+  "$REAL_FIND" "\$@" > "\${FAULT_TRACE}.find-out"; rc=\$?
+  "$REAL_RM" -f "\$FAULT_VANISH"
+  echo "INJECT-vanish \$FAULT_VANISH" >> "\${FAULT_TRACE:-/dev/null}"
+  cat "\${FAULT_TRACE}.find-out"
+  exit \$rc
+fi
 exec "$REAL_FIND" "\$@"
 SHIM
-chmod +x "$root/stub/rm" "$root/stub/find"
+# stat 只留痕、不注入失敗：用來證明 off 不取檔案大小（§14）。
+cat > "$root/stub/stat" <<SHIM
+#!/usr/bin/env bash
+echo "CALL-stat \$*" >> "\${FAULT_TRACE:-/dev/null}"
+exec "$REAL_STAT" "\$@"
+SHIM
+chmod +x "$root/stub/rm" "$root/stub/find" "$root/stub/stat"
 
 # ── 測試框架（與 fault-injection.smoke.sh 同形）─────────────────────────────
 pass=0; fail=0; skip=0; failed=""
@@ -125,14 +143,21 @@ mkf() { # mkf <path> [touch -t 時間戳]
 }
 
 RC=0; OUT=""; ERR=""
-run_off() { # run_off <home>；FAULT_* 由呼叫端以環境變數帶入
+run_sm() { # run_sm <home> <super-mode.sh 的參數...>；FAULT_* 由呼叫端以環境變數帶入
+  local h="$1"; shift
   : > "$root/fault-trace"
-  HOME="$1" PATH="$root/stub:$PATH" \
+  HOME="$h" PATH="$root/stub:$PATH" \
   FAULT_TRACE="$root/fault-trace" FAULT_TARGET="${FAULT_TARGET:-__nope__}" \
-  FAULT_RM="${FAULT_RM:-0}" FAULT_FIND="${FAULT_FIND:-0}" \
-    "$SUT_BASH" "$SUT" off > "$root/o.txt" 2> "$root/e.txt"
+  FAULT_RM="${FAULT_RM:-0}" FAULT_FIND="${FAULT_FIND:-0}" FAULT_VANISH="${FAULT_VANISH:-}" \
+    "$SUT_BASH" "$SUT" "$@" > "$root/o.txt" 2> "$root/e.txt"
   RC=$?
   OUT="$(cat "$root/o.txt")"; ERR="$(cat "$root/e.txt")"
+}
+run_off() { run_sm "$1" off; }
+state_kept() { # state_kept <tag> <home>：cleanup 子命令不得動旗標與憑證，也不是 off
+  chk "$1 旗標仍在" "$(yes_if [ -e "$2/.claude/.super-mode-active" ])"
+  chk "$1 憑證仍在且內容不變" "$(yes_if [ "$(cat "$2/.claude/.super-mode-consult-ok" 2>/dev/null)" = "token" ])"
+  chk "$1 stdout 不得印 super mode: OFF" "$(hasnt "$OUT" "super mode: OFF")" "out=${OUT}"
 }
 basics() { # basics <tag> <home>
   chk "$1 exit 0" "$(yes_if [ "$RC" = "0" ])" "rc=${RC} err=${ERR}"
@@ -274,10 +299,128 @@ run_off "$h6"
 basics "6" "$h6"
 chk "6 該檔不得被刪" "$(yes_if [ -f "$h6/.claude/super-mode-logs" ])"
 
+# ═══ §7–§12 cleanup 子命令（2026-11-18）═════════════════════════════════════
+# 與 off 同一組條件（頂層 × 白名單 × 14 天），但只清逐字稿：旗標與憑證不動，部分失敗回非零。
+CLEAN_DEL="codex_consult_20200101_000000_abcdef.txt
+codex_exec_20200101_000000_abcdef_last.txt
+codex_exec_20200101_000001_abcdef.txt"
+CLEAN_KEEP="notes.txt
+codex_exec_20200101_000000_cafe.txt
+evidence/codex_consult_20200101_000000_abcdef.txt
+codex_exec_20200101_000005_abcdef.txt"
+seed_cleanup() { # seed_cleanup <logdir>：3 個該清的（2＋2＋1000＝1004 bytes）＋ 4 個該留的
+  mkf "$1/codex_consult_20200101_000000_abcdef.txt" "$OLD"
+  mkf "$1/codex_exec_20200101_000000_abcdef_last.txt" "$D16"
+  printf '%1000s' '' > "$1/codex_exec_20200101_000001_abcdef.txt"
+  touch -t "$OLD" "$1/codex_exec_20200101_000001_abcdef.txt"
+  mkf "$1/notes.txt" "$OLD"                                          # 檔名不符
+  mkf "$1/codex_exec_20200101_000000_cafe.txt" "$OLD"                # 後綴長度不符
+  mkf "$1/evidence/codex_consult_20200101_000000_abcdef.txt" "$OLD"  # 子目錄
+  mkf "$1/codex_exec_20200101_000005_abcdef.txt" "$D13"              # 未滿 14 天
+}
+
+echo "§7 cleanup --dry-run：只報檔數與位元組數，不刪"
+h7="$(new_home cleanup)"; l7="$h7/.claude/super-mode-logs"
+seed_cleanup "$l7"
+run_sm "$h7" cleanup --dry-run
+chk "7 exit 0" "$(yes_if [ "$RC" = "0" ])" "rc=${RC} err=${ERR}"
+chk "7 stdout 報 matched=3 bytes=1004" "$(has "$OUT" "matched=3 bytes=1004")" "out=${OUT}"
+chk "7 stdout 標明 dry-run" "$(has "$OUT" "(dry-run)")" "out=${OUT}"
+chk "7 stderr 不得有 CLEANUP_ERROR" "$(hasnt "$ERR" CLEANUP_ERROR)" "err=${ERR}"
+for n in $CLEAN_DEL $CLEAN_KEEP; do
+  chk "7 預覽不刪：${n}" "$(yes_if exists "$l7/$n")" "dry-run 卻刪了檔"
+done
+state_kept "7" "$h7"
+
+echo "§8 cleanup：真的刪，範圍與 off 相同"
+run_sm "$h7" cleanup
+chk "8 exit 0" "$(yes_if [ "$RC" = "0" ])" "rc=${RC} err=${ERR}"
+chk "8 stdout 報 deleted=3 bytes=1004 failed=0" "$(has "$OUT" "deleted=3 bytes=1004 failed=0")" "out=${OUT}"
+chk "8 stderr 不得有 CLEANUP_ERROR" "$(hasnt "$ERR" CLEANUP_ERROR)" "err=${ERR}"
+for n in $CLEAN_DEL; do
+  chk "8 刪：${n}" "$(yes_if [ ! -e "$l7/$n" ])" "超過 14 天的逐字稿沒被刪"
+done
+for n in $CLEAN_KEEP; do
+  chk "8 留：${n}" "$(yes_if exists "$l7/$n")" "不該清的檔被刪了"
+done
+state_kept "8" "$h7"
+
+echo "§9 cleanup 刪除失敗（rm shim）→ 非零"
+h9="$(new_home cleanup-rmfail)"; l9="$h9/.claude/super-mode-logs"
+mkf "$l9/$LOCKED" "$OLD"; mkf "$l9/$OTHER" "$OLD"
+FAULT_RM=1 FAULT_TARGET="$LOCKED" run_sm "$h9" cleanup
+chk "9 exit 1（部分失敗要回非零）" "$(yes_if [ "$RC" = "1" ])" "rc=${RC} err=${ERR}"
+chk "9 注入確實發生（shim 留痕）" "$(has "$(cat "$root/fault-trace")" "INJECT-rm")"
+chk "9 失敗的檔仍在" "$(yes_if [ -e "$l9/$LOCKED" ])"
+chk "9 其他舊逐字稿照清（不因單一失敗放棄）" "$(yes_if [ ! -e "$l9/$OTHER" ])"
+chk "9 stderr 有 CLEANUP_ERROR" "$(has "$ERR" CLEANUP_ERROR)" "err=${ERR}"
+chk "9 stderr 指名失敗的檔" "$(has "$ERR" "$LOCKED")" "err=${ERR}"
+chk "9 stderr 不得用 off 的前綴 OFF_CLEANUP_ERROR" "$(hasnt "$ERR" OFF_CLEANUP_ERROR)" "err=${ERR}"
+chk "9 stderr 不得宣稱旗標與憑證已清除" "$(hasnt "$ERR" "已清除")" "err=${ERR}"
+chk "9 stdout 報 deleted=1 bytes=2 failed=1" "$(has "$OUT" "deleted=1 bytes=2 failed=1")" "out=${OUT}"
+state_kept "9" "$h9"
+
+echo "§10 cleanup 列舉失敗（find shim）→ 非零"
+h10="$(new_home cleanup-findfail)"; l10="$h10/.claude/super-mode-logs"
+mkf "$l10/$OTHER" "$OLD"
+FAULT_FIND=1 run_sm "$h10" cleanup
+chk "10 exit 1" "$(yes_if [ "$RC" = "1" ])" "rc=${RC} err=${ERR}"
+chk "10 注入確實發生（shim 留痕）" "$(has "$(cat "$root/fault-trace")" "INJECT-find")"
+chk "10 stderr 有 CLEANUP_ERROR" "$(has "$ERR" CLEANUP_ERROR)" "err=${ERR}"
+chk "10 stderr 帶出 find 的退出碼" "$(has "$ERR" "find rc=1")" "err=${ERR}"
+chk "10 stderr 不得用 off 的前綴" "$(hasnt "$ERR" OFF_CLEANUP_ERROR)" "err=${ERR}"
+chk "10 列舉失敗時不得誤刪" "$(yes_if [ -e "$l10/$OTHER" ])"
+state_kept "10" "$h10"
+
+echo "§11 cleanup --dry-run 列舉失敗 → 非零（數字不可信）"
+FAULT_FIND=1 run_sm "$h10" cleanup --dry-run
+chk "11 exit 1" "$(yes_if [ "$RC" = "1" ])" "rc=${RC} err=${ERR}"
+chk "11 stderr 有 CLEANUP_ERROR" "$(has "$ERR" CLEANUP_ERROR)" "err=${ERR}"
+chk "11 檔案仍在" "$(yes_if [ -e "$l10/$OTHER" ])"
+
+echo "§12 cleanup：沒有 super-mode-logs"
+h12="$(new_home cleanup-nolog)"; "$REAL_RM" -rf "$h12/.claude/super-mode-logs"
+run_sm "$h12" cleanup
+chk "12 exit 0" "$(yes_if [ "$RC" = "0" ])" "rc=${RC} err=${ERR}"
+chk "12 stdout 報 deleted=0 bytes=0 failed=0" "$(has "$OUT" "deleted=0 bytes=0 failed=0")" "out=${OUT}"
+chk "12 stderr 不得有 CLEANUP_ERROR" "$(hasnt "$ERR" CLEANUP_ERROR)" "err=${ERR}"
+state_kept "12" "$h12"
+
+echo "§13 cleanup：列舉後才消失的檔不算本次刪除，也不算失敗"
+h13="$(new_home cleanup-vanish)"; l13="$h13/.claude/super-mode-logs"
+mkf "$l13/$LOCKED" "$OLD"; mkf "$l13/$OTHER" "$OLD"
+FAULT_VANISH="$l13/$LOCKED" run_sm "$h13" cleanup --dry-run
+chk "13 注入確實發生（shim 留痕）" "$(has "$(cat "$root/fault-trace")" "INJECT-vanish")"
+chk "13 dry-run exit 0" "$(yes_if [ "$RC" = "0" ])" "rc=${RC} err=${ERR}"
+chk "13 dry-run 只算還在的檔：matched=1 bytes=2" "$(has "$OUT" "matched=1 bytes=2")" "out=${OUT}"
+mkf "$l13/$LOCKED" "$OLD"   # 補回來，再讓它在真的清理時消失
+FAULT_VANISH="$l13/$LOCKED" run_sm "$h13" cleanup
+chk "13 exit 0" "$(yes_if [ "$RC" = "0" ])" "rc=${RC} err=${ERR}"
+chk "13 stdout 報 deleted=1 bytes=2 failed=0（消失的檔不算）" "$(has "$OUT" "deleted=1 bytes=2 failed=0")" "out=${OUT}"
+chk "13 stderr 不得有 CLEANUP_ERROR" "$(hasnt "$ERR" CLEANUP_ERROR)" "err=${ERR}"
+chk "13 還在的那個檔照清" "$(yes_if [ ! -e "$l13/$OTHER" ])"
+
+echo "§14 off 不取檔案大小（不多碰檔案）；cleanup 才取"
+h14="$(new_home off-nostat)"; l14="$h14/.claude/super-mode-logs"
+mkf "$l14/$OTHER" "$OLD"
+run_sm "$h14" cleanup --dry-run
+chk "14 cleanup 有呼叫 stat（證明 shim 攔得到）" "$(has "$(cat "$root/fault-trace")" "CALL-stat")"
+run_off "$h14"
+chk "14 off 沒有呼叫 stat" "$(hasnt "$(cat "$root/fault-trace")" "CALL-stat")" "trace=$(cat "$root/fault-trace")"
+chk "14 off exit 0" "$(yes_if [ "$RC" = "0" ])" "rc=${RC} err=${ERR}"
+chk "14 off 印 super mode: OFF" "$(has "$OUT" "super mode: OFF")" "out=${OUT}"
+chk "14 off 仍把舊逐字稿清掉" "$(yes_if [ ! -e "$l14/$OTHER" ])"
+mkf "$l14/$OTHER" "$OLD"
+FAULT_VANISH="$l14/$OTHER" run_off "$h14"
+chk "14 off 遇到列舉後消失的檔：exit 0" "$(yes_if [ "$RC" = "0" ])" "rc=${RC} err=${ERR}"
+chk "14 off 遇到列舉後消失的檔：不報 OFF_CLEANUP_ERROR（行為同舊版）" "$(hasnt "$ERR" OFF_CLEANUP_ERROR)" "err=${ERR}"
+
 # 案數守衛：只證明「沒少跑案」，不證明案子有牙齒（牙齒見檔頭參數用法）。
 # §0 1 + §1 (4+1+7+17+3+2+3=37) + §2 (4+5=9) + §3 (4+4=8，或 Darwin 缺 chflags 的 1，或 SKIP 的 0)
 # + §4 (4+4=8) + §5 (4+1=5) + §6 (4+1=5)
-expected=65
+# + §7 (4+7+3=14) + §8 (3+3+4+3=13) + §9 (9+3=12) + §10 (6+3=9) + §11 3 + §12 (3+3=6)
+# + §13 7 + §14 7
+expected=136
 if [ "$native_ran" = "1" ]; then expected=$((expected+8))
 elif [ "$native_ran" = "darwin_missing" ]; then expected=$((expected+1)); fi
 ran=$((pass+fail))

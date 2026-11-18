@@ -34,7 +34,13 @@ elif [ -n "$prompt" ]; then
   p="$prompt"
   echo "[DEPRECATED] -p/--prompt(inline) 將於未來版本改為錯誤。inline 簡報含 ; | & 等標點會被 consult-gate 的指令解析誤判成串接指令而擋下。請改用 -f <brief-file>：簡報寫進 scratchpad(gate 豁免路徑)再傳路徑。" >&2
 else echo "need -f <brief-file> (preferred) or -p (deprecated)" >&2; exit 2; fi
-[ -n "${p//[[:space:]]/}" ] || { echo "prompt is empty" >&2; exit 2; }
+# ⚠️ 不用 `[ -n "${p//[[:space:]]/}" ]`：bash 3.2（macOS 內建的 /bin/bash）對含空白的大字串做樣式取代
+#    是平方時間——100 KB 約 5 秒，超過 1 MiB 要十幾分鐘，還沒呼叫 codex 就卡住（2026-11-18 實測）。
+#    case 的樣式比對是線性的，語義相同：只有空白＝空簡報。
+case "$p" in
+  *[![:space:]]*) ;;
+  *) echo "prompt is empty" >&2; exit 2 ;;
+esac
 
 # ── validator（憑證鑄造判準）─────────────────────────────────────────────────
 # 判準是 Windows／macOS 共用的單一 node 模組 lib/consult-answer.js。這裡只負責「找到 node、
@@ -59,10 +65,18 @@ resolve_node() {
 
 # 一律以 argv 呼叫（不拼字串、不過 eval）。回：VOUT / VERR / VCODE
 # ⚠️ mktemp 失敗也屬「逐字稿/輸入不可用」，走 46；原本在 set -e 之下是靜默 rc 1。
+# ⚠️ mk_or_46 在兩個階段都會被呼叫：呼叫 codex 之前（preflight 與各暫存檔），以及 codex 跑完後的
+#    答案驗證（run_validator）。訊息照 codex_ran 分開寫——後者原本也寫「尚未呼叫 codex」，
+#    呼叫端會把一次已經發生的諮詢當成沒發生（2026-11-18）。
+codex_ran=0   # 0＝還沒呼叫 codex；codex 的 pipeline 結束後設成 1
 mk_or_46() {  # mk_or_46 <label> <template>
   _t="$(mktemp "$2" 2>/dev/null)" || {
-    echo "CONSULT_TRANSCRIPT_UNAVAILABLE: 無法建立$1暫存檔（${TMPDIR:-/tmp} 不可寫？）。**尚未呼叫 codex**，未鑄造憑證。" >&2
-    exit 46
+    if [ "$codex_ran" -eq 1 ]; then
+      echo "CONSULT_TRANSCRIPT_UNAVAILABLE: 無法建立$1暫存檔（${TMPDIR:-/tmp} 不可寫？）。**codex 已執行完畢**，但回覆尚未經判準驗證，不能當成有效諮詢；未鑄造憑證，**既有憑證（若有）未被移除**。transcript: ${log:-<未知>}" >&2
+    else
+      echo "CONSULT_TRANSCRIPT_UNAVAILABLE: 無法建立$1暫存檔（${TMPDIR:-/tmp} 不可寫？）。**尚未呼叫 codex**，未鑄造憑證。" >&2
+    fi
+    exit 46   # mk_or_46
   }
   printf '%s' "$_t"
 }
@@ -198,6 +212,20 @@ if ! printf '%s' "$p" > "$brief_tmp" 2>/dev/null; then
   echo "CONSULT_TRANSCRIPT_UNAVAILABLE: 無法寫入暫存簡報 ${brief_tmp}。**尚未呼叫 codex**，未鑄造憑證。" >&2
   exit 46
 fi
+# 憑證的 brief_sha256 在這裡就從暫存簡報算好（2026-11-18）：
+#   - ${brief_tmp} 在裁決之前就會被刪；算不出來也要在燒掉一次諮詢**之前**失敗。
+#   - 只把檔案路徑交給 node、不經環境變數傳簡報內容。舊版把整份簡報放進 CONSULT_BRIEF，
+#     超過 ARG_MAX（macOS 1 MiB，argv＋環境合計）就 exec 失敗，諮詢跑完才 exit 44。
+#   - 內容與舊版相同：${brief_tmp} 就是 printf '%s' "$p" 的位元組。討論模式（-n）不鑄證，不算。
+brief_sha=""
+if [ "$nocred" -ne 1 ]; then
+  brief_sha="$("$node_exe" -e 'process.stdout.write(require("crypto").createHash("sha256").update(require("fs").readFileSync(process.argv[1])).digest("hex"))' "$brief_tmp" 2>/dev/null)" || brief_sha=""
+  if ! [[ $brief_sha =~ ^[0123456789abcdef]{64}$ ]]; then
+    rm -f "$brief_tmp" "$err_tmp" "$ans_tmp" || true
+    echo "CONSULT_TRANSCRIPT_UNAVAILABLE: 無法從暫存簡報 ${brief_tmp} 算出 brief_sha256（檔案讀不回來，或 node 執行失敗）。**尚未呼叫 codex**，未鑄造憑證。" >&2
+    exit 46
+  fi
+fi
 
 # 簡報走 stdin(< file)避開引號/長度/word-split；stderr 導獨立檔再併 log，絕不 2>&1。
 # --ephemeral：短命唯讀諮詢不留 codex session 檔。
@@ -219,6 +247,7 @@ set -e
 code=${pipe_rc[0]}
 log_tee_rc=${pipe_rc[1]:-0}
 ans_tee_rc=${pipe_rc[2]:-0}
+codex_ran=1
 # tee 失敗＝逐字稿殘缺。原本完全被忽略，於是「log 寫不出去」照樣回報成功並鑄證。
 if [ "$log_tee_rc" -ne 0 ]; then transcript_error="逐字稿寫入失敗 (tee rc=$log_tee_rc)"; fi
 if [ "$ans_tee_rc" -ne 0 ]; then
@@ -278,37 +307,50 @@ if [ "$code" -eq 0 ]; then
     exit 0
   fi
   repo="$(cd "$dir" 2>/dev/null && pwd || echo "$dir")"
-  # 憑證改成「同目錄暫存 → 寫入 → 讀回驗證 → 單一 rename」。
+  # 憑證改成「同目錄暫存 → 寫入並 fsync → 讀回驗證 → 單一 rename」。
   # ⚠️ 失敗時**刻意不刪除舊憑證**：那可能是另一個 session 還在用的合法收據，刪它等於
   #    引進撤銷語義（那是「動作授權」那批的事）。改成訊息誠實交代。
-  if ! CONSULT_REPO="$repo" CONSULT_BRIEF="$p" CONSULT_SESSION="${CLAUDE_SESSION_ID:-unknown}" python3 - <<'PY'
-import json, os, sys, time, hashlib
-brief = os.environ.get("CONSULT_BRIEF", "")
-tok = {
-    "epoch": int(time.time()),
-    "ts": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
-    "repo": os.environ.get("CONSULT_REPO", ""),
-    "brief_sha256": hashlib.sha256(brief.encode("utf-8")).hexdigest(),
-    "session": os.environ.get("CONSULT_SESSION", "unknown"),
+  # 2026-11-18：改用開頭就 preflight 過的 ${node_exe}（原本是 python3，但沒有人預檢它：缺 python3
+  #    要等幾分鐘諮詢跑完才 exit 44）。欄位不變；腳本走 -e、值走環境變數——不建 here-document
+  #    暫存檔，環境裡也只有路徑與雜湊，沒有簡報內容（brief_sha256 在呼叫 codex 前已算好）。
+  # ⚠️ mint_js 整段包在 bash 單引號裡：JS 內**不得出現單引號**。
+  mint_js='
+const fs = require("fs");
+const target = process.env.CONSULT_TOKEN_PATH || "";
+const sha = process.env.CONSULT_BRIEF_SHA256 || "";
+const tmp = target + ".tmp-" + process.pid;
+const pad = (n) => String(n).padStart(2, "0");
+const d = new Date();
+const off = -d.getTimezoneOffset();
+// ts 與舊版 time.strftime("%Y-%m-%dT%H:%M:%S%z") 同形：本地時間 + 不帶冒號的時區位移。
+// 只供稽核顯示（gate 看的是 repo 與檔案 mtime）。TZ 設成 POSIX 規則字串（如 NPT-5:45）時 node 不認，
+// 會退回系統時區，顯示的本地時間與舊版不同；epoch 不受影響。IANA 名稱（Asia/Taipei）兩版一致。
+const ts = d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate()) + "T" +
+  pad(d.getHours()) + ":" + pad(d.getMinutes()) + ":" + pad(d.getSeconds()) +
+  (off < 0 ? "-" : "+") + pad(Math.floor(Math.abs(off) / 60)) + pad(Math.abs(off) % 60);
+const payload = JSON.stringify({
+  epoch: Math.floor(d.getTime() / 1000),
+  ts: ts,
+  repo: process.env.CONSULT_REPO || "",
+  brief_sha256: sha,
+  session: process.env.CONSULT_SESSION || "unknown",
+});
+try {
+  if (!target) throw new Error("CONSULT_TOKEN_PATH 是空的");
+  if (!/^[0-9a-f]{64}$/.test(sha)) throw new Error("CONSULT_BRIEF_SHA256 不是 sha256");
+  const fd = fs.openSync(tmp, "w");
+  try { fs.writeFileSync(fd, payload, "utf8"); fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
+  if (fs.readFileSync(tmp, "utf8") !== payload) throw new Error("暫存檔讀回內容與寫入不符");
+  fs.renameSync(tmp, target);   // 同目錄單一 rename；內容在成為目標檔之前就已寫完並驗過
+} catch (e) {
+  try { fs.unlinkSync(tmp); } catch (e2) { /* 暫存檔本來就不在 */ }
+  process.stderr.write(String((e && e.message) || e) + "\n");
+  process.exit(1);
 }
-target = os.path.expanduser("~/.claude/.super-mode-consult-ok")
-tmp = target + ".tmp-%d" % os.getpid()
-payload = json.dumps(tok, ensure_ascii=False)
-try:
-    with open(tmp, "w", encoding="utf-8") as f:
-        f.write(payload)
-        f.flush()
-        os.fsync(f.fileno())
-    with open(tmp, "r", encoding="utf-8") as f:
-        if f.read() != payload:
-            raise IOError("暫存檔讀回內容與寫入不符")
-    os.replace(tmp, target)   # 同目錄單一 rename；內容在成為目標檔之前就已寫完並驗過
-except Exception as e:
-    try: os.unlink(tmp)
-    except OSError: pass
-    sys.stderr.write("%s\n" % e)
-    sys.exit(1)
-PY
+'
+  if ! CONSULT_TOKEN_PATH="$HOME/.claude/.super-mode-consult-ok" CONSULT_REPO="$repo" \
+       CONSULT_BRIEF_SHA256="$brief_sha" CONSULT_SESSION="${CLAUDE_SESSION_ID:-unknown}" \
+       "$node_exe" -e "$mint_js"
   then
     echo "CONSULT_TOKEN_WRITE_FAILED: 諮詢完成且回覆合格，但憑證寫入失敗。**既有憑證（若有）未被移除**。請檢查 ~/.claude/.super-mode-consult-ok 的權限後重跑。transcript: $log" >&2
     exit 44
